@@ -1,0 +1,3259 @@
+ARQUIVO DE CÓDIGO CONSOLIDADO
+Gerado em: 2025-08-13 19:37:54
+Diretório: /home/mariagoreti/quan_qiu_wu_tai
+Conteúdo de todos os scripts principais reunidos.
+
+================================================================================
+
+================================================================================
+📁 ESTRUTURA DO PROJETO
+================================================================================
+
+📁 .
+├── server
+│   ├── saves
+│   │   └── mundo_80390099-bd2c-4c1b-9e36-d4d6dd658b1c.json
+│   ├── aws_loader.py
+│   ├── commander.py
+│   ├── interface.py
+│   ├── main.py
+│   ├── manager.py
+│   └── serialization.py
+├── client
+│   ├── main.py
+│   └── window.py
+├── shared
+│   ├── civilization.py
+│   ├── geography.py
+│   ├── naming.py
+│   ├── planet.py
+│   ├── polygons.py
+│   ├── province.py
+│   ├── references.py
+│   └── world.py
+
+================================================================================
+📄 CONTEÚDO DOS ARQUIVOS
+================================================================================
+
+================================================================================
+📄 server/commander.py
+================================================================================
+# server/commander.py
+import queue
+import threading
+import time
+import uuid
+from typing import Callable, Optional
+
+class Comando:
+    def __init__(
+        self,
+        nome: str,
+        callback: Callable,
+        args=None,
+        kwargs=None,
+        on_success: Callable = None,
+        on_error: Callable = None
+    ):
+        self.id = str(uuid.uuid4())[:8]
+        self.nome = nome
+        self.callback = callback
+        self.args = args or ()
+        self.kwargs = kwargs or {}
+        self.on_success = on_success
+        self.on_error = on_error
+        self.timestamp = time.time()
+
+    def __repr__(self):
+        return f"<Comando(id={self.id}, nome='{self.nome}')>"
+
+class ServidorDeComandos:
+    def __init__(self):
+        self.fila = queue.Queue()
+        self.ativo = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+
+    def iniciar(self):
+        self.thread.start()
+        print("✅ Servidor de comandos iniciado.")
+
+    def enviar(self, comando: Comando):
+        self.fila.put(comando)
+
+    def _loop(self):
+        while self.ativo:
+            try:
+                comando = self.fila.get(timeout=0.2)
+                print(f"⚙️ Executando [{comando.id}]: {comando.nome}")
+                try:
+                    resultado = comando.callback(*comando.args, **comando.kwargs)
+                    print(f"✅ [{comando.id}] {comando.nome} concluído.")
+                    if comando.on_success:
+                        comando.on_success(resultado)
+                except Exception as e:
+                    print(f"❌ [{comando.id}] Erro em '{comando.nome}': {e}")
+                    if comando.on_error:
+                        comando.on_error(e)
+                finally:
+                    self.fila.task_done()
+            except queue.Empty:
+                continue
+
+    def parar(self, timeout: float = 2.0):
+        self.ativo = False
+        while not self.fila.empty():
+            try:
+                self.fila.get_nowait()
+            except queue.Empty:
+                break
+        self.thread.join(timeout=timeout)
+        if self.thread.is_alive():
+            print("⚠️ Thread do servidor de comandos não encerrou a tempo.")
+        else:
+            print("🛑 Servidor de comandos parado.")
+
+================================================================================
+📄 server/aws_loader.py
+================================================================================
+# aws_loader.py
+
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+
+
+class AWSLoader:
+    def __init__(self, profile_name=None, region_name='us-east-2'):
+        """
+        Inicializa o loader de credenciais AWS.
+
+        :param profile_name: Nome do perfil no arquivo ~/.aws/credentials (opcional)
+        :param region_name: Região AWS padrão
+        """
+        self.profile_name = profile_name
+        self.region_name = region_name
+        self.session = None
+        self._create_session()
+
+    def _create_session(self):
+        """Cria uma sessão boto3 com base no perfil ou nas credenciais padrão."""
+        try:
+            if self.profile_name:
+                self.session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
+            else:
+                self.session = boto3.Session(region_name=self.region_name)
+
+            # Testa credenciais
+            sts = self.session.client('sts')
+            sts.get_caller_identity()
+            print("✅ Credenciais AWS carregadas com sucesso.")
+
+        except NoCredentialsError:
+            raise Exception("❌ Credenciais AWS não encontradas. Configure AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except PartialCredentialsError:
+            raise Exception("❌ Credenciais incompletas. Verifique AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except Exception as e:
+            raise Exception(f"❌ Erro ao carregar credenciais: {e}")
+
+    def get_credentials(self):
+        """
+        Retorna as credenciais (access key, secret key, token).
+        """
+        credentials = self.session.get_credentials()
+        frozen_creds = credentials.get_frozen_credentials()
+        return {
+            'access_key': frozen_creds.access_key,
+            'secret_key': frozen_creds.secret_key,
+            'token': frozen_creds.token
+        }
+
+    def get_client(self, service_name):
+        """Retorna um cliente boto3 para o serviço especificado."""
+        return self.session.client(service_name)
+
+    def get_resource(self, service_name):
+        """Retorna um recurso boto3 (ex: S3 resource)."""
+        return self.session.resource(service_name)
+
+    # --- 🔧 Novos métodos adicionados ---
+    def get_account_info(self):
+        """Retorna informações da conta AWS: ID, ARN, usuário, região."""
+        sts = self.session.client('sts')
+        identity = sts.get_caller_identity()
+        return {
+            'account_id': identity['Account'],
+            'user_id': identity['UserId'],
+            'arn': identity['Arn'],
+            'region': self.region_name
+        }
+
+    def list_s3_buckets(self):
+        """Lista todos os buckets S3 da conta."""
+        s3 = self.get_client('s3')
+        response = s3.list_buckets()
+        return [bucket['Name'] for bucket in response['Buckets']]
+
+    def list_dynamodb_tables(self):
+        """Lista todas as tabelas DynamoDB da conta."""
+        dynamodb = self.get_client('dynamodb')
+        response = dynamodb.list_tables()
+        return response['TableNames']
+
+================================================================================
+📄 server/manager.py
+================================================================================
+# server/manager.py
+import json
+from pathlib import Path
+from typing import Optional, Tuple
+
+from server.serialization import Serializador
+from server.aws_loader import AWSLoader
+from shared.world import Mundo
+
+
+class Gerenciador:
+    """
+    Gerencia operações de mundo: criação, serialização, upload S3 e salvamento de metadados no DynamoDB.
+    Nada é salvo localmente.
+    """
+
+    def __init__(self, aws_loader: AWSLoader, save_dir: str = "saves"):
+        self.aws_loader = aws_loader
+        self.save_dir = Path(save_dir)
+        self.save_dir.mkdir(exist_ok=True)  # Mantido para compatibilidade futura
+
+    def upload_mundo(
+        self,
+        mundo: Mundo,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> bool:
+        """
+        Serializa o mundo e envia diretamente para S3.
+        Também salva metadados no DynamoDB.
+
+        :param mundo: Instância de Mundo a ser enviada.
+        :param bucket_name: Nome do bucket S3.
+        :param s3_prefix: Prefixo (pasta virtual) no bucket.
+        :return: True se sucesso, False caso contrário.
+        """
+        try:
+            # --- 1. Serializar ---
+            data = Serializador.to_serializable_dict(mundo)
+            json_data = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
+
+            # --- 2. Upload para S3 ---
+            s3_client = self.aws_loader.get_client('s3')
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=json_data,
+                ContentType='application/json'
+            )
+            print(f"✅ Mundo enviado para S3: s3://{bucket_name}/{s3_key}")
+
+            # --- 3. Salvar metadados no DynamoDB ---
+            dynamodb = self.aws_loader.get_client('dynamodb')
+            bioma_inicial = mundo.planeta.geografia.nodes[mundo.planeta.capitais_players[0]]['bioma']
+            item = {
+                'id_mundo': {'S': mundo.id_mundo},
+                'fator': {'N': str(mundo.planeta.fator)},
+                'bioma_inicial': {'S': bioma_inicial},
+                'vagas': {'SS': []}  # Set vazio para IDs de usuários
+            }
+            dynamodb.put_item(TableName="planetas_metadata", Item=item)
+            print(f"✅ Metadados salvos no DynamoDB: {mundo.id_mundo}")
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Falha ao salvar/upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> bool:
+        """
+        Cria um novo mundo com fator e bioma dados, e faz upload direto para S3 + DynamoDB.
+
+        :param fator: Nível de detalhe da grade geográfica (ex: 4)
+        :param bioma: Bioma inicial para escolha de capitais (ex: "Meadow")
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta) no bucket
+        :return: True se sucesso, False caso contrário
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo_com_retorno(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> Tuple[bool, Optional[Mundo]]:
+        """
+        Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
+        e retorna sucesso e a instância do mundo.
+
+        Útil para operações que precisam do objeto Mundo após o upload (ex: salvar localmente).
+
+        :param fator: Nível de detalhe da grade geográfica.
+        :param bioma: Bioma inicial para escolha de capitais.
+        :param bucket_name: Nome do bucket S3.
+        :param s3_prefix: Prefixo (pasta) no bucket.
+        :return: (sucesso: bool, mundo: Mundo ou None)
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso, mundo
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False, None
+
+    def criar_mundo(self, fator: int, bioma: str) -> Mundo:
+        """Cria e retorna um novo mundo."""
+        return Mundo(fator=fator, bioma=bioma)
+
+================================================================================
+📄 server/serialization.py
+================================================================================
+# server/serialization.py
+import json
+import networkx as nx
+import numpy as np
+from pathlib import Path
+from typing import Any, Dict, Optional
+from shared.world import Mundo
+from shared.references import Referencias
+
+
+class Serializador:
+    """
+    Classe responsável por serializar e desserializar o estado completo de um Mundo.
+    Converte para dict serializável em JSON, salva em disco e recarrega.
+    """
+
+    @staticmethod
+    def _convert(value: Any) -> Any:
+        """
+        Converte valores não serializáveis em tipos compatíveis com JSON.
+        """
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, tuple):
+            return list(value)
+        if hasattr(value, '__dict__'):
+            return {k: Serializador._convert(v) for k, v in value.__dict__.items() if not k.startswith('_')}
+        return value
+
+    @classmethod
+    def to_serializable_dict(cls, mundo: Mundo) -> Dict[str, Any]:
+        """
+        Converte um objeto Mundo em um dicionário compatível com JSON.
+        Remove atributos deriváveis para reduzir tamanho.
+        """
+        if not hasattr(mundo, 'planeta') or not hasattr(mundo, 'civs'):
+            raise ValueError("Objeto mundo inválido: falta atributos 'planeta' ou 'civs'")
+
+        G = mundo.planeta.geografia.copy()
+
+        # Atributos que podem ser recalculados, então não precisam ser salvos
+        node_attrs_to_remove = {
+            'cor_placa', 'cor_bioma', 'letra_grega', 'cust_mob', 'tipo', 'altitude', 'umidade', 'temperatura',
+        }
+        for node in G.nodes:
+            for attr in node_attrs_to_remove:
+                G.nodes[node].pop(attr, None)  # Remove silenciosamente
+
+        # Remover arestas (serão recalculadas com custo de mobilidade)
+        G.remove_edges_from(list(G.edges))
+
+        # Converter atributos dos nós
+        for node in G.nodes:
+            attrs = G.nodes[node]
+            for key in list(attrs.keys()):
+                attrs[key] = cls._convert(attrs[key])
+
+        G_data = nx.node_link_data(G)
+        G_data.pop("directed", None)
+        G_data.pop("multigraph", None)
+        G_data.pop("graph", None)
+
+        # Serializar civilizações
+        civilizacoes_data = []
+        for civ in mundo.civs:
+            civ_data = {
+                'nome': civ.nome,
+                'cultura': civ.cultura,
+                'cor': cls._convert(civ.cor),
+                'modalidade_bandeira': civ.modalidade_bandeira,
+                'cores_bandeira': cls._convert(civ.cores_bandeira),
+                'player': civ.player,
+                'provincias': [
+                    {
+                        'coordenadas': cls._convert(p.coordenadas),
+                        'nome': p.nome
+                    }
+                    for p in civ.provincias
+                ]
+            }
+            civilizacoes_data.append(civ_data)
+
+        return {
+            "id_mundo": mundo.id_mundo,
+            "fator": mundo.planeta.fator,
+            "bioma_inicial": mundo.planeta.bioma_inicial,
+            "vagas": mundo.planeta.numero_de_jogadores,
+            "geografia": G_data,
+            "civilizacoes": civilizacoes_data
+        }
+
+    @classmethod
+    def from_serializable_dict(cls, data: Dict[str, Any], ref: Optional[Referencias] = None):
+        """
+        Reconstroi um objeto Mundo a partir de um dicionário.
+        Requer uma instância de Referencias para inicialização.
+        """
+        """
+        Ainda a ser implementado
+        retorna Mundo
+        """
+
+    @classmethod
+    def save_to_json(cls, mundo: Mundo, filepath: str) -> bool:
+        try:
+            data = cls.to_serializable_dict(mundo)
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"✅ Mundo salvo em JSON: {filepath}")
+            return True
+        except Exception as e:
+            print(f"❌ Falha ao salvar mundo: {e}")
+            return False
+
+    @classmethod
+    def save_mundo(cls, mundo: Mundo, filepath: str = None) -> str:
+        """
+        Salva um objeto Mundo em JSON.
+        Se filepath não for fornecido, gera um nome automático em 'saves/'.
+        :param mundo: Instância de Mundo
+        :param filepath: Caminho opcional para salvar
+        :return: Caminho final usado, ou string vazia se falhar
+        """
+        from pathlib import Path
+
+        if filepath is None:
+            # Gera caminho padrão: saves/mundo_{id}.json
+            saves_dir = Path("saves")
+            saves_dir.mkdir(exist_ok=True)
+            filepath = saves_dir / f"mundo_{mundo.id_mundo}.json"
+        else:
+            # Garante que o diretório pai exista
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+
+        sucesso = cls.save_to_json(mundo, filepath)
+        return str(filepath) if sucesso else ""
+
+================================================================================
+📄 server/main.py
+================================================================================
+# main.py
+
+from aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
+
+def main():
+    print("🚀 Iniciando aplicação...\n")
+
+    # --- Configuração ---
+    loader = AWSLoader(
+        region_name='us-east-2',
+        # profile_name='seu-perfil'  # opcional
+    )
+
+    # --- 1. Informações da conta ---
+    try:
+        account = loader.get_account_info()
+        print(f"✅ Logado na conta AWS: {account['account_id']}")
+        print(f"👤 Usuário/Role: {account['arn']}\n")
+    except Exception as e:
+        print(f"❌ Falha ao obter conta: {e}")
+        return
+
+    # --- 2. Listar buckets S3 ---
+    try:
+        buckets = loader.list_s3_buckets()
+        print(f"📦 Buckets S3 encontrados ({len(buckets)}):")
+        for bucket in buckets:
+            print(f"  - {bucket}")
+    except Exception as e:
+        print(f"❌ Erro ao listar buckets S3: {e}")
+
+    # --- 3. Listar tabelas DynamoDB ---
+    try:
+        tables = loader.list_dynamodb_tables()
+        print(f"\n📊 Tabelas DynamoDB encontradas ({len(tables)}):")
+        for table in tables:
+            print(f"  - {table}")
+    except Exception as e:
+        print(f"❌ Erro ao listar tabelas DynamoDB: {e}")
+
+    # --- 4. Exemplo: usar cliente S3 ---
+    try:
+        s3 = loader.get_client('s3')
+        response = s3.list_buckets()
+        print(f"\n🌍 Conexão S3 bem-sucedida. Total de buckets: {len(response['Buckets'])}")
+    except Exception as e:
+        print(f"❌ Falha ao usar cliente S3: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+📄 server/interface.py
+================================================================================
+# server/interface.py
+import sys
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton,
+    QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
+    QFileDialog
+)
+from server.serialization import Serializador
+from server.manager import Gerenciador
+from server.aws_loader import AWSLoader
+
+
+class Interface(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Gerenciador de Servidor - Global Arena")
+        self.setGeometry(100, 100, 700, 500)
+
+        # === Inicialização do Gerenciador ===
+        try:
+            self.aws_loader = AWSLoader()
+            self.gerenciador = Gerenciador(self.aws_loader)
+            print("✅ Gerenciador inicializado com AWS.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro AWS", f"Não foi possível conectar à AWS:\n{e}")
+            self.gerenciador = None
+
+        # ✅ Armazena o último mundo criado (inicialmente None)
+        self.ultimo_mundo = None
+
+        # Configuração do sistema de abas
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        # Criação das abas
+        self.backup_tab = self.create_backup_tab()
+        self.config_tab = QWidget()
+        self.tabs.addTab(self.backup_tab, "Backup & Criação")
+        self.tabs.addTab(self.config_tab, "Configurações")
+
+    def create_backup_tab(self):
+        """Cria a aba de operações de backup e criação de mundos"""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # === Grupo: Criar e Upload de Mundo ===
+        group_criar = QGroupBox("Criar e Enviar Novo Mundo")
+        form_layout = QFormLayout()
+
+        self.spin_fator = QSpinBox()
+        self.spin_fator.setMinimum(2)
+        self.spin_fator.setMaximum(8)
+        self.spin_fator.setValue(4)
+        form_layout.addRow("Fator:", self.spin_fator)
+
+        self.combo_bioma = QComboBox()
+        biomas = ["Meadow", "Forest", "Savanna", "Desert", "Hills", "Mountains"]
+        self.combo_bioma.addItems(biomas)
+        self.combo_bioma.setCurrentText("Meadow")
+        form_layout.addRow("Bioma Inicial:", self.combo_bioma)
+
+        group_criar.setLayout(form_layout)
+        layout.addWidget(group_criar)
+
+        btn_upload = QPushButton("🌍 Criar e Enviar Mundo para Nuvem")
+        btn_upload.clicked.connect(self.handle_criar_e_upload)
+        layout.addWidget(btn_upload)
+
+        layout.addSpacing(20)
+
+        # === Grupo: Salvar Localmente ===
+        group_local = QGroupBox("Salvar Estado Localmente")
+        layout_local = QVBoxLayout()
+
+        btn_save = QPushButton("💾 Salvar Estado como JSON (Local)")
+        btn_save.clicked.connect(self.handle_save_json)
+        layout_local.addWidget(btn_save)
+
+        group_local.setLayout(layout_local)
+        layout.addWidget(group_local)
+
+        layout.addStretch()
+        tab.setLayout(layout)
+        return tab
+
+    def handle_save_json(self):
+        """Cria um mundo com os parâmetros da UI e salva localmente."""
+        if not self.gerenciador:
+            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+            return
+
+        fator = self.spin_fator.value()
+        bioma = self.combo_bioma.currentText()
+
+        try:
+            # 1. Criar mundo usando o Gerenciador
+            mundo = self.gerenciador.criar_mundo(fator, bioma)
+
+            # 2. Escolher caminho com diálogo
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Salvar Mundo como JSON",
+                f"saves/mundo_{mundo.id_mundo}.json",
+                "JSON Files (*.json)"
+            )
+            if not filepath:
+                return  # Cancelado pelo usuário
+
+            # 3. Salvar usando Serializador.save_mundo (já trata diretórios)
+            caminho_salvo = Serializador.save_mundo(mundo, filepath)
+
+            if caminho_salvo:
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    f"Mundo salvo com sucesso!\nArquivo: {caminho_salvo}",
+                    QMessageBox.StandardButton.Ok
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Falha",
+                    "Erro ao salvar o arquivo JSON.",
+                    QMessageBox.StandardButton.Ok
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Falha ao salvar: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def handle_criar_e_upload(self):
+        """Manipula a criação e upload de um novo mundo"""
+        if not self.gerenciador:
+            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+            return
+
+        fator = self.spin_fator.value()
+        bioma = self.combo_bioma.currentText()
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar",
+            f"Criar e enviar um novo mundo?\nFator: {fator}\nBioma: {bioma}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            print(f"🔄 Criando e enviando mundo com fator={fator}, bioma='{bioma}'...")
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(fator=fator, bioma=bioma)
+
+            if sucesso:
+                self.ultimo_mundo = mundo  # Armazena para possível salvamento local
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    f"Mundo criado e enviado com sucesso!\nID: {mundo.id_mundo}",
+                    QMessageBox.StandardButton.Ok
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Falha",
+                    "O upload falhou. Veja o log para detalhes.",
+                    QMessageBox.StandardButton.Ok
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Erro ao criar/upload do mundo:\n{str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+            print(f"❌ Erro em handle_criar_e_upload: {e}")
+
+
+# Execução da aplicação
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = Interface()
+    window.show()
+    sys.exit(app.exec())
+
+================================================================================
+📄 client/window.py
+================================================================================
+import glfw
+from OpenGL.GL import *
+import sys
+
+
+class Janela:
+    def __init__(self, width=800, height=600, title="OpenGL Fullscreen"):
+        self.width = width
+        self.height = height
+        self.title = title
+        self.window = None
+
+        # Inicializa o GLFW
+        if not glfw.init():
+            raise Exception("Falha ao inicializar o GLFW")
+
+        # Configurações da janela (OpenGL 3.3 Core Profile)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)  # Necessário no macOS
+
+        # Obter o monitor primário e modo de vídeo
+        self.monitor = glfw.get_primary_monitor()
+        mode = glfw.get_video_mode(self.monitor)
+        self.width = mode.size.width
+        self.height = mode.size.height
+
+        # Criar janela em fullscreen
+        self.window = glfw.create_window(
+            self.width, self.height, self.title, self.monitor, None
+        )
+        if not self.window:
+            glfw.terminate()
+            raise Exception("Falha ao criar a janela")
+
+        # Tornar o contexto OpenGL atual
+        glfw.make_context_current(self.window)
+
+        # Capturar teclado (para ESC)
+        glfw.set_key_callback(self.window, self.key_callback)
+
+        # Habilitar vsync
+        glfw.swap_interval(1)
+
+        print(f"Janela em fullscreen: {self.width}x{self.height}")
+
+    def key_callback(self, window, key, scancode, action, mods):
+        """Callback para teclas"""
+        if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
+            glfw.set_window_should_close(window, True)
+
+    def setup_opengl(self):
+        """Configurações iniciais do OpenGL"""
+        glViewport(0, 0, self.width, self.height)
+        glClearColor(0.1, 0.1, 0.4, 1.0)  # Fundo azul escuro
+
+    def main_loop(self):
+        """Loop principal de renderização"""
+        self.setup_opengl()
+
+        while not glfw.window_should_close(self.window):
+            # Processar eventos
+            glfw.poll_events()
+
+            # Limpar tela
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+            # Aqui você pode adicionar sua renderização (shaders, buffers, etc.)
+
+            # Trocar buffers
+            glfw.swap_buffers(self.window)
+
+        self.terminate()
+
+    def terminate(self):
+        """Encerra o GLFW"""
+        glfw.destroy_window(self.window)
+        glfw.terminate()
+        print("Aplicação encerrada.")
+
+    def run(self):
+        """Inicia a aplicação"""
+        self.main_loop()
+
+
+# === Execução ===
+if __name__ == "__main__":
+    app = Janela(title="Minha Janela Fullscreen")
+    app.run()
+    sys.exit()
+
+================================================================================
+📄 client/main.py
+================================================================================
+# client/aws_loader.py
+
+"""
+Ponto de entrada do cliente gráfico.
+Inicializa a janela OpenGL em fullscreen e inicia o loop principal.
+"""
+
+import sys
+from client.window import Janela
+
+
+def main():
+    """
+    Função principal do cliente.
+    Cria a janela e inicia o loop de renderização.
+    """
+    print("Inicializando cliente gráfico...")
+
+    try:
+        # Cria a janela em fullscreen
+        app = Janela(title="Cliente OpenGL - Fullscreen")
+
+        # Inicia o loop principal (renderização + eventos)
+        app.run()
+
+        print("Cliente encerrado com sucesso.")
+        return 0
+
+    except Exception as e:
+        print(f"Erro crítico no cliente: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    # Executa a aplicação e retorna código de saída
+    sys.exit(main())
+
+================================================================================
+📄 shared/polygons.py
+================================================================================
+import math
+import numpy
+
+def dicionario_poligonos(fator):
+
+    def icosaedro():
+        
+        def triangulo_original():
+            
+            def primeira_definicao_pontos():
+                lista_pontos = []
+                for x in range(fator ** 2):
+                    if x % 2 == 0:
+                        coord_x = x / 2 + 0.5
+                        coord_y = math.sin(math.pi / 6)
+                    else:
+                        coord_x = x / 2 + 0.5
+                        coord_y = math.sqrt(3) / 3
+                    lista_pontos.append((round(coord_x, 15), round(coord_y, 15)))
+                return lista_pontos
+            
+            def ponto_por_linha():
+                lista_pontos = [0]
+                ppf = fator * 2 - 1
+                una = fator * 2 - 1
+                while una != 1:
+                    lista_pontos.append(ppf)
+                    ppf += una - 2
+                    una -= 2
+                return lista_pontos
+
+            def processar_coordenadas(coordenadas, indices):
+                r = math.sqrt(3) / 3
+                h = math.sqrt(0.75) * fator
+                coords = []
+                for i in range(len(indices)):
+                    if i == len(indices) - 1:
+                        segmento = [coordenadas[-1]]
+                    else:
+                        inicio, fim = indices[i], indices[i + 1]
+                        segmento = coordenadas[inicio:fim]
+                    for x in range(len(segmento)):
+                        coefy = math.sin(math.pi / 6) * r
+                        cx = (0.5 * i + 0.5 * x) + 0.5 - fator / 2
+                        if x % 2 == 0:
+                            cy = 0 + math.sqrt(0.75) * i + coefy - h / 2
+                        else:
+                            cy = r - coefy + math.sqrt(0.75) * i + coefy - h / 2
+                        coords.append((cx, cy))
+                return coords
+            return processar_coordenadas(primeira_definicao_pontos(), ponto_por_linha())
+
+        to = triangulo_original()
+
+        def triangulos_equatoriais_em_pe():
+            raio = fator / (2 * math.sin(math.pi / 5))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            h = fator * math.sqrt(0.75)
+            t1 = [(x, math.cos(theta) * y, math.sin(theta) * y) for x, y in to]
+            t1 = [(x, y, z + apotema + math.sin(theta) * h / 2) for x, y, z in t1]
+            return t1
+
+        t1 = triangulos_equatoriais_em_pe()
+
+        def rotacionar_em_torno_do_eixo_y(coordenadas, angulo_graus):
+            angulo_radianos = math.radians(angulo_graus)
+            cos_theta = math.cos(angulo_radianos)
+            sin_theta = math.sin(angulo_radianos)
+            coordenadas_rotacionadas = []
+            for x, y, z in coordenadas:
+                x_novo = cos_theta * x + sin_theta * z
+                y_novo = y
+                z_novo = -sin_theta * x + cos_theta * z
+                coordenadas_rotacionadas.append((x_novo, y_novo, z_novo))
+            return coordenadas_rotacionadas
+
+        t2 = rotacionar_em_torno_do_eixo_y(t1, 72)
+        t3 = rotacionar_em_torno_do_eixo_y(t1, 144)
+        t4 = rotacionar_em_torno_do_eixo_y(t1, 216)
+        t5 = rotacionar_em_torno_do_eixo_y(t1, 288)
+
+        def triangulos_equatoriais_invertidos():
+            raio = fator / (2 * math.sin(math.pi / 5))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            h = fator * math.sqrt(0.75)
+            t6 = [(x, -y) for x, y in to]
+            t6 = [(x, math.cos(theta) * y, math.sin(theta) * -y) for x, y in t6]
+            t6 = [(x, y, z + apotema + math.sin(theta) * h / 2) for x, y, z in t6]
+            return t6
+
+        tr = triangulos_equatoriais_invertidos()
+        t6 = rotacionar_em_torno_do_eixo_y(tr, 36)
+        t7 = rotacionar_em_torno_do_eixo_y(tr, 108)
+        t8 = rotacionar_em_torno_do_eixo_y(tr, 180)
+        t9 = rotacionar_em_torno_do_eixo_y(tr, 252)
+        t10 = rotacionar_em_torno_do_eixo_y(tr, 324)
+
+        def triangulos_polares_norte():
+            alpha = math.acos(1 / (2 * math.tan(math.pi / 5) * math.sqrt(0.75)))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            h = fator * math.sqrt(0.75)
+            deslocamento = apotema - math.cos(alpha) * h / 2
+            raio = fator / (2 * math.sin(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            deslocamento_vertical = (math.cos(theta) * h / 2) + (math.sin(alpha) * h / 2)
+            tr = [(x, 0, -y) for x, y in to]
+            tr = [(x, math.sin(alpha) * -z + deslocamento_vertical,
+                z * math.cos(alpha) + deslocamento) for x, y, z in tr]
+            return tr
+
+        tr = triangulos_polares_norte()
+
+        t11 = rotacionar_em_torno_do_eixo_y(tr, 36)
+        t12 = rotacionar_em_torno_do_eixo_y(tr, 108)
+        t13 = rotacionar_em_torno_do_eixo_y(tr, 180)
+        t14 = rotacionar_em_torno_do_eixo_y(tr, 252)
+        t15 = rotacionar_em_torno_do_eixo_y(tr, 324)
+
+        def triangulos_polares_sul():
+            alpha = math.acos(1 / (2 * math.tan(math.pi / 5) * math.sqrt(0.75)))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            h = fator * math.sqrt(0.75)
+            deslocamento = apotema - math.cos(alpha) * h / 2
+            raio = fator / (2 * math.sin(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            deslocamento_vertical = (math.cos(theta) * h / 2) + (math.sin(alpha) * h / 2)
+            t16 = [(x, 0, -y) for x, y in to]
+            t16 = [(x, math.sin(alpha) * z - deslocamento_vertical,
+                    z * math.cos(alpha) + deslocamento) for x, y, z in t16]
+            return t16
+
+        t16 = triangulos_polares_sul()
+        t17 = rotacionar_em_torno_do_eixo_y(t16, 72)
+        t18 = rotacionar_em_torno_do_eixo_y(t16, 144)
+        t19 = rotacionar_em_torno_do_eixo_y(t16, 216)
+        t20 = rotacionar_em_torno_do_eixo_y(t16, 288)
+        return [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20]
+
+    def esfera(pontos, raio):
+
+        def projetar_ponto_na_esfera(ponto, raio):
+            x, y, z = ponto
+            magnitude = math.sqrt(x**2 + y**2 + z**2)
+            return (
+                raio * x / magnitude,
+                raio * y / magnitude,
+                raio * z / magnitude
+            )
+
+        return [[projetar_ponto_na_esfera(ponto, raio) for ponto in lista] for lista in pontos]
+
+    esfera = esfera(icosaedro(), fator)
+
+    def poligonos():
+        poligonos = []
+        
+        def ponto_por_linha():
+            lista_pontos = [0]
+            ppf = fator * 2 - 1
+            una = fator * 2 - 1
+            while una != 1:
+                lista_pontos.append(ppf)
+                ppf += una - 2
+                una -= 2
+            return lista_pontos
+
+        p = ponto_por_linha()
+
+        def hexagonos_centrais():
+            hexagonos = []
+            for t in esfera:
+                i = 0
+                for x in range(fator - 2, 0, -1):
+                    for y in range(x):
+                        hexagonos.append(numpy.array([
+                            t[p[y] + i * 2 + 1],
+                            t[p[y] + i * 2 + 2],
+                            t[p[y] + i * 2 + 3],
+                            t[p[y + 1] + i * 2 + 2],
+                            t[p[y + 1] + i * 2 + 1],
+                            t[p[y + 1] + i * 2]
+                        ]))
+                    i += 1
+            return hexagonos
+
+        poligonos.append(hexagonos_centrais())
+
+        def hexagonos_tropicais_sul():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][y * 2],
+                        esfera[x][y * 2 + 1],
+                        esfera[x][y * 2 + 2],
+                        esfera[x + 15][y * 2 + 2],
+                        esfera[x + 15][y * 2 + 1],
+                        esfera[x + 15][y * 2]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_tropicais_sul())
+
+        def hexagonos_tropicais_norte():
+            hexagonos = []
+            for x in range(5, 10, 1):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][y * 2],
+                        esfera[x][y * 2 + 1],
+                        esfera[x][y * 2 + 2],
+                        esfera[x + 5][y * 2 + 2],
+                        esfera[x + 5][y * 2 + 1],
+                        esfera[x + 5][y * 2]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_tropicais_norte())
+
+        def hexagonos_equatoriais_ascendentes():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    if x == 0:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 9][p[fator - y - 1] - 1],
+                            esfera[x + 9][p[fator - y - 1] - 2],
+                            esfera[x + 9][p[fator - y - 1] + 2 * y]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[fator - y - 1] - 1],
+                            esfera[x + 4][p[fator - y - 1] - 2],
+                            esfera[x + 4][p[fator - y - 1] + 2 * y]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_equatoriais_ascendentes())
+
+        def hexagonos_equatoriais_descendentes():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][p[fator - 1 - y] + 2 * y],
+                        esfera[x][p[fator - 1 - y] - 2],
+                        esfera[x][p[fator - 1 - y] - 1],
+                        esfera[x + 5][p[y + 1]],
+                        esfera[x + 5][p[y] + 1],
+                        esfera[x + 5][p[y]]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_equatoriais_descendentes())
+
+        def hexagonos_polares_norte():
+            hexagonos = []
+            for x in range(10, 15, 1):
+                for y in range(fator - 1):
+                    if x == 10:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x + 4][p[y + 1] - 2],
+                            esfera[x + 4][p[y + 1] - 1]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x - 1][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x - 1][p[y + 1] - 2],
+                            esfera[x - 1][p[y + 1] - 1]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_polares_norte())
+
+        def hexagonos_polares_sul():
+            hexagonos = []
+            for x in range(15, 20):
+                for y in range(fator - 1):
+                    if x == 15:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x + 4][p[y + 1] - 2],
+                            esfera[x + 4][p[y + 1] - 1]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x - 1][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x - 1][p[y + 1] - 2],
+                            esfera[x - 1][p[y + 1] - 1]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_polares_sul())
+
+        def pentagonos():
+
+            pentagonos = []
+
+            def pentagonos_tropicais_sul():
+                pentagonos = []
+                for x in range(5):
+                    if x == 0:
+                        pentagonos.append(numpy.array([
+                            esfera[0][0],
+                            esfera[9][p[fator - 1]],
+                            esfera[4][p[1] - 1],
+                            esfera[19][p[1] - 1],
+                            esfera[15][0]
+                        ]))
+                    else:
+                        pentagonos.append(numpy.array([
+                            esfera[x][0],
+                            esfera[x + 4][p[fator - 1]],
+                            esfera[x - 1][p[1] - 1],
+                            esfera[x + 14][p[1] - 1],
+                            esfera[x + 15][0]
+                        ]))
+                return pentagonos
+
+            pentagonos.extend(pentagonos_tropicais_sul())
+
+            def pentagonos_tropicais_norte():
+                pentagonos = []
+                for x in range(5):
+                    if x == 0:
+                        pentagonos.append(numpy.array([
+                            esfera[0][p[fator - 1]],
+                            esfera[5][0],
+                            esfera[10][0],
+                            esfera[14][p[1] - 1],
+                            esfera[9][p[1] - 1]
+                        ]))
+                    else:
+                        pentagonos.append(numpy.array([
+                            esfera[x][p[fator - 1]],
+                            esfera[x + 5][0],
+                            esfera[x + 10][0],
+                            esfera[x + 9][p[1] - 1],
+                            esfera[x + 4][p[1] - 1]
+                        ]))
+                return pentagonos
+
+            pentagonos.extend(pentagonos_tropicais_norte())
+
+            def pentagono_polo_norte():
+                return numpy.array([
+                    esfera[10][p[fator - 1]],
+                    esfera[11][p[fator - 1]],
+                    esfera[12][p[fator - 1]],
+                    esfera[13][p[fator - 1]],
+                    esfera[14][p[fator - 1]]
+                ])
+
+            pentagonos.append(pentagono_polo_norte())
+
+            def pentagono_polo_sul():
+                return numpy.array([
+                    esfera[15][p[fator - 1]],
+                    esfera[16][p[fator - 1]],
+                    esfera[17][p[fator - 1]],
+                    esfera[18][p[fator - 1]],
+                    esfera[19][p[fator - 1]]
+                ])
+
+            pentagonos.append(pentagono_polo_sul())
+            
+            return pentagonos
+
+        poligonos.append(pentagonos())
+
+        return poligonos
+
+    poligonos = poligonos()
+
+    def dic_pol():
+        coord_vert = {}
+        h = 0
+        for x in range(5):        
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator * 2 - 1
+                for a in range(z):
+                    coord_vert[(n - a, fator * x + i + 1)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator + 1
+                for a in range(z):
+                    coord_vert[(n + a, fator * x + 2 + i + a)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator - 1
+                for a in range(z):
+                    coord_vert[(n - a, fator * x + 1 - x * (a + 1) + i)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            b = fator * x + 1 - x
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator * 2 + 1
+                for a in range(z):
+                    coord_vert[(n + a, b + i - a * x)] = poligonos[0][h]
+                    h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator * 2, fator * x + z + 1)] = poligonos[1][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator, fator * x + z + 1)] = poligonos[2][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator * 2 - z - 1, fator * x)] = poligonos[3][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator + z + 1, fator * x + z + 1)] = poligonos[4][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator - z - 1, (fator - z - 1) * x)] = poligonos[5][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for i, z in enumerate(range(fator - 1, 0, -1)):
+                coord_vert[(fator * 2 + i + 1, z * x)] = poligonos[6][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            coord_vert[(fator * 2, fator * x)] = poligonos[7][h]
+            h += 1
+        for x in range(5):
+            coord_vert[(fator, fator * x)] = poligonos[7][h]
+            h += 1
+        coord_vert[(0, 0)] = poligonos[7][h]
+        h += 1
+        coord_vert[(fator * 3, 0)] = poligonos[7][h]
+
+        return coord_vert
+    
+    return dic_pol()
+
+================================================================================
+📄 shared/planet.py
+================================================================================
+import random
+from shared.polygons import dicionario_poligonos
+from shared.geography import definir_geografia
+
+class Planeta:
+    def __init__(self, fator, bioma):
+        self.fator = fator
+        self.bioma_inicial = bioma
+        self.geografia, self.capitais_players = definir_geografia(dicionario_poligonos(fator), fator, bioma) # capitais = [(int, int), ...]
+        random.shuffle(self.capitais_players)
+        self.numero_de_jogadores = len(self.capitais_players)
+        biomas_invalidos = {"Ice", "Sea", "Ocean", "Coast", bioma}
+        capitais_player_set = set(self.capitais_players)
+        nodos_validos = [
+            n for n in self.geografia.nodes()
+            if self.geografia.nodes[n]["bioma"] not in biomas_invalidos and n not in capitais_player_set
+        ]
+        npn = 27 - len(self.capitais_players)  # Lembrar de evitar npn (países neutros) negativo
+        self.capitais_neutros = random.sample(nodos_validos, npn)
+        random.shuffle(self.capitais_neutros)
+        self.civilizacoes = []
+
+
+================================================================================
+📄 shared/geography.py
+================================================================================
+import networkx
+import random
+import math
+from statistics import mean
+from random import choice
+
+# CUSTOS BASE
+CUSTOS_BASE = {
+    'Ice': 20.0,
+    'Mountains': 12.0,
+    'Hills': 6.0,
+    'Forest': 4.0,
+    'Meadow': 3.0,
+    'Savanna': 4.0,
+    'Desert': 5.0,
+    'Coast': 0.8,
+    'Sea': 0.6,
+    'Ocean': 0.4
+}
+
+PENALIDADE_TRANSICAO = 15.0
+
+def letra_grega(placa):
+    letras_gregas_dict = {
+        "Alpha": "Α", "Beta": "Β", "Gamma": "Γ", "Delta": "Δ",
+        "Epsilon": "Ε", "Zeta": "Ζ", "Eta": "Η", "Theta": "Θ",
+        "Iota": "Ι", "Kappa": "Κ", "Lambda": "Λ", "Mu": "Μ",
+        "Nu": "Ν", "Xi": "Ξ", "Omicron": "Ο", "Pi": "Π",
+        "Rho": "Ρ", "Sigma": "Σ", "Tau": "Τ", "Upsilon": "Υ",
+        "Phi": "Φ", "Chi": "Χ", "Psi": "Ψ", "Omega": "Ω"
+    }
+    return letras_gregas_dict.get(placa)
+
+def definir_geografia(poligonos, fator, bioma):
+
+    geografia = networkx.DiGraph()
+
+    for coordenadas in poligonos:
+        geografia.add_node(coordenadas)
+
+    def tipo_de_poligono(c):
+        if c == (0, 0):
+            geografia.nodes[c]['tipo'] = 'pn'
+            return "pn"
+        elif 0 < c[0] < fator and c[1] % c[0] == 0:
+            geografia.nodes[c]['tipo'] = 'ipn'
+            return "ipn"
+        elif 0 < c[0] < fator and c[1] % c[0] != 0:
+            geografia.nodes[c]['tipo'] = 'cpn'
+            return "cpn"
+        elif c[0] == fator and c[1] % c[0] == 0:
+            geografia.nodes[c]['tipo'] = 'ntn'
+            return "ntn"
+        elif c[0] == fator and c[1] % c[0] != 0:
+            geografia.nodes[c]['tipo'] = 'itn'
+            return "itn"
+        elif fator < c[0] < fator * 2:
+            geografia.nodes[c]['tipo'] = 'e'
+            return "e"
+        elif c[0] == fator * 2 and c[1] % fator != 0:
+            geografia.nodes[c]['tipo'] = 'its'
+            return "its"
+        elif c[0] == fator * 2 and c[1] % fator == 0:
+            geografia.nodes[c]['tipo'] = 'nts'
+            return "nts"
+        elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) != 0:
+            geografia.nodes[c]['tipo'] = 'cps'
+            return "cps"
+        elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) == 0:
+            geografia.nodes[c]['tipo'] = 'ips'
+            return "ips"
+        elif c[0] == fator * 3:
+            geografia.nodes[c]['tipo'] = 'ps'
+            return "ps"
+
+    for n in list(geografia.nodes):
+        no = tipo_de_poligono(n)
+        if no == "pn":
+            for y in range(5):
+                geografia.add_edge(n, (1, y), direcao=f'S{y+1}')
+            continue
+        if no == "ps":
+            for y in range(5):
+                geografia.add_edge(n, (fator * 3 - 1, y), direcao=f'N{y+1}')
+            continue
+        x = n[1] // n[0]
+        y = n[1] // (fator * 3 - n[0])
+        if no == "ipn":
+            if n[1] != n[0] * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='S')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W') if n[1] != 0 else geografia.add_edge(n, (n[0], n[0] * 5 - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x - 1), direcao='SW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0] + 1, (n[0] + 1) * 5 - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='S')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x - 1), direcao='SW')
+        elif no == "cpn":
+            if n[1] != n[0] * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='SW')
+        elif no == "ntn":
+            geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+            geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='SE')
+            geografia.add_edge(n, (n[0], n[1] + 1), direcao='NE')
+            geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+            geografia.add_edge(n, (n[0], n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0], n[0] * 5 - 1), direcao='NW')
+        elif no == "itn":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='NE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+        elif no == "e":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0] - 1, fator * 5 - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W') if n[1] != 0 else geografia.add_edge(n, (n[0], fator * 5 - 1), direcao='W')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+        elif no == "its":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+        elif no == "nts":
+            geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+            geografia.add_edge(n, (n[0], n[1] + 1), direcao='SE')
+            geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+            geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0] - 1, fator * 5 - 1), direcao='NW')
+            geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW') if n[1] != 0 else geografia.add_edge(n, (n[0], fator * 5 - 1), direcao='SW')
+        elif no == "cps":
+            if n[1] != (fator * 3 - n[0]) * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+        elif no == "ips":
+            if n[1] != (fator * 3 - n[0]) * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='SE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='N')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y - 1), direcao='NW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0] - 1, (fator * 3 - n[0] + 1) * 5 - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0], (fator * 3 - n[0]) * 5 - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+                geografia.add_edge(n, (n[0], 0), direcao='SE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='N')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW')
+
+    areas = list(poligonos.keys())
+    areas_sem_definicao = {}
+    areas_definidas = {}
+    referencias_relevo = random.sample(areas, fator * 20)
+
+    for area in areas:
+        areas_sem_definicao[area] = []
+        areas_definidas[area] = []
+
+    for n in range(fator * 3 // 2):
+        if not areas_sem_definicao:
+            break
+        for node in referencias_relevo:
+            altitude = random.randint(0, 12)
+            areas_definidas[node].append(altitude)
+            if node in areas_sem_definicao:
+                del areas_sem_definicao[node]
+            distancias = networkx.single_source_shortest_path_length(geografia, node)
+            nos_a_n_arestas = [node for node, distance in distancias.items() if distance == n + 1]
+            for neighbor in nos_a_n_arestas:
+                if neighbor in areas_sem_definicao and neighbor not in referencias_relevo:
+                    areas_sem_definicao[neighbor].append(altitude)
+        for chave in list(areas_sem_definicao.keys()):
+            if areas_sem_definicao[chave]:
+                areas_definidas[chave].append(round(mean(areas_sem_definicao[chave]), 3))
+                del areas_sem_definicao[chave]
+
+    chaves = list(areas_definidas.keys())
+    random.shuffle(chaves)
+    chaves_ordenadas = sorted(chaves, key=lambda chave: areas_definidas[chave])
+    percentual_terra = random.randint(35, 45)
+    limite_abissal = (100 - percentual_terra) // 2
+    limite_barreira = limite_abissal + (100 - percentual_terra) // 3
+    nivel_do_mar = 100 - percentual_terra
+    limite_planicie = nivel_do_mar + (100 - nivel_do_mar) * 4 // 6
+    limite_planalto = limite_planicie + (100 - limite_planicie) // 2
+
+    for i, chave in enumerate(chaves_ordenadas):
+        if i <= len(chaves_ordenadas) * limite_abissal // 100:
+            geografia.nodes[chave]['altitude'] = 'abissal'
+        elif i <= len(chaves_ordenadas) * limite_barreira // 100:
+            geografia.nodes[chave]['altitude'] = 'barreira'
+        elif i <= len(chaves_ordenadas) * nivel_do_mar // 100:
+            geografia.nodes[chave]['altitude'] = 'plataforma'
+        elif i <= len(chaves_ordenadas) * limite_planicie // 100:
+            geografia.nodes[chave]['altitude'] = 'planicie'
+        elif i <= len(chaves_ordenadas) * limite_planalto // 100:
+            geografia.nodes[chave]['altitude'] = 'planalto'
+        else:
+            geografia.nodes[chave]['altitude'] = 'cordilheira'
+
+    areas_sem_definicao = {}
+    areas_definidas = {}
+    referencias_umidade = random.sample(areas, 60)
+
+    for area in areas:
+        areas_sem_definicao[area] = []
+        areas_definidas[area] = []
+
+    for n in range(fator * 3 // 2):
+        if not areas_sem_definicao:
+            break
+        for node in referencias_umidade:
+            altitude = random.randint(0, 12)
+            areas_definidas[node].append(altitude)
+            if node in areas_sem_definicao:
+                del areas_sem_definicao[node]
+            distancias = networkx.single_source_shortest_path_length(geografia, node)
+            nos_a_n_arestas = [node for node, distance in distancias.items() if distance == n + 1]
+            for neighbor in nos_a_n_arestas:
+                if neighbor in areas_sem_definicao and neighbor not in referencias_umidade:
+                    areas_sem_definicao[neighbor].append(altitude)
+        for chave in list(areas_sem_definicao.keys()):
+            if areas_sem_definicao[chave]:
+                areas_definidas[chave].append(round(mean(areas_sem_definicao[chave]), 3))
+                del areas_sem_definicao[chave]
+
+    chaves = list(areas_definidas.keys())
+    random.shuffle(chaves)
+    chaves_ordenadas = sorted(chaves, key=lambda chave: areas_definidas[chave])
+
+    for i, chave in enumerate(chaves_ordenadas):
+        if i <= len(chaves_ordenadas) * 25 // 100:
+            geografia.nodes[chave]['umidade'] = 'arido'
+        elif i <= len(chaves_ordenadas) * 50 // 100:
+            geografia.nodes[chave]['umidade'] = 'semi-arido'
+        elif i <= len(chaves_ordenadas) * 75 // 100:
+            geografia.nodes[chave]['umidade'] = 'fertil'
+        else:
+            geografia.nodes[chave]['umidade'] = 'umido'
+
+    # Definição das placas com dois pontos de referência cada
+    placas = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta',
+            'Eta', 'Theta', 'Iota', 'Kappa', 'Lambda', 'Mu',
+            'Nu', 'Xi', 'Omicron', 'Pi', 'Rho', 'Sigma',
+            'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega']
+    
+    # Gerar duas referências para cada placa (total 48)
+    placas_duplicadas = placas * 2
+    random.shuffle(placas_duplicadas)
+    referencias_geologia = random.sample(areas, 48)
+
+    # Atribuir cada referência a uma placa
+    areas_definidas = {area: None for area in areas}
+    for i, node in enumerate(referencias_geologia):
+        areas_definidas[node] = placas_duplicadas[i]
+
+    # Calcular a placa para cada nó baseado na proximidade
+    for node in areas_definidas:
+        if areas_definidas[node] is not None:
+            continue  # Pula pontos de referência já definidos
+        
+        # Encontrar todas as distâncias para pontos de referência
+        distancias = []
+        for ref in referencias_geologia:
+            try:
+                dist = networkx.shortest_path_length(geografia, ref, node)
+                distancias.append( (ref, dist) )
+            except networkx.exception.NetworkXNoPath:
+                continue
+        
+        if not distancias:
+            areas_definidas[node] = random.choice(placas)
+            continue
+        
+        # Encontrar a distância mínima
+        min_dist = min(d[1] for d in distancias)
+        candidatos = [d[0] for d in distancias if d[1] == min_dist]
+        
+        # Escolher aleatoriamente entre candidatos equidistantes
+        ref_escolhida = random.choice(candidatos)
+        areas_definidas[node] = areas_definidas[ref_escolhida]
+    
+    coeficiente_movimento = 300
+
+    # Gerar cores para as placas
+    cores_placas = []
+    for _ in range(24):
+        while True:
+            r = random.randint(0, 255)
+            g = random.randint(0, 255)
+            b = random.randint(0, 255)
+            if (r + g + b) > 127.5:
+                cores_placas.append((r, g, b))
+                break
+
+    latitude_equador = fator * 3 / 2
+
+    for chave, valor in areas_definidas.items():
+        geografia.nodes[chave]['placa'] = valor
+        geografia.nodes[chave]['cor_placa'] = cores_placas[placas.index(valor)]
+        geografia.nodes[chave]['letra_grega'] = letra_grega(geografia.nodes[chave]['placa'])
+        if chave[0] < latitude_equador:
+            distancia_para_equador = latitude_equador - chave[0]
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        elif chave[0] == latitude_equador:
+            distancia_para_equador = 0
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        else:
+            distancia_para_equador = chave[0] - latitude_equador
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        if geografia.nodes[chave]['altitude'] == 'abissal' \
+        or geografia.nodes[chave]['altitude'] == 'barreira' \
+        or geografia.nodes[chave]['altitude'] == 'plataforma':
+            fator_altitude = 3
+        elif geografia.nodes[chave]['altitude'] == 'planicie':
+            fator_altitude = 1
+        elif geografia.nodes[chave]['altitude'] == 'planalto':
+            fator_altitude = -1
+        elif geografia.nodes[chave]['altitude'] == 'cordilheira':
+            fator_altitude = -3
+        if geografia.nodes[chave]['umidade'] == 'umido':
+            fator_umidade = 1.5
+        elif geografia.nodes[chave]['umidade'] == 'fertil':
+            fator_umidade = 0.5
+        elif geografia.nodes[chave]['umidade'] == 'semi-arido':
+            fator_umidade = -0.5
+        elif geografia.nodes[chave]['umidade'] == 'arido':
+            fator_umidade = -1.5
+        geografia.nodes[chave]['temperatura'] = round(40 * incidencia_solar - 8 + fator_altitude + fator_umidade, 1) - 4
+
+    for node, atributos in geografia.nodes(data=True):
+        temperatura = atributos.get('temperatura')
+        altitude = atributos.get('altitude')
+        umidade = atributos.get('umidade')
+        
+        if temperatura < 0:
+            atributos['bioma'] = 'Ice'
+        else:
+            if altitude == 'cordilheira':
+                atributos['bioma'] = 'Mountains'
+            elif altitude == 'planalto':
+                atributos['bioma'] = 'Hills'
+            elif altitude == 'planicie':
+                if umidade == 'umido':
+                    atributos['bioma'] = 'Forest'
+                elif umidade == 'fertil':
+                    atributos['bioma'] = 'Meadow'
+                elif umidade == 'semi-arido':
+                    atributos['bioma'] = 'Savanna'
+                else:
+                    atributos['bioma'] = 'Desert'
+            elif altitude == 'plataforma':
+                atributos['bioma'] = 'Coast'
+            elif altitude == 'barreira':
+                atributos['bioma'] = 'Sea'
+            else:
+                atributos['bioma'] = 'Ocean'
+        
+        # Aplica custo base diretamente do dicionário
+        atributos['cust_mob'] = CUSTOS_BASE[atributos['bioma']] * coeficiente_movimento
+
+    for u, v in geografia.edges():
+        mob_u = geografia.nodes[u]['cust_mob']
+        mob_v = geografia.nodes[v]['cust_mob']
+        
+        u_maritimo = geografia.nodes[u]['bioma'] in ['Coast', 'Sea', 'Ocean']
+        v_maritimo = geografia.nodes[v]['bioma'] in ['Coast', 'Sea', 'Ocean']
+        
+        if u_maritimo != v_maritimo:  # Transição terra-mar
+            geografia[u][v]['cust_mob'] = max(mob_u, mob_v) * 2 + PENALIDADE_TRANSICAO * coeficiente_movimento
+        else:
+            geografia[u][v]['cust_mob'] = (mob_u + mob_v) / 2
+
+        # Bônus para rotas oceânicas longas
+        if u_maritimo and v_maritimo:
+            geografia[u][v]['cust_mob'] *= 0.7
+
+    cores_biomas = {
+        'Ocean': (0, 23, 98), 'Sea': (8, 33, 113), 'Coast': (12, 71, 108), 'Meadow': (91, 174, 70), 'Savanna': (231, 190, 141),
+        'Forest': (75, 129, 66), 'Desert': (242, 242, 166), 'Hills': (201, 147, 121), 'Mountains': (158, 86, 86), 'Ice': (245, 255, 245)
+    }
+
+    bioma_escolhido = []
+
+    for node in geografia.nodes:
+        geografia.nodes[node]['cor_bioma'] = cores_biomas[geografia.nodes[node]['bioma']]
+        if geografia.nodes[node]['bioma'] == f'{bioma}':
+            bioma_escolhido.append(node)
+
+    bioma_escolhido = [n for n, attr in geografia.nodes(data=True) if attr['bioma'] == f'{bioma}']
+    lista_capitais = [choice(bioma_escolhido)]
+    while len(lista_capitais) < len(bioma_escolhido) // 2:
+        d2 = {}
+        for candidato in bioma_escolhido:
+            if candidato in lista_capitais:
+                continue
+            d = {}
+            for capital in lista_capitais:
+                d[capital] = networkx.shortest_path_length(geografia, source=candidato, target=capital, weight='custo_mobilidade')
+            d2[candidato] = min(d.values())
+        if not d2:  # Se não houver candidatos possíveis, o planeta não comporta a quantidade desejada
+            print("d2 vazio")
+            raise ValueError("O planeta não comporta essa quantidade de civilizações!")
+        maior_valor = max(d2.values())
+        chaves_maior_valor = [chave for chave, valor in d2.items() if valor == maior_valor]
+        lista_capitais.append(choice(chaves_maior_valor))
+
+    print(f"número de {bioma}:", len(bioma_escolhido))
+    return geografia, lista_capitais
+
+
+================================================================================
+📄 shared/naming.py
+================================================================================
+import random
+
+# ==========================   NOMES DAS PROVÍNCIAS EM INGLÊS   ==========================#
+
+adj_ing = ["Good", "White", "Sacred", "Broken", "Hidden",
+           "Long", "Little", "Old", "Heavenly", "Big",
+           "High", "Small", "Large", "Pristine", "Bad",
+           "Red", "Blue", "Green", "Yellow", "Black",
+           "Golden", "Calm", "Dry", "Lost", "Brave",
+           "Deep", "Bright", "Heavy", "Joyful", "Mysterious",
+           "Petrified", "Split", "Pleasant", "Cooling", "Falling",
+           "Sharp", "Distant", "Ancient", "Sad", "Beautiful",
+           "Eternal", "Enchanted", "Sunny", "Cold", "Steep",
+           "Gentle", "Peaceful", "Turbulent", "Dead", "Wide",
+           "Open", "Closed", "Flat", "Dark", "Warm",
+           "Serene", "Giant", "Pure"]
+
+nouns_ing = ["Rock", "Mountain", "River", "Land", "House",
+             "Field", "Cavern", "Sky", "Star", "Swamp",
+             "Spring", "Forest", "Lake", "Sand", "Soil",
+             "Winds", "Rain", "Cliff", "Fountain", "Water",
+             "Man", "Grove", "Air", "Fire", "Leaf",
+             "Trail", "Night", "Fruit", "Bird", "Snake",
+             "Ville", "Hill", "Creek", "Hut", "Meadow",
+             "Wolf", "Spirit", "Light", "Slope", "Soldier",
+             "Valley", "Mound", "Town",
+             "Woods", "Ridge", "Day", "Peak",
+             "Refuge", "Sign", "Bush",
+             "Pond", "Road", "Chapel", "City",
+             "Bridge", "Priest", "Grave", "Curse",
+             "Ground", "View", "Grass"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM CHINÊS   ==========================#
+
+adj_chi = [
+    "Hǎo", "Bái", "Shénshèng", "Pòsuì", "Yǐncáng",
+    "Xiǎo", "Lǎo", "Tiāntáng de", "Dà", "Gāo",
+    "Yuánshǐ de", "Huài", "Hóngsè de", "Lánsè de", "Lǜsè de",
+    "Huángsè de", "Hēisè de", "Jīn sè de", "Ānjìng", "Gānzào",
+    "Míshī", "Yǒnggǎn", "Shēn", "Míngliàng", "Zhòng",
+    "Kuàilè", "Shénmì", "Shíhuà", "Fēnliè", "Yúkuài",
+    "Fēnlí", "Yáoyuǎn", "Gǔlǎo", "Bēishāng", "Měilì",
+    "Yǒnghéng", "Qīnglǎng", "Wēnróu", "Píngjìng", "Dòngdàng",
+    "Kuān", "Hēi'àn", "Níngjìng", "Jùdà", "Chúnjìng",
+    "Sǐwáng", "Lěng", "Wēnnuǎn", "Zhāomì"
+]
+
+nouns_chi = [
+    "Yánshí", "Shān", "Hé", "Tǔdì", "Fángzi",
+    "Tián", "Dòngxué", "Tiānkōng", "Xīngxīng", "Zhǎozé",
+    "Quán", "Sēnlín", "Hú", "Shā", "Tǔrǎng",
+    "Fēng", "Yǔ", "Xuányá", "Pēnquán", "Shuǐ",
+    "Nánrén", "Xiǎoshùlín", "Kōngqì", "Huǒ", "Yè",
+    "Xiǎolù", "Yè", "Shuǐguǒ", "Niǎo", "Shé",
+    "Xiǎozhèn", "Qiū", "Xī", "Xiǎowū", "Cǎodì",
+    "Láng", "Líng", "Guāng", "Pō", "Shìbīng",
+    "Shāngǔ", "Tǔqiū", "Chéngzhèn",
+    "Shùlín", "Shānjǐ", "Tiān", "Fēng",
+    "Bìnàn Suǒ", "Biāozhì", "Guànmù",
+    "Chítáng", "Lù", "Xiǎo jiàotáng", "Chéngshì",
+    "Qiáo", "Mùshī", "Fénmù", "Zǔzhòu",
+    "Dìmiàn", "Jǐngsè", "Cǎo"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM WU   ==========================#
+
+adj_wu = [
+    "Hao", "Baek", "Shensheng", "Posui", "Yincang",
+    "Long", "Xiao", "Lao", "Tiantang De", "Da",
+    "Gao", "Xiao", "Da", "Yuanshi", "Huai",
+    "Hong", "Lan", "Lǜ", "Huang", "Hei",
+    "Jin", "Anjing", "Ganzao", "Mishi", "Yonggan",
+    "Shen", "Liang", "Zhong", "Kuaile", "Shenmi",
+    "Shihua", "Fenlie", "Yukuai", "Shuangshuang", "Falling",
+    "Ji", "Yuan", "Gulao", "Beishang", "Meili",
+    "Yongheng", "Jingya", "Wenxin", "Pingjing", "Dongdang",
+    "Guang", "Hei'an", "Ningjing", "Juda", "Chunjing",
+    "Si", "Leng", "Wennuan", "Zhaomi"
+]
+
+nouns_wu = [
+    "Yan", "Shan", "He", "Di", "Fangzi",
+    "Tian", "Dong", "Tian", "Xing", "Zhaoze",
+    "Quan", "Senlin", "Hu", "Sha", "Turang",
+    "Feng", "Yu", "Xuanya", "Penquan", "Shui",
+    "Nan", "Xiaoshulin", "Kongqi", "Huo", "Ye",
+    "Xiaolu", "Ye", "Shuiguo", "Niao", "She",
+    "Zhen", "Qiu", "Xi", "Wu", "Caodi",
+    "Lang", "Ling", "Guang", "Po", "Shibing",
+    "Gu", "Qiu", "Zhen",
+    "Ling", "Tian", "Feng",
+    "Binan", "Biaozhi", "Guanmu",
+    "Chitang", "Lù", "Jiaotang", "Cheng",
+    "Qiao", "Mushi", "Fen", "Zuzhou",
+    "Dimian", "Jingse", "Cao"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM YUE   ==========================#
+
+adj_yue = [
+    "Hóu", "Baahk", "Sān", "Kāp", "Chòih",
+    "Cheung", "Sai", "Louh", "Tin", "Daih",
+    "Hòhng", "Sai", "Daaih", "Chīng", "Wāi",
+    "Hùhng", "Làahm", "Luhk", "Wòhng", "Hāak",
+    "Gām", "Ngaan", "Gaan", "Sāt", "Yùhng",
+    "Sām", "Mihng", "Jung", "Fùhng", "Sām",
+    "Sāam", "Fāan", "Fāan", "Sīk", "Lohk",
+    "Kēui", "Yúhn", "Gú", "Sāam", "Meih",
+    "Yúhn", "Meih", "Tìng", "Làahng", "Ging",
+    "Wān", "Fèihng", "Sūng", "Sīk", "Fú",
+    "Dāk", "Gwán", "Bihn", "Aàm", "Wān",
+    "Nìhng", "Gin", "Kéuhng"
+]
+
+nouns_yue = [
+    "Sék", "Sāan", "Hòh", "Dih", "Uk",
+    "Tìhn", "Duhng", "Tin", "Sīng", "Jóu",
+    "Chēun", "Sāan", "Wuht", "Sā", "Tó",
+    "Fūng", "Yúh", "Nga", "Bāan", "Sēui",
+    "Nàahm", "Làahm", "Hēung", "Fó", "Yihp",
+    "Jīng", "Yeh", "Gwó", "Jīu", "Séh",
+    "Chéng", "Kā", "Hēung", "Wū", "Tīn",
+    "Lòhng", "Lìhng", "Gōng", "Bōu", "Sih",
+    "Gūk", "Fūng", "Māhng",
+    "Líng", "Yaht", "Fūng",
+    "Bāk", "Bīu", "Chāan",
+    "Chìh", "Lóuh", "Sīu", "Sihng",
+    "Kiu", "Sīn", "Fan", "Joek",
+    "Deih", "Jíng", "Chou"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM MIN   ==========================#
+
+adj_min = [
+    "Hó", "Pe̍h", "Siān-tè", "Pō", "Bih",
+    "Tiô", "Sió", "Lō", "Thian-tâng ê", "Tōa",
+    "Kò͘", "Sió", "Tōa", "Chheng-chhiūⁿ", "Phāi",
+    "Âng-sek ê", "Lán-sek ê", "Lū-sek ê", "N̂g-sek ê", "Hēi-sek ê",
+    "Kim-sek ê", "Bêng-an", "Kan", "Lò͘", "Yúng",
+    "Khâm", "Bêng", "Chòng", "Khoai-lo̍h", "Sīm-ji̍t",
+    "Pê", "Pun-liāu", "Khoân-hòaⁿ", "Chhia̍t-liāu", "Tò-lo̍h",
+    "Siam", "Tū", "Kó͘", "Phainn", "Biú",
+    "Íⁿ-chióng", "Tīn-hiong", "Thinn-siaⁿ", "Kang", "Sú",
+    "Lêng", "Khìaⁿ", "Lóng", "Sǹg", "Oân",
+    "Chhiūⁿ", "Khí-á", "Chêng"
+]
+
+nouns_min = [
+    "Chioh", "Suann", "Hô", "Tō", "Tiám",
+    "Chhân", "Tōng", "Thinn", "Chhiⁿ", "Chháu",
+    "Chhûn", "Sng-lîm", "Oh", "Sòaⁿ", "Thô",
+    "Hûiⁿ", "Hō͘", "Kiám", "Pun", "Chúi",
+    "Lâng", "Siâu", "Khong-khì", "Hóe", "Hâ",
+    "Lō͘-chhù", "I̍aⁿ", "Kúi", "Chhui", "Chôa",
+    "Chiâⁿ", "Kio", "Kè", "Koe", "Chháu-lí",
+    "Lâng-kī", "Seng", "Chhìng", "Pò", "Chû",
+    "Kheh", "Kiôⁿ", "Chhng",
+    "Lêng", "Jat", "Hiong"
+    "Pi-bāng", "Pió", "Chhe-bò",
+    "Chhê", "Lō͘", "Chha", "Chhīⁿ",
+    "Kiô", "Sūn", "Būn", "Chòe",
+    "Toē", "Chhīng", "Chháu"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM ESPANHOL   ==========================#
+
+nouns_esp_mas = ["Río", "Hombre", "Viento", "Fuego", "Sendero",
+                 "Campo", "Pueblo", "Lobo", "Soldado", "Arroyo",
+                 "Montículo", "Día", "Bosque", "Rancho", "Pantano",
+                 "Parque", "Señal", "Estanque", "Camino", "Puente",
+                 "Cielo", "Manantial", "Bosque", "Lago", "Suelo",
+                 "Acantilado", "Pájaro", "Sitio", "Valle", "Pozo",
+                 "Refugio", "Arbusto", "Nacimiento", "Terreno", "Espíritu"]
+
+nouns_esp_fem = ["Roca", "Montaña", "Tierra", "Casa", "Fruta",
+                 "Caverna", "Estrella", "Arena", "Cima",
+                 "Lluvia", "Fuente", "Agua", "Arboleda", "Hoja",
+                 "Noche", "Serpiente", "Colina", "Cabaña", "Pradera",
+                 "Luz", "Ladera", "Margem", "Ciudad", "Cresta",
+                 "Hada", "Capilla", "Tumba", "Maldición", "Vista",
+                 "Hierba", "Cruz"]
+
+adj_esp_mas = ["Bueno", "Blanco", "Sagrado", "Roto", "Oculto",
+               "Pequeño", "Pequeño", "Viejo", "Celestial", "Grande",
+               "Alto", "Pequeño", "Grande", "Prístino", "Malo",
+               "Rojo", "Azul", "Verde", "Amarillo", "Negro",
+               "Dorado", "Calmado", "Ruidoso", "Seco", "Perdido",
+               "Profundo", "Brillante", "Pesado", "Alegre", "Misterioso",
+               "Móvil", "Dividido", "Agradable", "Refrigerante", "Cayente",
+               "Afilado", "Distante", "Antiguo", "Triste", "Hermoso",
+               "Rasgado", "Majestuoso", "Soleado", "Sombrío", "Empinado",
+               "Suave", "Pacífico", "Turbulento", "Áspero", "Ancho",
+               "Abierto", "Cerrado", "Plano", "Oscuro", "Infinito",
+               "Sereno", "Gigante", "Fino", "Largo", "Ruidoso",
+               "Frío", "Cálido", "Peligroso", "Encantado", "Carvado",
+               "Puro", "Valiente", "Eterno", "Petrificado", "Muerto"]
+
+adj_esp_fem = ["Buena", "Blanca", "Sacra", "Rota", "Oculta",
+               "Pequeña", "Pequeña", "Vieja", "Celestial", "Grande",
+               "Alta", "Pequeña", "Grande", "Prístina", "Mala",
+               "Roja", "Azul", "Verde", "Amarilla", "Negra",
+               "Dorada", "Calmada", "Ruidosa", "Seca", "Perdida",
+               "Profunda", "Brillante", "Pesada", "Alegre", "Misteriosa",
+               "Móvil", "Dividida", "Agradable", "Refrigerante", "Cayente",
+               "Afilada", "Distante", "Antigua", "Triste", "Hermosa",
+               "Rasgada", "Majestuosa", "Soleada", "Sombría", "Empinada",
+               "Suave", "Pacífica", "Turbulenta", "Áspera", "Ancha",
+               "Abierta", "Cerrada", "Plana", "Oscura", "Infinita",
+               "Serena", "Gigante", "Fina", "Larga", "Ruidosa",
+               "Fría", "Cálida", "Peligrosa", "Encantada", "Carvada",
+               "Pura", "Valiente", "Eterna", "Petrificada", "Muerta"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM FRANCÊS   ==========================#
+
+adj_fra_mas = ["Bon", "Blanc", "Sacré", "Cassé", "Caché",
+               "Petit", "Mort", "Vieux", "Céleste", "Grand",
+               "Haut", "Pétrifié", "Éternel", "Pristin", "Mauvais",
+               "Rouge", "Bleu", "Vert", "Jaune", "Noir",
+               "Doré", "Calme", "Bruyant", "Sec", "Perdu",
+               "Profond", "Brillant", "Lourd", "Joyeux", "Mystérieux",
+               "Mouvant", "Divisé", "Agréable", "Rafraîchissant", "Tombant",
+               "Tranchant", "Lointain", "Ancien", "Triste", "Beau",
+               "Déchiré", "Majestueux", "Ensoleillé", "Sombre", "Escarpé",
+               "Douc", "Paisible", "Turbulent", "Dur", "Large",
+               "Ouvert", "Fermé", "Pur", "Sombre", "Infini",
+               "Serein", "Géant", "Fin", "Long", "Courageux",
+               "Froid", "Chaud", "Périlleux", "Enchanté", "Taillé"]
+
+adj_fra_fem = ["Bonne", "Blanche", "Sacrée", "Cassée", "Cachée",
+               "Petite", "Morte", "Vieille", "Céleste", "Grande",
+               "Haute", "Pétrifiée", "Éternelle", "Pristine", "Mauvaise",
+               "Rouge", "Bleue", "Verte", "Jaune", "Noire",
+               "Dorée", "Calme", "Bruyante", "Sèche", "Perdue",
+               "Profonde", "Brillante", "Lourde", "Joyeuse", "Mystérieuse",
+               "Mouvante", "Divisée", "Agréable", "Rafraîchissante", "Tombante",
+               "Tranchante", "Lointaine", "Ancienne", "Triste", "Belle",
+               "Déchirée", "Majestueuse", "Ensoleillée", "Sombre", "Escarpée",
+               "Douce", "Paisible", "Turbulente", "Dure", "Large",
+               "Ouverte", "Fermée", "Pure", "Sombre", "Infinie",
+               "Sereine", "Géante", "Fine", "Longue", "Courageuse",
+               "Froide", "Chaude", "Périlleuse", "Enchantée", "Taillée"]
+
+bags = ["Bon", "Petit", "Vieux", "Grand", "Haut",
+        "Ancien", "Beau", "Large", "Long", "Bonne",
+        "Petite", "Vieille", "Grande", "Haute", "Ancienne",
+        "Belle", "Large", "Longue"]
+
+nouns_fra_mas = ["Champ", "Ciel", "Marais", "Site", "Lac",
+                 "Sable", "Sol", "Vent", "Homme", "Bosquet",
+                 "Air", "Feu", "Sentier", "Oiseau", "Ruisseau",
+                 "Pré", "Loup", "Esprit", "Soldat", "Puits",
+                 "Tertre", "Bois", "Jour", "Pic", "Parc",
+                 "Refuge", "Signe", "Buisson", "Étang", "Pont",
+                 "Prêtre", "Sol"]
+
+nouns_fra_fem = ["Roche", "Montagne", "Rivière", "Terre", "Maison",
+                 "Caverne", "Étoile", "Forêt", "Pluie",
+                 "Falaise", "Fontaine", "Eau", "Feuille",
+                 "Nuit", "Fruit", "Serpent", "Ville", "Colline",
+                 "Cabane", "Lumière", "Pente", "Vallée", "Rive",
+                 "Ville", "Crête", "Croix", "Ligne", "Fée",
+                 "Route", "Chapelle", "Ville", "Tombe", "Malédiction",
+                 "Naissance", "Vue", "Herbe"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM HINDI   ==========================#
+
+adj_hin_mas = ["Achchha", "Safed", "Pavitr", "Toota Hua", "Chhipa Hua",
+               "Chhota", "Thoda", "Puraana", "Swargiy", "Bada",
+               "Ucch", "Chhota", "Bada", "Nirmal", "Bura",
+               "Laal", "Neela", "Hara", "Peela", "Kaala",
+               "Svarnim", "Shaant", "Sookha", "Kho Gaya", "Bahadur",
+               "Gahra", "Chamkeela", "Bhaari", "Aanandmay", "Rahasyamay",
+               "Shilajit", "Vibhaajit", "Sukhad", "Sheetal", "Girta",
+               "Tez", "Door", "Praacheen", "Dukhii", "Sundar",
+               "Shaashvat", "Mantramugdh", "Sooryamay", "Thanda", "Dhalwaan",
+               "Naram", "Shaantipoorn", "Ashaant", "Mara Hua",
+               "Chaudaa", "Khula", "Band", "Lamba", "Andhera",
+               "Garam", "Shaant", "Vishaalkaay", "Shuddh"]
+
+adj_hin_fem = ["Achchhi", "Safed", "Pavitr", "Tooti Hui", "Chhupi Hui",
+               "Chhoti", "Thodi", "Puraani", "Swargiy", "Badi",
+               "Ucchi", "Chhoti", "Badi", "Nirmal", "Buri",
+               "Laal", "Neeli", "Hari", "Peeli", "Kaali",
+               "Svarn", "Shaant", "Sookhi", "Kho Gayi", "Bahadur",
+               "Gahri", "Chamkeeli", "Bhaari", "Aanandmay", "Rahasyamay",
+               "Shilajit", "Vibhaajit", "Sukhad", "Sheetal", "Girti",
+               "Tez", "Door", "Praacheen", "Dukhii", "Sundar",
+               "Shaashvat", "Mantramugdh", "Sooryamay", "Thandi", "Dhalwaan",
+               "Naram", "Shaantipoorn", "Ashaant", "Mari", "Chaudii",
+               "Khulii", "Band", "Andherii", "Garam",
+               "Shaant", "Vishaal", "Shuddh", "Lambii"]
+
+nouns_hin_mas = ["Pahaad", "Parvat", "Ghar", "Khet", "Guha",
+                 "Aakash", "Tara", "Aadmi", "Vriksh", "Vayu",
+                 "Aag", "Gaon", "Pahaadi", "Jhupri", "Maidaan",
+                 "Prakash", "Dhalan", "Sainik", "Teela", "Din",
+                 "Shikhar", "Aashray", "Sanket", "Talab", "Sadak",
+                 "Pul", "Pujari", "Shaap"]
+
+nouns_hin_fem = ["Nadi", "Bhoomi", "Daldal", "Junglai", "Jheel",
+                 "Ret", "Mitti", "Hawa", "Baarish", "Khaai",
+                 "Fawara", "Paani", "Patta", "Raat",
+                 "Pakshi", "Saanp", "Nadiya", "Bheriya", "Aatma",
+                 "Ghaati", "Nagari", "Chotee", "Jangal", "Jhaadi",
+                 "Ghaas", "Nagar", "Kabar", "Zameen", "Drishya"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM RUSSO   ==========================#
+
+adj_rus_mas = ["Khoroshiy", "Belyy", "Svyatoy", "Slomannyy", "Skrytyy",
+               "Malen'kiy", "Staryy", "Nebesnyy", "Bol'shoy", "Vysokiy",
+               "Gigantskiy", "Dlinnyy", "Chistyy", "Netronutyy", "Plokhoy",
+               "Krasnyy", "Siniy", "Zelenyy", "Zheltyy", "Chernyy",
+               "Zolotoy", "Spokoinyy", "Sukhoy", "Poteryannyy", "Smelyy",
+               "Glubokiy", "Yarkiy", "Tyazhelyy", "Radostnyy", "Zagadochnyy",
+               "Okamenelyy", "Raskolotyy", "Priyatnyy", "Okhlazhdayushchiy", "Padayushchiy",
+               "Ostryy", "Dalekiy", "Drevniy", "Grustnyy", "Prekrasnyy",
+               "Vechnyy", "Ocharovannyy", "Solnechnyy", "Kholodnyy", "Krutoy",
+               "Nezhnyy", "Spokoinyy", "Burnyy", "Mertvyy", "Shirokiy",
+               "Otkrytyy", "Zakrytyy", "Ploskiy", "Temnyy", "Teplyy",
+               "Bezmyatezhnyy"]
+
+adj_rus_fem = ["Khoroshaya", "Belaya", "Svyataya", "Slomannaya", "Skrytaya",
+               "Malen'kaya", "Chistaya", "Staraya", "Nebesnaya", "Bol'shaya",
+               "Vysokaya", "Malen'kaya", "Dlinnaya", "Netronutaya", "Plohaya",
+               "Krasnaya", "Sinyaya", "Zelenaya", "Zhel'taya", "Chernaya",
+               "Zolotaya", "Spokojnaya", "Sukhaya", "Poteryannaya", "Smelaya",
+               "Glubokaya", "Yarkaya", "Tyazhelaya", "Radostnaya", "Zagadochnaya",
+               "Okamenelaya", "Raskolotaya", "Priyatnaya", "Okhlazhdayushchaya", "Padayushchaya",
+               "Ostraya", "Dalekaya", "Drevnyaya", "Grustnaya", "Prekrasnaya",
+               "Vechnaya", "Ocharovannaya", "Solnechnaya", "Kholodnaya", "Krutaya",
+               "Nezhnaya", "Spokojnaya", "Burnaya", "Mertvaya", "Shirokaya",
+               "Otkrytaya", "Zakrytaya", "Ploskaya", "Temnaya", "Teplaya",
+               "Bezmyatezhnaya", "Gigantskaya"]
+
+adj_rus_neu = ["Khoroshee", "Beloe", "Svyatoe", "Slomannoe", "Skrytoe",
+               "Malen'koe", "Chistoe", "Staroe", "Nebesnoe", "Bol'shoe",
+               "Vysokoe", "Gigantskoe", "Dlinnoe", "Netronutoe", "Plokhoе",
+               "Krasnoe", "Sinee", "Zelenoe", "Zheltоe", "Chernoe",
+               "Zolotoe", "Spokoynoe", "Sukhoe", "Poteryannoe", "Smeloe",
+               "Glubokoe", "Yarkoe", "Tyazheloe", "Radostnoe", "Zagadochnoe",
+               "Okameneloe", "Raskolotoe", "Priyatnoe", "Okhlazhdayushchee", "Padayushchee",
+               "Ostroе", "Dalekoe", "Drevnee", "Grustnoe", "Prekrasnoe",
+               "Vechnoe", "Ocharovannoe", "Solnechnoe", "Kholodnoe", "Krutoe",
+               "Nezhnoe", "Spokoynoe", "Burnoe", "Mertvoe", "Shirokoe",
+               "Otkrytoe", "Zakrytoe", "Ploskoe", "Temnoe", "Teploe",
+               "Bezmyatezhnoe"]
+
+nouns_rus_mas = ["Dom", "Rodnik", "Les", "Pesok", "Vetry",
+                 "Dozhd'", "Utes", "Fontan", "Chelovek", "Vozdukh",
+                 "Ogon'", "List", "Frukt", "Kholm", "Ruchey",
+                 "Lug", "Volk", "Dukh", "Svet", "Sklon",
+                 "Soldat", "Valun", "Gorod", "Lesa", "Greben'",
+                 "Den'", "Pik", "Znak", "Kust", "Prud",
+                 "Most", "Svyashchennik", "Vid"]
+
+nouns_rus_fem = ["Skala", "Gora", "Reka", "Zemlya", "Peshchera",
+                 "Zvezda", "Pochva", "Voda", "Rosha", "Tropa",
+                 "Noch'", "Ptitsa", "Zmeya", "Derevnya", "Khizhina",
+                 "Dolina", "Doroga", "Chasovnya", "Mogila", "Zemlya",
+                 "Trava"]
+
+nouns_rus_neu = ["Pole", "Nebo", "Boloto", "Ozero", "Ubezhishche",
+                 "Proklyatie"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM VIETNAMITA   ==========================#
+
+nouns_viet = ["Đá", "Núi", "Sông", "Đất", "Nhà",
+              "Ruộng", "Hang Động", "Bầu Trời", "Sao", "Đầm Lầy",
+              "Suối", "Rừng", "Hồ", "Cát", "Đất",
+              "Gió", "Mưa", "Vách Đá", "Suối", "Nước",
+              "Người", "Rừng", "Không Khí", "Lửa", "Lá",
+              "Đường Mòn", "Đêm", "Trái Cây", "Chim", "Rắn",
+              "Làng", "Đồi", "Rãnh", "Nhà Gỗ", "Đồng Cỏ",
+              "Sói", "Hồn", "Ánh Sáng", "Dốc", "Người Lính",
+              "Thung Lũng", "Gò Đất", "Thị Trấn",
+              "Rừng", "Dãy Núi", "Ngày", "Đỉnh",
+              "Nơi Trú Ẩn", "Dấu Hiệu", "Cây Bụi",
+              "Ao", "Đường", "Nhà Thờ Nhỏ", "Thành Phố",
+              "Cây Cầu", "Thầy Tu", "Nghĩa Trang", "Lời Nguyền",
+              "Mặt Đất", "Quang Cảnh", "Cỏ"]
+
+adj_viet = ["Tốt", "Trắng", "Thánh Thiêng", "Vỡ", "Ẩn",
+            "Nhỏ", "Nhỏ", "Cũ", "Thiên Thần", "Lớn",
+            "Cao", "Nhỏ", "Lớn", "Nguyên Sơ", "Xấu",
+            "Đỏ", "Xanh Dương", "Xanh Lá", "Vàng", "Đen",
+            "Vàng", "Bình Tĩnh", "Khô", "Lạc", "Dũng Cảm",
+            "Sâu", "Sáng", "Nặng", "Vui Vẻ", "Bí Ẩn",
+            "Hóa Thạch", "Chia", "Dễ Chịu", "Làm Mát", "Rơi",
+            "Sắc", "Xa Xôi", "Cổ Xưa", "Buồn", "Xinh Đẹp",
+            "Vĩnh Cửu", "Phù Thủy", "Nắng", "Lạnh", "Dốc",
+            "Nhẹ Nhàng", "Thanh Bình", "Hỗn Loạn", "Chết", "Rộng",
+            "Mở", "Đóng", "Bằng Phẳng", "Tối", "Ấm Áp",
+            "Yên Bình", "Khổng Lồ", "Trong Trắng", "Dài"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM TURCO   ==========================#
+
+adj_tur = ["İyi", "Beyaz", "Kutsal", "Kırık", "Gizli",
+           "Minik", "Küçük", "Eski", "Cennetsel", "Büyük",
+           "Yüksek", "Küçük", "Büyük", "El değmemiş", "Kötü",
+           "Kırmızı", "Mavi", "Yeşil", "Sarı", "Siyah",
+           "Altın", "Sakin", "Kuru", "Kayıp", "Cesur",
+           "Derin", "Parlak", "Ağır", "Sevinçli", "Gizemli",
+           "Taşlaşmış", "Bölünmüş", "Hoş", "Serinletici", "Düşen",
+           "Keskin", "Uzak", "Antik", "Üzgün", "Güzel",
+           "Ebedi", "Büyülenmiş", "Güneşli", "Soğuk", "Dik",
+           "Nazik", "Huzurlu", "Turbulanslı", "Ölü", "Geniş",
+           "Açık", "Kapalı", "Düz", "Karanlık", "Sıcak",
+           "Sakin", "Dev", "Saf", "Uzun"]
+
+nouns_tur = ["Kaya", "Dağ", "Nehir", "Toprak", "Ev",
+             "Tarla", "Mağara", "Gökyüzü", "Yıldız", "Bataklık",
+             "Pınar", "Orman", "Göl", "Kum", "Toprak",
+             "Rüzgarlar", "Yağmur", "Uçurum", "Fıskiye", "Su",
+             "Adam", "Ağaçlık", "Hava", "Ateş", "Yaprak",
+             "Yol", "Gece", "Meyve", "Kuş", "Yılan",
+             "Köy", "Tepelik", "Köy", "Kümes", "Çayır",
+             "Kurt", "Ruh", "Işık", "Yamaç", "Asker",
+             "Vadi", "Tepenin", "Şehir",
+             "Orman", "Sırt", "Gün", "Zirve",
+             "Sığınak", "İşaret", "Çalı",
+             "Gölet", "Yol", "Kapalı Mekan", "Şehir",
+             "Köprü", "Rahip", "Mezar", "Lanet",
+             "Toprak", "Manzara", "Çim"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM ÁRABE   ==========================#
+
+nouns_ara_mas = ["Jabal", "Nahr", "Ard", "Bayt", "Haql",
+                 "Kahf", "Najm", "Naba", "Ramal", "Turab",
+                 "Riyah", "Matar", "Jurf", "Maa", "Rajul",
+                 "Bustan", "Hawa", "Nar", "Mamar", "Layl",
+                 "Tair", "Tal", "Jadwal", "Koukh", "Dhi'b",
+                 "Ruh", "Daw'", "Munhadar", "Jundi", "Wadi",
+                 "Tal", "Balda", "Yawm", "Qimma", "Malja'",
+                 "Alama", "Shujaira", "Birka", "Tariq", "Jisr",
+                 "Kahin", "Qabr", "Manzar"]
+
+nouns_ara_fem = ["Sakhra", "Samaa", "Mustanqaa", "Ghaabah", "Buhayrah",
+                 "Nafura", "Waraqa", "Fakihah", "Thu'ban", "Madina",
+                 "Marj", "La'na", "Ard", "Ushb"]
+
+adj_ara_mas = ["Jayyid", "Abyad", "Muqaddas", "Maksur", "Makhfi",
+               "Saghir", "Qadeem", "Samaawi", "Kabir",
+               "Aali", "Naqi", "Sayyi'", "Hadi'",
+               "Ahmar", "Azraq", "Akhdar", "Asfar", "Aswad",
+               "Dhahabi", "Haade", "Jaa'if", "Mafqood",
+               "Ameek", "Mashriq", "Thaqeel", "Mufrih", "Ghaamid",
+               "Mutaharrik", "Mashquq", "Latif'", "Mubarrid", "Suqut",
+               "Had", "Ba'id", "Qadeem", "Hazeen", "Jameel",
+               "Mumazziq", "Muhib", "Mashmis", "Ka'ib", "Shadid",
+               "Salem", "Mutadarrib", "Qaas", "Wasi'",
+               "Muftuh", "Maghluq", "Mustah", "Dakn", "Lanha'i",
+               "Amlaq", "Twil", "Sakhb",
+               "Baarid", "Daa'if", "Khaatir",
+               "Naqi", "Shaji'", "Abedi", "Mutahjar", "Mayyit"]
+
+adj_ara_fem = ["Jayyidah", "Abyadah", "Muqaddasah", "Maksurah", "Makhfiyah",
+               "Saghirah", "Qadeemah", "Samaawiyah", "Kabirah", "Aaliyah",
+               "Naqiyah", "Sayyi'ah", "Hadi'ah", "Ahmarah", "Azraqah",
+               "Akhdarah", "Asfarah", "Aswadah", "Dhahabiyah", "Haadeh",
+               "Jaa'ifah", "Mafqoodah", "Ameekah", "Mashriqah", "Thaqeelah",
+               "Mufrihah", "Ghaamidah", "Mutaharrikah", "Mashquqah", "Latif'ah",
+               "Mubarridah", "Suqutah", "Hadh", "Baidah", "Qadeemah",
+               "Hazeenah", "Jameelah", "Mumazziqah", "Muhibah", "Mashmisah",
+               "Salemah", "Mutadarribah", "Qaasah", "Wasi'ah", "Muftuhah",
+               "Maghluqah", "Mustahah", "Daknah", "Lanha'iah", "Amlaqah",
+               "Twilah", "Sakhbah", "Baaridah", "Daa'ifah", "Khaatirah",
+               "Naqiyah", "Shaji'ah", "Abediyah", "Mutahjarah", "Mayyitah"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM INDONÉSIO   ==========================#
+
+nouns_ind = ["Batu", "Gunung", "Sungai", "Tanah", "Rumah",
+             "Lapangan", "Gua", "Langit", "Bintang", "Lembah",
+             "Mata Air", "Hutan", "Danau", "Pasir", "Angin",
+             "Hujan", "Tebing", "Air", "Pria", "Udara",
+             "Api", "Daun", "Jejak", "Malam", "Buah",
+             "Burung", "Ular", "Desa", "Bukit",
+             "Gubuk", "Padang", "Serigala", "Roh", "Cahaya",
+             "Kemiringan", "Prajurit", "Bank", "Sumur", "Gundukan",
+             "Kota", "Punggung", "Ranch", "Hari", "Puncak",
+             "Garis", "Taman", "Tempat Perlindungan", "Tanda", "Semak",
+             "Kolam", "Peri", "Jalan", "Gereja", "Jembatan",
+             "Imam", "Kuburan", "Kutukan", "Kelahiran", "Pemandangan",
+             "Rumput", "Tempat"]
+
+adj_ind = ["Baik", "Putih", "Suci", "Patah", "Tersembunyi",
+           "Kecil", "Tua", "Ilahi", "Besar",
+           "Tinggi", "Besar", "Buruk",
+           "Merah", "Biru", "Hijau", "Kuning", "Hitam",
+           "Emas", "Tenang", "Bising", "Kering", "Hilang",
+           "Dalam", "Terang", "Berat", "Gembira", "Misterius",
+           "Bergerak", "Terbelah", "Menyenangkan", "Pendinginan", "Jatuh",
+           "Tajam", "Jauh", "Kuno", "Sedih", "Indah",
+           "Robek", "Mewah", "Cerah", "Suram", "Curam",
+           "Lembut", "Damai", "Berombak", "Kasar", "Lebar",
+           "Terbuka", "Tertutup", "Dat", "Gelap", "Tak Terbatas",
+           "Tenang", "Raksasa", "Bagus", "Panjang", "Loud",
+           "Dingin", "Hangat", "Berbahaya", "Bertih", "Diukir",
+           "Murni", "Berani", "Abadi", "Membeku", "Mati"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM FARSI   ==========================#
+
+nouns_far = [
+    "Sang", "Kūh", "Rudkhāneh", "Zamīn", "Khāneh",
+    "Keshāvarzī", "Ghar", "Āsemān", "Setāreh", "Batlāgh",
+    "Cheshmeh", "Jangal", "Daryācheh", "Shen", "Khat",
+    "Bād", "Bārān", "Sakhreh", "Cheshmeh", "Āb",
+    "Mard", "Bāgh", "Havā", "Ātash", "Barg",
+    "Rāh", "Shab", "Miveh", "Parandeh", "Mār",
+    "Shahrak", "Tappeh", "Juybār", "Kolbeh", "Marghzār",
+    "Gorg", "Rūh", "Nūr", "Sarak", "Sarbaaz",
+    "Dara", "Tappey", "Shahr",
+    "Kamar", "Ruz", "Qolleh",
+    "Panāh", "Neshān", "Booteh",
+    "Hawz", "Jādeh", "Kelīsā", "Shahr",
+    "Pol", "Keshīsh", "Ghabr", "Lanat",
+    "Zamīn", "Manzareh", "Alaf"
+]
+
+adj_far = [
+    "Khoob", "Sefid", "Moghaddas", "Shekasteh", "Penhan",
+    "Toolani", "Koochak", "Pir", "Asemani", "Bozorg",
+    "Boland", "Koochak", "Bozorg", "Pāk", "Bad",
+    "Ghermez", "Ābi", "Sabz", "Zard", "Siah",
+    "Talāyi", "Ārām", "Khoshk", "Gomshodeh", "Shoja",
+    "Amigh", "Roshan", "Sangin", "Shad", "Asrārāmiz",
+    "Sang Shodeh", "Taghseem Shodeh", "Khoshāyand", "Sard Konandeh", "Soghut Konandeh",
+    "Tez", "Door", "Bāstān", "Ghamgin", "Ziba",
+    "Abadi", "Gonjunje", "Aftābi", "Sard", "Sakht",
+    "Lotf", "Āram", "Ashofteh", "Morde", "Pahn",
+    "Bāz", "Basteh", "Hamvār", "Tārik", "Garm",
+    "Arām", "Azim", "Pak"
+]
+
+
+# ==========================   NOMES DAS PROVÍNCIAS EM HAUSA   ==========================#
+
+nouns_hau = ["Dutse", "Kogi", "Kasa", "Gida", "Fili",
+             "Sama", "Tauraro", "Fadama", "Bazara", "Daji",
+             "Tafkin", "Yashi", "Iska", "Ruwan Sama", "Hayi",
+             "Ruwa", "Mutum", "Wuta", "Ganye", "Hanya",
+             "Dare", "Ya'yan Itace", "Tsuntsu", "Maciji", "Kauye",
+             "Tudu", "Daki", "Ruhu", "Fitila", "Soja",
+             "Kwari", "Gari", "Katako", "Rana", "Hanya",
+             "Birni", "Gada", "Firist", "Kabari", "Tsinewa",
+             "Haihuwa", "Ciyawa"]
+
+adj_hau = ["Mai Kyau", "Fari", "Mai Tsarki", "Boye", "Karami",
+           "Tsoho", "Babba", "Mugu", "Ja", "Shudi"
+            "Kore", "Rawaya", "Baki", "Jarumi", "Mai Zurfi"
+            "Mai Haske", "Mai Nauyi", "Mai Kaifi",
+            "Mai Nisa", "Mai Fadi",
+            "Mai Duhu", "Dogo", "Mai Sanyi", "Mai Dumi"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM SWAHILI   ==========================#
+
+nouns_sua_c1 = ["Mwanajeshi", "Mchungaji"]
+
+nouns_sua_c3 = ["Mlima", "Mto", "Msitu", "Mchanga", "Mwamba",
+                "Moto", "Mwanga", "Mteremko", "Mji", "Mwitu",
+                "Mgongo", "Mwatuko", "Mzizi", "Msalaba"]
+
+nouns_sua_c5 = ["Jiwe", "Pango", "Anga", "Bwawa", "Ziwa",
+                "Hori", "Bwana", "Jani", "Tunda", "Shamba",
+                "Bonde", "Kimbilio", "Daraja", "Jini", "Kanisa",
+                "Jiji"]
+
+nouns_sua_c7 = ["Kisima", "Kichaka", "Kijiji", "Kilima", "Kibanda",
+                "Kilele"]
+
+nouns_sua_c9 = ["Nchi", "Nyumba", "Nyota", "Mvua", "Chemchem",
+                "Hewa", "Njia", "Ndege", "Nyoka", "Mbwa Mwito",
+                "Roho", "Kando", "Siku", "Ishara", "Barabara",
+                "Kaburi", "Ardhi"]
+
+nouns_sua_c11 = ["Uwanja", "Udongo", "Upepo", "Unyasi"]
+
+adj_sua_c1 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
+              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
+              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
+              "Mwekundu", "Mbuluu", "Mkijani", "Mnjano", "Mweusi",
+              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
+              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
+              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
+              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
+              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
+              "Mpole", "Mamani", "Mvurugu", "Mkali", "Mpana",
+              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
+              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
+              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
+              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
+
+adj_sua_c3 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
+              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
+              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
+              "Mwekundu", "Mbuluu", "Mkjani", "Mnjano", "Mweusi",
+              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
+              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
+              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
+              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
+              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
+              "Mpole", "Mmani", "Mvurugu", "Mkali", "Mpana",
+              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
+              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
+              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
+              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
+
+adj_sua_c5 = ["Jema", "Jeupe", "Takatifu", "Vunjika", "Fichwa",
+              "Dogo", "Dogo", "Zee", "Mbinguni", "Kubwa",
+              "Refu", "Dogo", "Kubwa", "Safi", "Baya",
+              "Jekundu", "Buluu", "Kijani", "Njano", "Jeusi",
+              "Dhahabu", "Tulivu", "Kelele", "Kavu", "Potea",
+              "Refu", "Angavu", "Zito", "Furaha", "Siri",
+              "Songa", "Gawanyika", "Pendeza", "Burudisha", "Anguka",
+              "Kali", "Mbali", "Kale", "Huzuni", "Zuri",
+              "Raruka", "Adhimu", "Jua", "Giza", "Wima",
+              "Mpole", "Amani", "Vurugu", "Kali", "Pana",
+              "Wazi", "Fungwa", "Bapa", "Giza", "Milele",
+              "Tulivu", "Kubwa", "Zuri", "Refu", "Kelele",
+              "Baridi", "Joto", "Hatari", "Pumbaza", "Chonga",
+              "Safi", "Jasiri", "Milele", "Ganda", "Kufa"]
+
+adj_sua_c7 = ["Kizuri", "Kyeupe", "Kitakatifu", "Kivunjika", "Kifichika",
+              "Kidogo", "Kidogo", "Kikongwe", "Kimbingu", "Kikubwa",
+              "Kirefu", "Kidogo", "Kikubwa", "Kisafi", "Kibaya",
+              "Kikundu", "Kibuluu", "Kijani", "Kinanjano", "Kyeusi",
+              "Kidhahabu", "Kitulivu", "Kelele", "Kavu", "Kipotea",
+              "Kina", "Kangavu", "Kizito", "Kifuraha", "Kiujabu",
+              "Kisonga", "Kigawanyika", "Kipendeza", "Kipooza", "Kianguka",
+              "Kikali", "Kimbali", "Kikale", "Kihuzuni", "Kizuri",
+              "Kiraruka", "Kifalme", "Kijua", "Kigiza", "Kishuka",
+              "Kipole", "Kiamani", "Kiturbulent", "Kikali", "Kipan",
+              "Ki wazi", "Kifungwa", "Kibapa", "Kigiza", "Kisicho Na Mwisho",
+              "Kitulivu", "Kijitu", "Kizuri", "Kirefu", "Kenye Sauti Kubwa",
+              "Kibaridi", "Kijoto", "Kihatari", "Kivutia", "Kichongwa",
+              "Kisafi", "Kijasiri", "Kidaima", "Kikamilifu", "Kimfu"]
+
+adj_sua_c9 = ["Nzuri", "Nyeupe", "Takatifu", "Vunjika", "Fichwa",
+              "Ndogo", "Ndogo", "Nzee", "Nbinguni", "Nkubwa",
+              "Nrefu", "Ndogo", "Nkubwa", "Nsafi", "Nbaya",
+              "Nyekundu", "Nbuluu", "Nkijani", "Nnjano", "Njeusi",
+              "Ndahabu", "Ntulivu", "Nkelele", "Nkavu", "Npotea",
+              "Nrefu", "Nangavu", "Nzito", "Nfuraha", "Nsiri",
+              "Nsonga", "Ngawanyika", "Npendeza", "Nburudisha", "Nanguka",
+              "Nkali", "Nmbali", "Nkale", "Nhuzuni", "Nzuri",
+              "Nraruka", "Nadhimu", "Njua", "Ngiza", "Nwima",
+              "Nmpole", "Namani", "Nvurugu", "Nkali", "Npana",
+              "Nwazi", "Nfungwa", "Nbapa", "Ngiza", "Nmilele",
+              "Ntulivu", "Nkubwa", "Nzuri", "Nrefu", "Nkelele",
+              "Nbaridi", "Njoto", "Nhatari", "Npumbaza", "Nchonga",
+              "Nsafi", "Njasiri", "Nmilele", "Nganda", "Nkufa"]
+
+adj_sua_c11 = ["Uzuri", "Ueupe", "Utakatifu", "Unywele", "Uficho",
+               "Udogo", "Udogo", "Uzee", "Ubinguni", "Ukubwa",
+               "Urefu", "Udogo", "Ukubwa", "Usafi", "Ubayo",
+               "Uekundu", "Ubuluu", "Ukijani", "Unjano", "Ueusi",
+               "Udhahabu", "Utulivu", "Ukelele", "Ukavu", "Upotea",
+               "Urefu", "Uangavu", "Uzito", "Ufuraha", "Usiri",
+               "Usonga", "Ugawanyika", "Upendeza", "Uburudisha", "Uanguka",
+               "Ukali", "Umbali", "Ukale", "Uhuzuni", "Uzuri",
+               "Uraruka", "Uadhimu", "Ujua", "Ugiza", "Uwima",
+               "Upole", "Uamani", "Uvurugu", "Ukali", "Upana",
+               "Uwazi", "Ufungwa", "Ubapa", "Ugiza", "Umilele",
+               "Utulivu", "Ukubwa", "Uzuri", "Urefu", "Ukelele",
+               "Ubaridi", "Ujoto", "Uhatari", "Upumbaza", "Uchonga",
+               "Usafi", "Ujasiri", "Umilele", "Uganda", "Ukufa"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM PORTUGUÊS   ==========================#
+
+nouns_por_mas = ["Rio", "Campo", "Céu", "Pântano", "lago", "Solo",
+                 "Vento", "Penhasco", "Homem", "Ar", "Fogo", "Pássaro",
+                 "Morro", "Riacho", "Lobo", "Espírito", "Soldado",
+                 "Vale", "Monte", "Dia", "Pico", "Refúgio",
+                 "Sinal", "Arbusto", "Sacerdote", "Terreno", "Gramado",
+                 "Feitiço", "Jardim"]
+
+nouns_por_fem = ["Pedra", "Montanha", "Terra", "Casa", "Caverna",
+                 "Estrela", "Nascente", "Floresta", "Areia",
+                 "Chuva", "Escarpa", "Fonte", "Água", "Gruta",
+                 "Folha", "Trilha", "Noite", "Fruta", "Serpente",
+                 "Vila", "Cabana", "Campina", "Luz", "Barra",
+                 "Serra", "Cidade", "Mata", "Lagoa", "Estrada",
+                 "Capela", "Ponte", "Cova", "Vista"]
+
+adj_por_mas = ["Bom", "Branco", "Sagrado", "Quebrado", "Escondido",
+               "Longo", "Pequeno", "Velho", "Paradisíaco", "Grande",
+               "Alto", "Pristino", "Mau",
+               "Vermelho", "Azul", "Verde", "Amarelo", "Preto",
+               "Dourado", "Calmo", "Seco", "Perdido", "Bravio",
+               "Profundo", "Brilhante", "Pesado", "Alegre", "Misterioso",
+               "Petrificado", "Dividido", "Agradável", "Cadente",
+               "Afiado", "Distante", "Antigo", "Triste", "Bonito",
+               "Eterno", "Encantado", "Ensolarado", "Frio", "Íngrime",
+               "Gentil", "Pacífico", "Turbulento", "Morto", "Amplo",
+               "Aberto", "Fechado", "Plano", "Escuro", "Quente",
+               "Sereno", "Gigante", "Puro"]
+
+adj_por_fem = ["Boa", "Branca", "Sagrada", "Quebrada", "Escondida",
+               "Longa", "Pequena", "Velha", "Paradisíaca", "Grande",
+               "Alta", "Pristina", "Má",
+               "Vermelha", "Azul", "Verde", "Amarela", "Preta",
+               "Dourada", "Calma", "Seca", "Perdida", "Bravia",
+               "Profunda", "Brilhante", "Pesada", "Alegre", "Misteriosa",
+               "Petrificada", "Dividida", "Agradável", "Cadente",
+               "Afiada", "Distante", "Antiga", "Triste", "Bonita",
+               "Eterna", "Encantada", "Ensolarada", "Fria", "Íngrime",
+               "Gentil", "Pacífica", "Turbulenta", "Morta", "Ampla",
+               "Aberta", "Fechada", "Plana", "Escura", "Quente",
+               "Serena", "Gigante", "Pura"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM TELUGU   ==========================#
+
+adj_tel = ["Manchi", "Telupu", "PavitraMaina", "Virigina", "Dachina",
+           "Podavaine", "Chinna", "Pata", "Devatal", "Pedda",
+           "Ettaina", "Pristine", "Chedu",
+           "Erupu", "Neelam", "Aakupacha", "Pasupu", "Nalupu",
+           "Bangaru", "Uppika", "Poyina", "Dhairyanga",
+           "Lothaina", "Prakasince", "Bharinga", "AnandakarMaina", "RahasyaMaina",
+           "Oragina", "VibhajinchaBadina", "AahladaKaramaina", "Kooling", "Pade",
+           "Padunaine", "Dooramaina", "Praachina", "Vipulu", "Andamaina",
+           "ShashvataMaina", "MantramugdhaMaina", "EndaKaala", "Challani", "Nitaaaruga",
+           "Susaadyam", "Shantamaina", "KuduPulaaga", "Chanipoina", "VistaraMaina",
+           "Terichina", "Moochina", "SamataTa", "Cheekati", "VechaNani",
+           "Telikapaatia", "Daitamt", "Parishuddha"]
+
+nouns_tel = ["Parvatam", "Nakshatram", "Vasanta", "Sarassu",
+             "Varsham", "Uuta", "Paadam", "Phalam",
+             "Pakshi", "Grama", "Konda", "Vaagu", "Cheruvu",
+             "Meda", "Metta", "EluguBanti",
+             "Vampu", "Sainikudu", "Gutta", "Pattanam", "Agni",
+             "Shikharam", "Chenulo", "Puli", "Poojari",
+             "Raayi", "Nadi", "Guha", "Isuka", "Matti",
+             "Raatri", "Paamu", "Loya", "Adavi",
+             "Poda", "Thota", "Kaanti",
+             "Bhumi", "Drushti", "Gali",
+             "Illu", "Aakasham", "Neeru", "Dinam", "Kunta",
+             "Pullu", "Aaka", "Ashrayam", "Suchakam", "Palakame",
+             "Shaapam", "Podavu", "Nagaram", "Atma"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM BENGALI   ==========================#
+
+adj_ben = ["Bhalo", "Shada", "Pabitra", "Bhanga", "Lukiye",
+               "Lomba", "Puraono", "Swargiya", "Boro",
+               "Ucca", "Chhoto", "Nirmal", "Kharaap",
+               "Lal", "Neel", "Shobuj", "Holud", "Kalo",
+               "Swarna", "Shanto", "Shukna", "Hariye", "Sahasik",
+               "Gahiro", "Ujjwal", "Bhari", "Anandomoy", "Rahasyojano",
+               "Kothin", "Bhenge", "Sundor", "Shitala",
+               "Tikto", "Duro", "Prachin", "Dukho",
+               "Chironton", "Mohaishwarya", "Roudro", "Thanda", "Khar",
+               "Komal", "Shanti", "Ashanto", "Mrito", "Chowra",
+               "Khola", "Bondho", "Andhakar", "Garam",
+               "Santo", "Bipul"]
+
+nouns_ben = ["Pahar", "Nodi", "Bhumi", "Bari",
+                 "Math", "Guhar", "Akash", "Tara", "Jheel",
+                 "Jhorna", "Bon", "Hrida", "Balu", "Mati",
+                 "Hawa", "Brishti", "Ku", "Fowara", "Jol",
+                 "Manush", "Udyan", "Bayu", "Agun", "Pata",
+                 "Potht", "Raat", "Fol", "Pakhi", "Saanp",
+                 "Gram", "Tila", "Chhara", "Jhupi",
+                 "Atma", "Aalo", "Shar",
+                 "Upoth", "Tapaswi",
+                 "Upottok", "Teerthashala", "Nagor",
+                 "Raka", "Din", "Parbat",
+                 "Chinho", "Jhop",
+                 "Pukure", "Rasta", "Palakame", "Nagar",
+                 "Setu", "Pujari", "Shoshan", "Shopath",
+                 "Drishti", "Ghass"]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM JAPONÊS   ==========================#
+
+adj_jap = [
+    "Yoi", "Shiroi", "Shinseina", "Kowareta", "Kakushita",
+    "Nagai", "Chiisana", "Furui", "Ten no", "Ookii",
+    "Takai", "Chiisana", "Ookii", "Kiyoi", "Warui",
+    "Akai", "Aoi", "Midori no", "Kiiroi", "Kuroi",
+    "Kin'iro no", "Odayaka na", "Kawaita", "Ushinawareta", "Yuukan na",
+    "Fukai", "Akarui", "Omoi", "Ureshii", "Nazo no",
+    "Ishika shita", "Wakareta", "Tanoshii", "Reitou shita", "Ochiru",
+    "Surudoi", "Tooi", "Kodai no", "Kanashii", "Utsukushii",
+    "Eien no", "Maho ni kakerareta", "Hareta", "Samui", "Kyu",
+    "Yasashii", "Heiwa na", "Arasoi no", "Shinda", "Hiroi",
+    "Akeru", "Shimeru", "Taira na", "Kurai", "Atatakai",
+    "Shizuka na", "Kyo na", "Junsei"
+]
+
+nouns_jap = [
+    "Iwa", "Yama", "Kawa", "Chi", "Ie",
+    "Hatake", "Horaana", "Sora", "Hoshi", "Numachi",
+    "Izumi", "Mori", "Mizuumi", "Suna", "Tsuchi",
+    "Kaze", "Ame", "Gake", "Izumi", "Mizu",
+    "Otoko", "Hayashi", "Kuki", "Hi", "Ha",
+    "Michi", "Yoru", "Kudamono", "Tori", "Hebi",
+    "Machi", "Oka", "Kawa", "Koya", "No",
+    "Ookami", "Seirei", "Hikari", "Saka", "Heishi",
+    "Tani", "Tsuka", "Machi",
+    "Hayashi", "Mine", "Hi", "Takane",
+    "Hinansho", "Hyoushiki", "Shigeru",
+    "Ike", "Michi", "Kyokai", "Toshi",
+    "Hashi", "Shisai", "Haka", "Noroi",
+    "Ji", "Keshiki", "Shiba"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM MARATHI   ==========================#
+
+adj_mar_mas = [
+    "Changla", "Pandhra", "Pavitra", "Tuta", "Laplele",
+    "Lamb", "Chhota", "Juna", "Swargiya", "Motha",
+    "Uccha", "Chhota", "Motha", "Nirmal", "Vait",
+    "Lal", "Neela", "Hirva", "Pivla", "Kala",
+    "Soneri", "Shanta", "Sukha", "Haravlela", "Shur",
+    "Khola", "Tej", "Jadh", "Anandi", "Gudh",
+    "Shila", "Vibhag", "Sukhada", "Shital", "Padnara",
+    "Tikshna", "Durcha", "Prachin", "Dukhi", "Sundar",
+    "Anadi", "Jadui", "Divasli", "Thanda", "Kadar",
+    "Mild", "Shanta", "Gunj", "Mela", "Vishal",
+    "Ughad", "Band", "Sad", "Andhara", "Garam",
+    "Sthir", "Bhim", "Shuddha"
+]
+
+adj_mar_fem = [
+    "Changli", "Pandhri", "Pavitra", "Tuti", "Lapleleli",
+    "Lambi", "Chhoti", "Juni", "Swargiya", "Mothi",
+    "Ucchi", "Chhoti", "Mothi", "Nirmal", "Vait",
+    "Lali", "Neeli", "Hiravi", "Pivli", "Kali",
+    "Soneri", "Shanti", "Sukhi", "Haravleli", "Shur",
+    "Khola", "Tej", "Jadhi", "Anandi", "Gudh",
+    "Shila", "Vibhag", "Sukhada", "Shital", "Padnari",
+    "Tikshni", "Durchi", "Prachin", "Dukhi", "Sundar",
+    "Anadi", "Jadui", "Divasli", "Thandi", "Kadak",
+    "Mild", "Shanti", "Gunji", "Meli", "Vishal",
+    "Ughadi", "Band", "Sad", "Andhari", "Garam",
+    "Sthir", "Bhim", "Shuddha"
+]
+
+adj_mar_neu = [
+    "Changle", "Pandhre", "Pavitra", "Tute", "Laplelele",
+    "Lambe", "Chhote", "June", "Swargiya", "Mothe",
+    "Ucche", "Chhote", "Mothe", "Nirmal", "Vait",
+    "Lale", "Neel", "Hirve", "Pivle", "Kale",
+    "Soneri", "Shant", "Sukhe", "Haravlele", "Shur",
+    "Khol", "Tej", "Jadh", "Anand", "Gudh",
+    "Shil", "Vibhag", "Sukhada", "Shital", "Padnar",
+    "Tikshne", "Durcha", "Prachin", "Dukh", "Sundar",
+    "Anad", "Jadui", "Divasle", "Thand", "Kadak",
+    "Mild", "Shant", "Gunje", "Mel", "Vishal",
+    "Ughad", "Band", "Sad", "Andhar", "Garam",
+    "Sthir", "Bhim", "Shuddha"
+]
+
+nouns_mar_mas = [
+    "Khadak", "Parvat", "Ghar", "Shet", "Aakash",
+    "Jangal", "Vara", "Paus", "Kada", "Purush",
+    "Van", "Pan", "Phal", "Pakshi", "Saap",
+    "Gav", "Dongar", "Landga", "Atma", "Sainik",
+    "Khor", "Shahar", "Pul", "Pujari", "Shap",
+    "Drushya", "Gavat"
+]
+
+nouns_mar_fem = [
+    "Nadi", "Zamin", "Guha", "Tara", "Chikhal",
+    "Jhara", "Valu", "Mati", "Hawa", "Aag",
+    "Paulwat", "Ratra", "Zhopdi", "Kuran",
+    "Dhig", "Chinha", "Zhudup"
+]
+
+nouns_mar_neu = [
+    "Karanje", "Pani", "Talav", "Shikhar", "Aashray"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM COREANO   ==========================#
+
+adj_cor = [
+    "Joeun", "Hayan", "Shinseonghan", "Buseojin", "Sumgyeojin",
+    "Gin", "Jageun", "Oraedoen", "Cheonsang-ui", "Keun",
+    "Nop-eun", "Jageun", "Keun", "Wonsh-ui", "Nappeun",
+    "Ppalgan", "Paran", "Chorok-ui", "Noran", "Geom-eun",
+    "Geumsaeg-ui", "Pyeong-onhan", "Geonjohan", "Il-eobeolin", "Yong-gamhan",
+    "Gip-eun", "Balgeun", "Mugeoun", "Jeulgeoun", "Shinbihan",
+    "Seoghwadwin", "Bunyeol-dwin", "Jeulgeoun", "Siwonhan", "Tteoreojineun",
+    "Nalkaroun", "Meolli Inneun", "Godae-ui", "Seulpeun", "Areumdaun",
+    "Yeong-wonhan", "Mabeob-e Geollin", "Malgeun", "Chuun", "Gapareun",
+    "Budeureoun", "Pyeonghwaro-un", "Gyeokdongjeogin", "Jukeun", "Neolbeun",
+    "Yeollin", "Dat-eun", "Pyeongpyeonghan", "Eoduun", "Ttatteushan",
+    "Goyohan", "Geodaehan", "Sunsuhan"
+]
+
+nouns_cor = [
+    "Bawi", "San", "Gang", "Jigu", "Jip",
+    "Bat", "Donggul", "Haneul", "Byeol", "Neup",
+    "Saem", "Sup", "Ho", "Morae", "To",
+    "Baram", "Bi", "Jeolbyeok", "Sup", "Mul",
+    "Namja", "Sogeum", "Gonggi", "Bul", "Ip",
+    "Gil", "Bam", "Gwail", "Sae", "Baem",
+    "Ma-eul", "Eondeok", "Cheon", "Jjokbang", "Pyeongan",
+    "Neukdae", "Yeonghon", "Bit", "Gyeon", "Gundae",
+    "Gok", "Hwasal", "Doshi",
+    "Sanrim", "Gogae", "Nal", "Jeomjeong",
+    "Bigae", "Pyo", "Namuguri",
+    "Mot", "Gildo", "Seongdang", "Dosi",
+    "Dari", "Seongnyun", "Myoji", "Ju",
+    "Bam", "Gyeong", "Pul"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM ITALIANO   ==========================#
+
+adj_ita_mas = [
+    "Buono", "Bianco", "Sacro", "Rotto", "Nascosto",
+    "Lungo", "Vecchio", "Celeste", "Grande",
+    "Alto", "Piccolo", "Puro", "Cattivo",
+    "Rosso", "Blu", "Verde", "Giallo", "Nero",
+    "Dorato", "Calmo", "Secco", "Perso", "Coraggioso",
+    "Profondo", "Luminoso", "Pesante", "Gioioso", "Misterioso",
+    "Pietrificato", "Diviso", "Piacevole", "Rinfrescante", "Cadente",
+    "Affilato", "Distante", "Antico", "Triste", "Bello",
+    "Eterno", "Incantato", "Soleggiato", "Freddo", "Ripido",
+    "Gentile", "Pacifico", "Turbulento", "Morto", "Ampio",
+    "Aperto", "Chiuso", "Piatto", "Scuro", "Caldo",
+    "Sereno", "Gigantesco", "Puro"
+]
+
+adj_ita_fem = [
+    "Buona", "Bianca", "Sacra", "Rotta", "Nascosta",
+    "Lunga", "Piccola", "Vecchia", "Celeste",
+    "Alta", "Grande", "Pura", "Cattiva",
+    "Rossa", "Blu", "Verde", "Gialla", "Nera",
+    "Dorata", "Calma", "Secca", "Persa", "Coraggiosa",
+    "Profonda", "Luminosa", "Pesante", "Gioiosa", "Misteriosa",
+    "Pietrificata", "Divisa", "Piacevole", "Rinfrescante", "Cadente",
+    "Affilata", "Distante", "Antica", "Triste", "Bella",
+    "Eterna", "Incantata", "Soleggiata", "Fredda", "Ripida",
+    "Gentile", "Pacifica", "Turbulenta", "Morta", "Ampia",
+    "Aperta", "Chiusa", "Piatta", "Scura", "Calda",
+    "Serena", "Gigantesca", "Pura"
+]
+
+nouns_ita_mas = [
+    "Fiume", "Campo", "Cielo", "Lago", "Vento",
+    "Uomo", "Boschetto", "Fuoco", "Sentiero", "Uccello",
+    "Ruscello", "Prato", "Lupo", "Spirito",
+    "Pendio", "Soldato", "Tumulo", "Bosco", "Giorno",
+    "Rifugio", "Segno", "Cespuglio", "Stagno",
+    "Sacerdote", "Terreno"
+]
+
+nouns_ita_fem = [
+    "Roccia", "Montagna", "Terra", "Casa",
+    "Caverna", "Stella", "Palude", "Sorgente",
+    "Foresta", "Sabbia", "Pioggia", "Scogliera",
+    "Fontana", "Acqua", "Aria", "Foglia", "Ponte",
+    "Notte", "Frutta", "Cittadina", "Collina",
+    "Capanna", "Luce", "Valle", "Città", "Serpente",
+    "Cresta", "Cima", "Strada", "Cappella",
+    "Tomba", "Maledizione", "Vista", "Erba"
+]
+
+ita_bags = [
+    "Buono", "Grande", "Piccolo", "Vecchio", "Bello",
+    "Buona", "Piccola", "Vecchia", "Bella"
+]
+
+# ==========================   NOMES DAS PROVÍNCIAS EM ALEMÃO   ==========================#
+
+adj_ale_mas = [
+    "Guter", "Weißer", "Heiliger", "Gebrochener", "Versteckter",
+    "Langer", "Kleiner", "Alter", "Himmlischer", "Großer",
+    "Hoher", "Kleiner", "Großer", "Makelloser", "Schlechter",
+    "Roter", "Blauer", "Grüner", "Gelber", "Schwarzer",
+    "Goldener", "Ruhiger", "Trockener", "Verlorener", "Tapferer",
+    "Tiefer", "Heller", "Schwerer", "Fröhlicher", "Geheimnisvoller",
+    "Versteinerter", "Geteilter", "Angenehmer", "Erfrischender", "Fallender",
+    "Scharfer", "Ferns", "Alter", "Trauriger", "Schöner",
+    "Ewiger", "Verzauberter", "Sonniger", "Kalter", "Steiler",
+    "Sanfter", "Friedlicher", "Stürmischer", "Toter", "Weiter",
+    "Offener", "Geschlossener", "Flacher", "Dunkler", "Warmer",
+    "Heiterer", "Gigantischer", "Reiner"
+]
+
+adj_ale_fem = [
+    "Gute", "Weiße", "Heilige", "Gebrochene", "Versteckte",
+    "Lange", "Kleine", "Alte", "Himmlische", "Große",
+    "Hohe", "Kleine", "Große", "Makellose", "Schlechte",
+    "Rote", "Blaue", "Grüne", "Gelbe", "Schwarze",
+    "Goldene", "Ruhige", "Trockene", "Verlorene", "Tapfere",
+    "Tiefe", "Helle", "Schwere", "Fröhliche", "Geheimnisvolle",
+    "Versteinerte", "Geteilte", "Angenehme", "Erfrischende", "Fallende",
+    "Scharfe", "Ferne", "Alte", "Traurige", "Schöne",
+    "Ewige", "Verzauberte", "Sonnige", "Kalte", "Steile",
+    "Sanfte", "Friedliche", "Stürmische", "Tote", "Weite",
+    "Offene", "Geschlossene", "Flache", "Dunkle", "Warme",
+    "Heitere", "Gigantische", "Reine"
+]
+
+adj_ale_neu = [
+    "Gutes", "Weißes", "Heiliges", "Gebrochenes", "Verstecktes",
+    "Langes", "Kleines", "Altes", "Himmlisches", "Großes",
+    "Hohes", "Kleines", "Großes", "Makelloses", "Schlechtes",
+    "Rotes", "Blaues", "Grünes", "Gelbes", "Schwarzes",
+    "Goldenes", "Ruhiges", "Trockenes", "Verlorenes", "Tapferes",
+    "Tiefes", "Helles", "Schweres", "Fröhliches", "Geheimnisvolles",
+    "Versteinertes", "Geteiltes", "Angenehmes", "Erfrischendes", "Fallendes",
+    "Scharfes", "Fernes", "Altes", "Trauriges", "Schönes",
+    "Ewiges", "Verzaubertes", "Sonniges", "Kaltes", "Steiles",
+    "Sanftes", "Friedliches", "Stürmisches", "Totes", "Weites",
+    "Offenes", "Geschlossenes", "Flaches", "Dunkles", "Warmes",
+    "Heiteres", "Gigantisches", "Reines"
+]
+
+nouns_ale_mas = [
+    "Felsen", "Berg", "Fluss", "Wind", "Regen",
+    "Brunnen", "Mann", "Hain", "Feuer", "Pfad",
+    "Vogel", "Bach", "Wolf", "Geist",
+    "Hang", "Soldat", "Grat", "Tag",
+    "Gipfel", "Busch", "Teich", "Priester",
+    "Fluch", "Boden"
+]
+
+nouns_ale_fem = [
+    "Höhle", "Klippe", "Quelle", "Wiese", "Luft",
+    "Nacht", "Frucht", "Schlange", "Stadt", "Straße",
+    "Kapelle", "Brücke", "Zuflucht", "Aussicht",
+    "Erde"
+]
+
+nouns_ale_neu = [
+    "Land", "Haus", "Feld", "Himmel", "Stern",
+    "Sumpf", "See", "Sand", "Wasser", "Blatt",
+    "Licht", "Tal", "Zeichen",
+    "Grab", "Gras"
+]
+
+# ==========================   CONSTRUIR FUNÇÕES DOS NOMES DAS CAPITAIS E PROVÍNCIAS   ==========================#
+
+def formar_nome_chines(adj_chi, nouns_chi):
+    adj = random.choice(adj_chi)
+    noun = random.choice(nouns_chi)
+    nome = adj + " " + noun
+    return nome
+
+
+def formar_nome_indonesio(nouns_ind, adj_ind):
+    noun = random.choice(nouns_ind)
+    adj = random.choice(adj_ind)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_vietnamita(nouns_viet, adj_viet):
+    noun = random.choice(nouns_viet)
+    adj = random.choice(adj_viet)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_hindi(adj_hin_mas, adj_hin_fem, nouns_hin_mas, nouns_hin_fem):
+    lista_combinada = nouns_hin_mas + nouns_hin_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_hin_mas:
+        adj = random.choice(adj_hin_mas)
+    else:
+        adj = random.choice(adj_hin_fem)
+    nome = adj + " " + noun
+    return nome
+
+
+def formar_nome_farsi(nouns_far, adj_far):
+    noun = random.choice(nouns_far)
+    adj = random.choice(adj_far)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_arabe(nouns_ara_mas, nouns_ara_fem, adj_ara_mas, adj_ara_fem):
+    lista_combinada = nouns_ara_mas + nouns_ara_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_ara_mas:
+        adj = random.choice(adj_ara_mas)
+    else:
+        adj = random.choice(adj_ara_fem)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_russo(adj_rus_mas, adj_rus_fem, adj_rus_neu, nouns_rus_mas, nouns_rus_fem, nouns_rus_neu):
+    lista_combinada = nouns_rus_mas + nouns_rus_fem + nouns_rus_neu
+    noun = random.choice(lista_combinada)
+    if noun in nouns_rus_mas:
+        adj = random.choice(adj_rus_mas)
+    elif noun in nouns_rus_fem:
+        adj = random.choice(adj_rus_fem)
+    else:
+        adj = random.choice(adj_rus_neu)
+    nome = adj + " " + noun
+    return nome
+
+
+def formar_nome_suaili(nouns_sua_c1, nouns_sua_c3, nouns_sua_c5, nouns_sua_c7, nouns_sua_c9, nouns_sua_c11, adj_sua_c1,
+                       adj_sua_c3, adj_sua_c5, adj_sua_c7, adj_sua_c9, adj_sua_c11):
+    lista_combinada = nouns_sua_c1 + nouns_sua_c3 + nouns_sua_c5 + nouns_sua_c7 + nouns_sua_c9 + nouns_sua_c11
+    noun = random.choice(lista_combinada)
+    if noun in nouns_sua_c1:
+        adj = random.choice(adj_sua_c1)
+    elif noun in nouns_sua_c3:
+        adj = random.choice(adj_sua_c3)
+    elif noun in nouns_sua_c5:
+        adj = random.choice(adj_sua_c5)
+    elif noun in nouns_sua_c7:
+        adj = random.choice(adj_sua_c7)
+    elif noun in nouns_sua_c9:
+        adj = random.choice(adj_sua_c9)
+    else:
+        adj = random.choice(adj_sua_c11)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_turco(adj_tur, nouns_tur):
+    adj = random.choice(adj_tur)
+    noun = random.choice(nouns_tur)
+    nome = adj + " " + noun
+    return nome
+
+
+def formar_nome_frances(adj_fra_mas, adj_fra_fem, bags, nouns_fra_mas, nouns_fra_fem):
+    lista_combinada = nouns_fra_mas + nouns_fra_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_fra_mas:
+        adj = random.choice(adj_fra_mas)
+    else:
+        adj = random.choice(adj_fra_fem)
+    if adj in bags:
+        nome = adj + " " + noun
+    else:
+        nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_hausa(nouns_hau, adj_hau):
+    noun = random.choice(nouns_hau)
+    adj = random.choice(adj_hau)
+    nome = noun + " " + adj
+    return nome
+
+
+def formar_nome_ingles(adj_ing, nouns_ing):
+    adj = random.choice(adj_ing)
+    noun = random.choice(nouns_ing)
+    nome = adj + " " + noun
+    return nome
+
+
+def formar_nome_espanhol(nouns_esp_mas, nouns_esp_fem, adj_esp_mas, adj_esp_fem):
+    lista_combinada = nouns_esp_mas + nouns_esp_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_esp_mas:
+        adj = random.choice(adj_esp_mas)
+    else:
+        adj = random.choice(adj_esp_fem)
+    nome = noun + " " + adj
+    return nome
+
+def formar_nome_portugues(nouns_por_mas, nouns_por_fem, adj_por_mas, adj_por_fem):
+    lista_combinada = nouns_por_mas + nouns_por_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_por_mas:
+        adj = random.choice(adj_por_mas)
+    else:
+        adj = random.choice(adj_por_fem)
+    nome = noun + " " + adj
+    return nome
+
+def formar_nome_telugu(adj_tel, nouns_tel):
+    adj = random.choice(adj_tel)
+    noun = random.choice(nouns_tel)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_bengali(adj_ben, nouns_ben):
+    adj = random.choice(adj_ben)
+    noun = random.choice(nouns_ben)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_japones(adj_jap, nouns_jap):
+    adj = random.choice(adj_jap)
+    noun = random.choice(nouns_jap)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_marathi(adj_mar_mas, adj_mar_fem, adj_mar_neu, nouns_mar_mas, nouns_mar_fem, nouns_mar_neu):
+    lista_combinada = nouns_mar_mas + nouns_mar_fem + nouns_mar_neu
+    noun = random.choice(lista_combinada)
+    if noun in nouns_mar_mas:
+        adj = random.choice(adj_mar_mas)
+    elif noun in nouns_mar_fem:
+        adj = random.choice(adj_mar_fem)
+    else:
+        adj = random.choice(adj_mar_neu)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_coreano(adj_cor, nouns_cor):
+    adj = random.choice(adj_cor)
+    noun = random.choice(nouns_cor)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_italiano(nouns_ita_mas, nouns_ita_fem, adj_ita_mas, adj_ita_fem):
+    lista_combinada = nouns_ita_mas + nouns_ita_fem
+    noun = random.choice(lista_combinada)
+    if noun in nouns_ita_mas:
+        adj = random.choice(adj_ita_mas)
+    else:
+        adj = random.choice(adj_ita_fem)
+    if adj in ita_bags:
+        nome = adj + " " + noun
+    else:
+        nome = noun + " " + adj
+    return nome
+
+def formar_nome_alemao(adj_ale_mas, adj_ale_fem, adj_ale_neu, nouns_ale_mas, nouns_ale_fem, nouns_ale_neu):
+    lista_combinada = nouns_ale_mas + nouns_ale_fem + nouns_ale_neu
+    noun = random.choice(lista_combinada)
+    if noun in nouns_ale_mas:
+        adj = random.choice(adj_ale_mas)
+    elif noun in nouns_ale_fem:
+        adj = random.choice(adj_ale_fem)
+    else:
+        adj = random.choice(adj_ale_neu)
+    nome = adj + " " + noun
+    return nome
+
+def formar_nome_wu(adj_wu, nouns_wu):
+    adj = random.choice(adj_wu)
+    noun = random.choice(nouns_wu)
+    nome = adj + " " + noun
+    return nome
+
+######################################################################################################################
+
+def formar_nome(cultura):
+    if cultura == "Chinese":
+        return formar_nome_chines(adj_chi, nouns_chi)
+    elif cultura == "Indonesian":
+        return formar_nome_indonesio(nouns_ind, adj_ind)
+    elif cultura == "Vietnamese":
+        return formar_nome_vietnamita(nouns_viet, adj_viet)
+    elif cultura == "Indian":
+        return formar_nome_hindi(adj_hin_mas, adj_hin_fem, nouns_hin_mas, nouns_hin_fem)
+    elif cultura == "Persian":
+        return formar_nome_farsi(nouns_far, adj_far)
+    elif cultura == "Arabic":
+        return formar_nome_arabe(nouns_ara_mas, nouns_ara_fem, adj_ara_mas, adj_ara_fem)
+    elif cultura == "Russian":
+        return formar_nome_russo(adj_rus_mas, adj_rus_fem, adj_rus_neu, nouns_rus_mas, nouns_rus_fem, nouns_rus_neu)
+    elif cultura == "Swahili":
+        return formar_nome_suaili(
+            nouns_sua_c1, nouns_sua_c3, nouns_sua_c5,
+            nouns_sua_c7, nouns_sua_c9, nouns_sua_c11,
+            adj_sua_c1, adj_sua_c3, adj_sua_c5,
+            adj_sua_c7, adj_sua_c9, adj_sua_c11
+        )
+    elif cultura == "Turkish":
+        return formar_nome_turco(adj_tur, nouns_tur)
+    elif cultura == "French":
+        return formar_nome_frances(adj_fra_mas, adj_fra_fem, bags, nouns_fra_mas, nouns_fra_fem)
+    elif cultura == "Hausa":
+        return formar_nome_hausa(nouns_hau, adj_hau)
+    elif cultura == "English":
+        return formar_nome_ingles(adj_ing, nouns_ing)
+    elif cultura == "Portuguese":
+        return formar_nome_portugues(nouns_por_mas, nouns_por_fem, adj_por_mas, adj_por_fem)
+    elif cultura == "Telugu":
+        return formar_nome_telugu(adj_tel, nouns_tel)
+    elif cultura == "Bengali":
+        return formar_nome_bengali(adj_ben, nouns_ben)
+    elif cultura == "Japanese":
+        return formar_nome_japones(adj_jap, nouns_jap)
+    elif cultura == "Marathi":
+        return formar_nome_marathi(adj_mar_mas, adj_mar_fem, adj_mar_neu, nouns_mar_mas, nouns_mar_fem, nouns_mar_neu)
+    elif cultura == "Korean":
+        return formar_nome_coreano(adj_cor, nouns_cor)
+    elif cultura == "Italian":
+        return formar_nome_italiano(nouns_ita_mas, nouns_ita_fem, adj_ita_mas, adj_ita_fem)
+    elif cultura == "German":
+        return formar_nome_alemao(adj_ale_mas, adj_ale_fem, adj_ale_neu, nouns_ale_mas, nouns_ale_fem, nouns_ale_neu)
+    elif cultura == "Wu":
+        return formar_nome_wu(adj_wu, nouns_wu)
+    elif cultura == "Yue":
+        return formar_nome_wu(adj_yue, nouns_yue)
+    elif cultura == "Min":
+        return formar_nome_wu(adj_min, nouns_min)
+    else:
+        return formar_nome_espanhol(nouns_esp_mas, nouns_esp_fem, adj_esp_mas, adj_esp_fem)
+
+
+================================================================================
+📄 shared/civilization.py
+================================================================================
+import random
+from shared.flags import bandeira
+
+class Civilizacao:
+    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None):
+        self.player = player
+        self.nome = nome
+        self.cultura = ref.culturas[indice % len(ref.culturas)]
+        self.cor = ref.civs_cores[self.nome]
+        self.modalidade_bandeira = random.randint(0, 82)
+        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira)
+        self.ponto_inicial = ponto_inicial
+        self.provincias = []
+        self.unidades = []
+
+================================================================================
+📄 shared/province.py
+================================================================================
+from shared.naming import formar_nome
+
+class Provincia:
+    def __init__(self, civilizacao, coordenadas):
+        self.civilizacao = civilizacao
+        self.coordenadas = coordenadas
+        self.nome = formar_nome(civilizacao.cultura)
+
+================================================================================
+📄 shared/world.py
+================================================================================
+import random
+from uuid import uuid4
+
+from shared.references import Referencias
+from shared.planet import Planeta
+from shared.civilization import Civilizacao
+from shared.province import Provincia
+
+class Mundo:
+    def __init__(self, fator=4, bioma='Meadow'):
+        self.id_mundo = str(uuid4())
+        ref = Referencias()
+        random.shuffle(ref.culturas)
+        lista_de_cores = list(ref.civs_cores.keys())
+        random.shuffle(lista_de_cores)
+        self.planeta = Planeta(fator=fator, bioma=bioma)
+        self.civs = []
+        for i, capital in enumerate(self.planeta.capitais_players):
+            indice = i
+            lista_de_cores = list(ref.civs_cores.keys())
+            nome = lista_de_cores[i % len(lista_de_cores)]
+            self.civs.append(Civilizacao(ref, i, nome, True, self.planeta.capitais_players[indice]))
+        for i, capital in enumerate(self.planeta.capitais_neutros):
+            indice = i + len(self.planeta.capitais_players)
+            lista_de_cores = list(ref.civs_cores.keys())
+            nome = lista_de_cores[indice % len(lista_de_cores)]
+            self.civs.append(Civilizacao(ref, indice, nome, False, capital))
+        a = 0
+        b = 0
+        for civ in self.civs:
+            if civ.player:
+                self.ponto_inicial = self.planeta.capitais_players[a]
+                provincia = Provincia(civ, self.ponto_inicial)
+                civ.provincias.append(provincia)
+                a += 1
+                continue
+            self.ponto_inicial = self.planeta.capitais_neutros[b]
+            provincia = Provincia(civ, self.ponto_inicial)
+            civ.provincias.append(provincia)
+
+
+================================================================================
+📄 shared/references.py
+================================================================================
+class Referencias:
+    def __init__(self):
+        self.culturas = [
+            'English', 'Chinese', 'Spanish',
+            'French', 'Indian', 'Russian',
+            'Vietnamese', 'Turkish', 'Arabic',
+            'Indonesian', 'Persian', 'Hausa',
+            'Swahili', 'Portuguese', 'Telugu',
+            'Bengali', 'Japanese', 'Marathi',
+            'Wu', 'Yue', 'Min',
+            'Korean', 'Italian', 'German'
+        ]
+        self.civs_cores = {
+            'Black': (16, 16, 16), 'Midnight Blue': (0, 0, 127), 'Blue': (0, 0, 255),
+            'Dark Green': (0, 127, 0), 'Teal': (0, 127, 127), 'Sky Blue': (32, 127, 223),
+            'Green': (0, 255, 0), 'Spring Green': (0, 255, 127), 'Cyan': (0, 223, 223),
+            'Maroon': (127, 0, 0), 'Purple': (127, 0, 127), 'Violet': (127, 0, 255),
+            'Olive': (127, 127, 0), 'Gray': (127, 127, 127), 'Lavender': (127, 127, 255),
+            'Chartreuse': (127, 255, 0), 'Light Green': (127, 223, 127), 'Pale Cyan': (127, 255, 255),
+            'Red': (234, 33, 37), 'Rose': (255, 0, 127), 'Magenta': (255, 0, 255),
+            'Orange': (223, 127, 32), 'Salmon': (255, 127, 127), 'Orchid': (255, 127, 255),
+            'Yellow': (255, 255, 0), 'Light Yellow': (255, 255, 127), 'White': (250, 255, 253)
+        }
+
+        self.tons_de_pele = [(245, 212, 205), (212, 160, 147), (163, 106, 95), (101, 61, 53)]
+        self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
+
+================================================================================
+✅ Total de 16 arquivos incluídos.
+================================================================================

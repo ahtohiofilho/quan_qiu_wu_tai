@@ -1,0 +1,2283 @@
+{
+  "id_mundo": "5e946bdf-961d-43dd-8b5b-6284733ef02b",
+  "fator": 4,
+  "bioma_inicial": "Meadow",
+  "vagas": 4,
+  "geografia": {
+    "nodes": [
+      {
+        "placa": "Xi",
+        "bioma": "Ocean",
+        "id": [
+          7,
+          1
+        ]
+      },
+      {
+        "placa": "Phi",
+        "bioma": "Ocean",
+        "id": [
+          6,
+          1
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          7,
+          2
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Sea",
+        "id": [
+          7,
+          5
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Savanna",
+        "id": [
+          6,
+          5
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Ocean",
+        "id": [
+          7,
+          6
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Hills",
+        "id": [
+          7,
+          9
+        ]
+      },
+      {
+        "placa": "Sigma",
+        "bioma": "Hills",
+        "id": [
+          6,
+          9
+        ]
+      },
+      {
+        "placa": "Theta",
+        "bioma": "Sea",
+        "id": [
+          7,
+          10
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Sea",
+        "id": [
+          7,
+          13
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Sea",
+        "id": [
+          6,
+          13
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Sea",
+        "id": [
+          7,
+          14
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Savanna",
+        "id": [
+          7,
+          17
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Ocean",
+        "id": [
+          6,
+          17
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          7,
+          18
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Coast",
+        "id": [
+          5,
+          2
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Sea",
+        "id": [
+          6,
+          3
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Coast",
+        "id": [
+          5,
+          3
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Forest",
+        "id": [
+          5,
+          6
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Meadow",
+        "id": [
+          6,
+          7
+        ]
+      },
+      {
+        "placa": "Lambda",
+        "bioma": "Sea",
+        "id": [
+          5,
+          7
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Forest",
+        "id": [
+          5,
+          10
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Meadow",
+        "id": [
+          6,
+          11
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Ocean",
+        "id": [
+          5,
+          11
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Forest",
+        "id": [
+          5,
+          14
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Forest",
+        "id": [
+          6,
+          15
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Mountains",
+        "id": [
+          5,
+          15
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Coast",
+        "id": [
+          5,
+          18
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Mountains",
+        "id": [
+          6,
+          19
+        ]
+      },
+      {
+        "placa": "Rho",
+        "bioma": "Mountains",
+        "id": [
+          5,
+          19
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Ocean",
+        "id": [
+          3,
+          1
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Meadow",
+        "id": [
+          2,
+          1
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Desert",
+        "id": [
+          3,
+          2
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Ocean",
+        "id": [
+          3,
+          4
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          2,
+          3
+        ]
+      },
+      {
+        "placa": "Lambda",
+        "bioma": "Ocean",
+        "id": [
+          3,
+          5
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Desert",
+        "id": [
+          3,
+          7
+        ]
+      },
+      {
+        "placa": "Alpha",
+        "bioma": "Sea",
+        "id": [
+          2,
+          5
+        ]
+      },
+      {
+        "placa": "Alpha",
+        "bioma": "Coast",
+        "id": [
+          3,
+          8
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Sea",
+        "id": [
+          3,
+          10
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          2,
+          7
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Ocean",
+        "id": [
+          3,
+          11
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Desert",
+        "id": [
+          3,
+          13
+        ]
+      },
+      {
+        "placa": "Theta",
+        "bioma": "Sea",
+        "id": [
+          2,
+          9
+        ]
+      },
+      {
+        "placa": "Rho",
+        "bioma": "Coast",
+        "id": [
+          3,
+          14
+        ]
+      },
+      {
+        "placa": "Alpha",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          1
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Ocean",
+        "id": [
+          10,
+          1
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          2
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          4
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Ocean",
+        "id": [
+          10,
+          3
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          5
+        ]
+      },
+      {
+        "placa": "Chi",
+        "bioma": "Coast",
+        "id": [
+          9,
+          7
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Ocean",
+        "id": [
+          10,
+          5
+        ]
+      },
+      {
+        "placa": "Chi",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          8
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Hills",
+        "id": [
+          9,
+          10
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Desert",
+        "id": [
+          10,
+          7
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Ocean",
+        "id": [
+          9,
+          11
+        ]
+      },
+      {
+        "placa": "Sigma",
+        "bioma": "Coast",
+        "id": [
+          9,
+          13
+        ]
+      },
+      {
+        "placa": "Sigma",
+        "bioma": "Savanna",
+        "id": [
+          10,
+          9
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Sea",
+        "id": [
+          9,
+          14
+        ]
+      },
+      {
+        "placa": "Lambda",
+        "bioma": "Meadow",
+        "id": [
+          8,
+          1
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          2
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          3
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Mountains",
+        "id": [
+          8,
+          5
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          6
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Sea",
+        "id": [
+          8,
+          7
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          9
+        ]
+      },
+      {
+        "placa": "Chi",
+        "bioma": "Hills",
+        "id": [
+          8,
+          10
+        ]
+      },
+      {
+        "placa": "Theta",
+        "bioma": "Coast",
+        "id": [
+          8,
+          11
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Forest",
+        "id": [
+          8,
+          13
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Forest",
+        "id": [
+          8,
+          14
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Meadow",
+        "id": [
+          8,
+          15
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Hills",
+        "id": [
+          8,
+          17
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          18
+        ]
+      },
+      {
+        "placa": "Delta",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          19
+        ]
+      },
+      {
+        "placa": "Phi",
+        "bioma": "Desert",
+        "id": [
+          4,
+          1
+        ]
+      },
+      {
+        "placa": "Phi",
+        "bioma": "Sea",
+        "id": [
+          4,
+          2
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Ocean",
+        "id": [
+          4,
+          3
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Sea",
+        "id": [
+          4,
+          5
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Ocean",
+        "id": [
+          4,
+          6
+        ]
+      },
+      {
+        "placa": "Omicron",
+        "bioma": "Ocean",
+        "id": [
+          4,
+          7
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Forest",
+        "id": [
+          4,
+          9
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Ocean",
+        "id": [
+          4,
+          10
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Meadow",
+        "id": [
+          4,
+          11
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Mountains",
+        "id": [
+          4,
+          13
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Forest",
+        "id": [
+          4,
+          14
+        ]
+      },
+      {
+        "placa": "Omicron",
+        "bioma": "Forest",
+        "id": [
+          4,
+          15
+        ]
+      },
+      {
+        "placa": "Omicron",
+        "bioma": "Sea",
+        "id": [
+          4,
+          17
+        ]
+      },
+      {
+        "placa": "Rho",
+        "bioma": "Desert",
+        "id": [
+          4,
+          18
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Desert",
+        "id": [
+          4,
+          19
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Meadow",
+        "id": [
+          7,
+          0
+        ]
+      },
+      {
+        "placa": "Phi",
+        "bioma": "Desert",
+        "id": [
+          6,
+          0
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Sea",
+        "id": [
+          5,
+          0
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Mountains",
+        "id": [
+          7,
+          4
+        ]
+      },
+      {
+        "placa": "Kappa",
+        "bioma": "Desert",
+        "id": [
+          6,
+          4
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Desert",
+        "id": [
+          5,
+          4
+        ]
+      },
+      {
+        "placa": "Chi",
+        "bioma": "Coast",
+        "id": [
+          7,
+          8
+        ]
+      },
+      {
+        "placa": "Chi",
+        "bioma": "Meadow",
+        "id": [
+          6,
+          8
+        ]
+      },
+      {
+        "placa": "Lambda",
+        "bioma": "Desert",
+        "id": [
+          5,
+          8
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Sea",
+        "id": [
+          7,
+          12
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Coast",
+        "id": [
+          6,
+          12
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Savanna",
+        "id": [
+          5,
+          12
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Savanna",
+        "id": [
+          7,
+          16
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Hills",
+        "id": [
+          6,
+          16
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Coast",
+        "id": [
+          5,
+          16
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Desert",
+        "id": [
+          5,
+          1
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Sea",
+        "id": [
+          6,
+          2
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Ocean",
+        "id": [
+          7,
+          3
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Desert",
+        "id": [
+          5,
+          5
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Coast",
+        "id": [
+          6,
+          6
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Sea",
+        "id": [
+          7,
+          7
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Hills",
+        "id": [
+          5,
+          9
+        ]
+      },
+      {
+        "placa": "Mu",
+        "bioma": "Mountains",
+        "id": [
+          6,
+          10
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Coast",
+        "id": [
+          7,
+          11
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Mountains",
+        "id": [
+          5,
+          13
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Hills",
+        "id": [
+          6,
+          14
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Forest",
+        "id": [
+          7,
+          15
+        ]
+      },
+      {
+        "placa": "Beta",
+        "bioma": "Ocean",
+        "id": [
+          5,
+          17
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Coast",
+        "id": [
+          6,
+          18
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Forest",
+        "id": [
+          7,
+          19
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Sea",
+        "id": [
+          3,
+          0
+        ]
+      },
+      {
+        "placa": "Rho",
+        "bioma": "Desert",
+        "id": [
+          2,
+          0
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Ocean",
+        "id": [
+          1,
+          0
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Sea",
+        "id": [
+          3,
+          3
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Sea",
+        "id": [
+          2,
+          2
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Ocean",
+        "id": [
+          1,
+          1
+        ]
+      },
+      {
+        "placa": "Psi",
+        "bioma": "Mountains",
+        "id": [
+          3,
+          6
+        ]
+      },
+      {
+        "placa": "Alpha",
+        "bioma": "Meadow",
+        "id": [
+          2,
+          4
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          1,
+          2
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Sea",
+        "id": [
+          3,
+          9
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          2,
+          6
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ocean",
+        "id": [
+          1,
+          3
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Hills",
+        "id": [
+          3,
+          12
+        ]
+      },
+      {
+        "placa": "Pi",
+        "bioma": "Sea",
+        "id": [
+          2,
+          8
+        ]
+      },
+      {
+        "placa": "Theta",
+        "bioma": "Ocean",
+        "id": [
+          1,
+          4
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Sea",
+        "id": [
+          9,
+          0
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Sea",
+        "id": [
+          10,
+          0
+        ]
+      },
+      {
+        "placa": "Sigma",
+        "bioma": "Ocean",
+        "id": [
+          11,
+          0
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Savanna",
+        "id": [
+          9,
+          3
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Sea",
+        "id": [
+          10,
+          2
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Sea",
+        "id": [
+          11,
+          1
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Mountains",
+        "id": [
+          9,
+          6
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Coast",
+        "id": [
+          10,
+          4
+        ]
+      },
+      {
+        "placa": "Nu",
+        "bioma": "Ice",
+        "id": [
+          11,
+          2
+        ]
+      },
+      {
+        "placa": "Theta",
+        "bioma": "Hills",
+        "id": [
+          9,
+          9
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Hills",
+        "id": [
+          10,
+          6
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Ice",
+        "id": [
+          11,
+          3
+        ]
+      },
+      {
+        "placa": "Eta",
+        "bioma": "Coast",
+        "id": [
+          9,
+          12
+        ]
+      },
+      {
+        "placa": "Sigma",
+        "bioma": "Savanna",
+        "id": [
+          10,
+          8
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Ice",
+        "id": [
+          11,
+          4
+        ]
+      },
+      {
+        "placa": "Lambda",
+        "bioma": "Forest",
+        "id": [
+          8,
+          0
+        ]
+      },
+      {
+        "placa": "Xi",
+        "bioma": "Savanna",
+        "id": [
+          8,
+          4
+        ]
+      },
+      {
+        "placa": "Gamma",
+        "bioma": "Coast",
+        "id": [
+          8,
+          8
+        ]
+      },
+      {
+        "placa": "Tau",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          12
+        ]
+      },
+      {
+        "placa": "Upsilon",
+        "bioma": "Ocean",
+        "id": [
+          8,
+          16
+        ]
+      },
+      {
+        "placa": "Phi",
+        "bioma": "Desert",
+        "id": [
+          4,
+          0
+        ]
+      },
+      {
+        "placa": "Epsilon",
+        "bioma": "Desert",
+        "id": [
+          4,
+          4
+        ]
+      },
+      {
+        "placa": "Omicron",
+        "bioma": "Mountains",
+        "id": [
+          4,
+          8
+        ]
+      },
+      {
+        "placa": "Zeta",
+        "bioma": "Forest",
+        "id": [
+          4,
+          12
+        ]
+      },
+      {
+        "placa": "Omicron",
+        "bioma": "Sea",
+        "id": [
+          4,
+          16
+        ]
+      },
+      {
+        "placa": "Iota",
+        "bioma": "Ice",
+        "id": [
+          0,
+          0
+        ]
+      },
+      {
+        "placa": "Omega",
+        "bioma": "Ice",
+        "id": [
+          12,
+          0
+        ]
+      }
+    ],
+    "links": []
+  },
+  "civilizacoes": [
+    {
+      "nome": "Teal",
+      "cultura": "Chinese",
+      "cor": [
+        0,
+        127,
+        127
+      ],
+      "modalidade_bandeira": 41,
+      "cores_bandeira": [
+        [
+          127,
+          0,
+          255
+        ],
+        [
+          255,
+          0,
+          127
+        ],
+        [
+          0,
+          127,
+          127
+        ]
+      ],
+      "player": true,
+      "provincias": [
+        {
+          "coordenadas": [
+            6,
+            11
+          ],
+          "nome": "Yǒnghéng Qiū"
+        }
+      ]
+    },
+    {
+      "nome": "Spring Green",
+      "cultura": "Bengali",
+      "cor": [
+        0,
+        255,
+        127
+      ],
+      "modalidade_bandeira": 72,
+      "cores_bandeira": [
+        [
+          255,
+          127,
+          255
+        ],
+        [
+          0,
+          255,
+          127
+        ]
+      ],
+      "player": true,
+      "provincias": [
+        {
+          "coordenadas": [
+            8,
+            15
+          ],
+          "nome": "Holud Raat"
+        }
+      ]
+    },
+    {
+      "nome": "Light Yellow",
+      "cultura": "German",
+      "cor": [
+        255,
+        255,
+        127
+      ],
+      "modalidade_bandeira": 45,
+      "cores_bandeira": [
+        [
+          255,
+          255,
+          127
+        ],
+        [
+          0,
+          255,
+          0
+        ],
+        [
+          127,
+          223,
+          127
+        ]
+      ],
+      "player": true,
+      "provincias": [
+        {
+          "coordenadas": [
+            7,
+            0
+          ],
+          "nome": "Flacher Bach"
+        }
+      ]
+    },
+    {
+      "nome": "Pale Cyan",
+      "cultura": "Marathi",
+      "cor": [
+        127,
+        255,
+        255
+      ],
+      "modalidade_bandeira": 74,
+      "cores_bandeira": [
+        [
+          127,
+          255,
+          255
+        ],
+        [
+          234,
+          33,
+          37
+        ],
+        [
+          255,
+          0,
+          127
+        ]
+      ],
+      "player": true,
+      "provincias": [
+        {
+          "coordenadas": [
+            2,
+            1
+          ],
+          "nome": "Shur Ghar"
+        }
+      ]
+    },
+    {
+      "nome": "Yellow",
+      "cultura": "English",
+      "cor": [
+        255,
+        255,
+        0
+      ],
+      "modalidade_bandeira": 71,
+      "cores_bandeira": [
+        [
+          255,
+          255,
+          0
+        ],
+        [
+          127,
+          127,
+          255
+        ],
+        [
+          0,
+          223,
+          223
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            8,
+            14
+          ],
+          "nome": "Split Grove"
+        }
+      ]
+    },
+    {
+      "nome": "Orchid",
+      "cultura": "Turkish",
+      "cor": [
+        255,
+        127,
+        255
+      ],
+      "modalidade_bandeira": 71,
+      "cores_bandeira": [
+        [
+          127,
+          127,
+          127
+        ],
+        [
+          255,
+          127,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            7,
+            19
+          ],
+          "nome": "Açık Çalı"
+        }
+      ]
+    },
+    {
+      "nome": "Magenta",
+      "cultura": "Telugu",
+      "cor": [
+        255,
+        0,
+        255
+      ],
+      "modalidade_bandeira": 23,
+      "cores_bandeira": [
+        [
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          127,
+          255
+        ],
+        [
+          0,
+          223,
+          223
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            7,
+            15
+          ],
+          "nome": "MantramugdhaMaina Vaagu"
+        }
+      ]
+    },
+    {
+      "nome": "Chartreuse",
+      "cultura": "French",
+      "cor": [
+        127,
+        255,
+        0
+      ],
+      "modalidade_bandeira": 62,
+      "cores_bandeira": [
+        [
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          127,
+          127
+        ],
+        [
+          127,
+          255,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            6,
+            10
+          ],
+          "nome": "Jour Divisé"
+        }
+      ]
+    },
+    {
+      "nome": "Green",
+      "cultura": "Arabic",
+      "cor": [
+        0,
+        255,
+        0
+      ],
+      "modalidade_bandeira": 62,
+      "cores_bandeira": [
+        [
+          255,
+          127,
+          255
+        ],
+        [
+          0,
+          255,
+          0
+        ],
+        [
+          223,
+          223,
+          127
+        ],
+        [
+          127,
+          0,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            9,
+            9
+          ],
+          "nome": "Hawa Dakn"
+        }
+      ]
+    },
+    {
+      "nome": "Orange",
+      "cultura": "Wu",
+      "cor": [
+        223,
+        127,
+        32
+      ],
+      "modalidade_bandeira": 5,
+      "cores_bandeira": [
+        [
+          0,
+          127,
+          255
+        ],
+        [
+          0,
+          127,
+          0
+        ],
+        [
+          223,
+          127,
+          32
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            9,
+            6
+          ],
+          "nome": "Xiao Wu"
+        }
+      ]
+    },
+    {
+      "nome": "Midnight Blue",
+      "cultura": "Yue",
+      "cor": [
+        0,
+        0,
+        127
+      ],
+      "modalidade_bandeira": 73,
+      "cores_bandeira": [
+        [
+          0,
+          0,
+          127
+        ],
+        [
+          16,
+          16,
+          16
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            2,
+            0
+          ],
+          "nome": "Meih Lìhng"
+        }
+      ]
+    },
+    {
+      "nome": "Blue",
+      "cultura": "Spanish",
+      "cor": [
+        0,
+        0,
+        255
+      ],
+      "modalidade_bandeira": 78,
+      "cores_bandeira": [
+        [
+          255,
+          127,
+          127
+        ],
+        [
+          0,
+          0,
+          255
+        ],
+        [
+          127,
+          0,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            3,
+            12
+          ],
+          "nome": "Noche Alta"
+        }
+      ]
+    },
+    {
+      "nome": "Lavender",
+      "cultura": "Indonesian",
+      "cor": [
+        127,
+        127,
+        255
+      ],
+      "modalidade_bandeira": 48,
+      "cores_bandeira": [
+        [
+          127,
+          0,
+          255
+        ],
+        [
+          127,
+          255,
+          255
+        ],
+        [
+          127,
+          127,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            6,
+            14
+          ],
+          "nome": "Kelahiran Membeku"
+        }
+      ]
+    },
+    {
+      "nome": "Light Green",
+      "cultura": "Swahili",
+      "cor": [
+        127,
+        223,
+        127
+      ],
+      "modalidade_bandeira": 58,
+      "cores_bandeira": [
+        [
+          127,
+          0,
+          127
+        ],
+        [
+          127,
+          223,
+          127
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            8
+          ],
+          "nome": "Kibanda Kigawanyika"
+        }
+      ]
+    },
+    {
+      "nome": "Cyan",
+      "cultura": "Vietnamese",
+      "cor": [
+        0,
+        223,
+        223
+      ],
+      "modalidade_bandeira": 13,
+      "cores_bandeira": [
+        [
+          127,
+          127,
+          0
+        ],
+        [
+          127,
+          0,
+          0
+        ],
+        [
+          0,
+          223,
+          223
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            10,
+            7
+          ],
+          "nome": "Thung Lũng Nhỏ"
+        }
+      ]
+    },
+    {
+      "nome": "Violet",
+      "cultura": "Japanese",
+      "cor": [
+        127,
+        0,
+        255
+      ],
+      "modalidade_bandeira": 20,
+      "cores_bandeira": [
+        [
+          127,
+          0,
+          255
+        ],
+        [
+          127,
+          127,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            5,
+            1
+          ],
+          "nome": "Ushinawareta Haka"
+        }
+      ]
+    },
+    {
+      "nome": "Red",
+      "cultura": "Persian",
+      "cor": [
+        234,
+        33,
+        37
+      ],
+      "modalidade_bandeira": 2,
+      "cores_bandeira": [
+        [
+          127,
+          0,
+          255
+        ],
+        [
+          127,
+          127,
+          0
+        ],
+        [
+          234,
+          33,
+          37
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            5,
+            10
+          ],
+          "nome": "Sakhreh Ghermez"
+        }
+      ]
+    },
+    {
+      "nome": "Salmon",
+      "cultura": "Italian",
+      "cor": [
+        255,
+        127,
+        127
+      ],
+      "modalidade_bandeira": 36,
+      "cores_bandeira": [
+        [
+          0,
+          127,
+          255
+        ],
+        [
+          255,
+          127,
+          127
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            8,
+            5
+          ],
+          "nome": "Sorgente Calma"
+        }
+      ]
+    },
+    {
+      "nome": "Purple",
+      "cultura": "Indian",
+      "cor": [
+        127,
+        0,
+        127
+      ],
+      "modalidade_bandeira": 8,
+      "cores_bandeira": [
+        [
+          255,
+          255,
+          0
+        ],
+        [
+          127,
+          0,
+          127
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            12
+          ],
+          "nome": "Bada Talab"
+        }
+      ]
+    },
+    {
+      "nome": "Dark Green",
+      "cultura": "Korean",
+      "cor": [
+        0,
+        127,
+        0
+      ],
+      "modalidade_bandeira": 9,
+      "cores_bandeira": [
+        [
+          0,
+          0,
+          255
+        ],
+        [
+          0,
+          127,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            3,
+            7
+          ],
+          "nome": "Pyeonghwaro-un Bawi"
+        }
+      ]
+    },
+    {
+      "nome": "Olive",
+      "cultura": "Hausa",
+      "cor": [
+        127,
+        127,
+        0
+      ],
+      "modalidade_bandeira": 77,
+      "cores_bandeira": [
+        [
+          16,
+          16,
+          16
+        ],
+        [
+          127,
+          127,
+          0
+        ],
+        [
+          127,
+          0,
+          255
+        ],
+        [
+          127,
+          255,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            5,
+            19
+          ],
+          "nome": "Ruwa Mai Nisa"
+        }
+      ]
+    },
+    {
+      "nome": "Sky Blue",
+      "cultura": "Min",
+      "cor": [
+        32,
+        127,
+        223
+      ],
+      "modalidade_bandeira": 2,
+      "cores_bandeira": [
+        [
+          255,
+          0,
+          255
+        ],
+        [
+          255,
+          255,
+          0
+        ],
+        [
+          0,
+          127,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            13
+          ],
+          "nome": "Biú Chhīng"
+        }
+      ]
+    },
+    {
+      "nome": "Rose",
+      "cultura": "Russian",
+      "cor": [
+        255,
+        0,
+        127
+      ],
+      "modalidade_bandeira": 47,
+      "cores_bandeira": [
+        [
+          223,
+          127,
+          32
+        ],
+        [
+          127,
+          127,
+          0
+        ],
+        [
+          255,
+          0,
+          127
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            6,
+            4
+          ],
+          "nome": "Zhel'taya Dolina"
+        }
+      ]
+    },
+    {
+      "nome": "White",
+      "cultura": "Portuguese",
+      "cor": [
+        250,
+        255,
+        253
+      ],
+      "modalidade_bandeira": 49,
+      "cores_bandeira": [
+        [
+          250,
+          255,
+          253
+        ],
+        [
+          127,
+          223,
+          127
+        ],
+        [
+          255,
+          127,
+          127
+        ],
+        [
+          127,
+          127,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            9
+          ],
+          "nome": "Gramado Preto"
+        }
+      ]
+    },
+    {
+      "nome": "Maroon",
+      "cultura": "Chinese",
+      "cor": [
+        127,
+        0,
+        0
+      ],
+      "modalidade_bandeira": 9,
+      "cores_bandeira": [
+        [
+          127,
+          255,
+          255
+        ],
+        [
+          127,
+          0,
+          0
+        ],
+        [
+          127,
+          223,
+          127
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            8,
+            4
+          ],
+          "nome": "Yǒnggǎn Tián"
+        }
+      ]
+    },
+    {
+      "nome": "Black",
+      "cultura": "Bengali",
+      "cor": [
+        16,
+        16,
+        16
+      ],
+      "modalidade_bandeira": 10,
+      "cores_bandeira": [
+        [
+          127,
+          255,
+          255
+        ],
+        [
+          16,
+          16,
+          16
+        ],
+        [
+          127,
+          0,
+          255
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            1
+          ],
+          "nome": "Garam Palakame"
+        }
+      ]
+    },
+    {
+      "nome": "Gray",
+      "cultura": "German",
+      "cor": [
+        127,
+        127,
+        127
+      ],
+      "modalidade_bandeira": 14,
+      "cores_bandeira": [
+        [
+          127,
+          127,
+          127
+        ],
+        [
+          127,
+          127,
+          0
+        ],
+        [
+          255,
+          255,
+          0
+        ]
+      ],
+      "player": false,
+      "provincias": [
+        {
+          "coordenadas": [
+            4,
+            19
+          ],
+          "nome": "Langer Fluss"
+        }
+      ]
+    }
+  ]
+}
