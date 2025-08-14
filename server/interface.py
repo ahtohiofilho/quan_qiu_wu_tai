@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from server.serialization import Serializador
 from server.manager import Gerenciador
 from server.aws_loader import AWSLoader
+from server.initializer import InicializadorAWS
 
 
 class Interface(QMainWindow):
@@ -78,6 +79,26 @@ class Interface(QMainWindow):
 
         group_local.setLayout(layout_local)
         layout.addWidget(group_local)
+
+        layout.addSpacing(20)
+
+        # === Botão: Reinicializar Infraestrutura AWS ===
+        btn_reiniciar = QPushButton("⚠️ Reinicializar Infraestrutura AWS")
+        btn_reiniciar.setStyleSheet("""
+            QPushButton {
+                background-color: #a83232;
+                color: white;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #c03939;
+            }
+        """)
+        btn_reiniciar.clicked.connect(self.handle_reinicializar_servidor)
+        layout.addWidget(btn_reiniciar)
+        layout.addSpacing(10)
 
         layout.addStretch()
         tab.setLayout(layout)
@@ -178,6 +199,58 @@ class Interface(QMainWindow):
                 QMessageBox.StandardButton.Ok
             )
             print(f"❌ Erro em handle_criar_e_upload: {e}")
+
+    def handle_reinicializar_servidor(self):
+        """
+        Abre um diálogo de confirmação e, se confirmado,
+        reinicializa a infraestrutura AWS (S3 + DynamoDB).
+        """
+        reply = QMessageBox.question(
+            self,
+            "⚠️ Reinicializar Servidor",
+            "Isso apagará TODOS os mundos e metadados no S3 e DynamoDB.\n"
+            "Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            # Reutiliza o aws_loader já inicializado (não cria um novo)
+            if not hasattr(self, 'aws_loader') or self.aws_loader is None:
+                QMessageBox.critical(self, "Erro", "Falha ao acessar AWS Loader.")
+                return
+
+            # Cria o inicializador e executa
+            inicializador = InicializadorAWS(self.aws_loader)
+            sucesso = inicializador.inicializar(confirmar=False)
+
+            if sucesso:
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    "Servidor reinicializado com sucesso!\n"
+                    "Todas as tabelas e arquivos foram limpos e recriados."
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Atenção",
+                    "A reinicialização foi executada, mas pode ter falhado em algum ponto."
+                )
+        except ModuleNotFoundError:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Módulo 'inicializador' não encontrado.\n"
+                "Certifique-se de que 'server/inicializador.py' existe."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Falha ao reinicializar o servidor:\n{str(e)}"
+            )
 
 
 # Execução da aplicação

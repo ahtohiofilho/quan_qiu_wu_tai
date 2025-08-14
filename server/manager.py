@@ -19,48 +19,58 @@ class Gerenciador:
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(exist_ok=True)  # Mantido para compatibilidade futura
 
-    def upload_mundo(
-        self,
-        mundo: Mundo,
-        bucket_name: str = "global-arena-tiles",
-        s3_prefix: str = "planetas/"
-    ) -> bool:
+    def upload_mundo(self, mundo: Mundo, bucket_name: str = "global-arena-tiles", s3_prefix: str = "planetas/") -> bool:
         """
-        Serializa o mundo e envia diretamente para S3.
-        Também salva metadados no DynamoDB.
+        Separa os dados do mundo:
+        - Dados pesados (geografia, civilizacoes) → S3
+        - Metadados leves (fator, bioma_inicial, vagas) → DynamoDB (GlobalArena)
 
-        :param mundo: Instância de Mundo a ser enviada.
-        :param bucket_name: Nome do bucket S3.
-        :param s3_prefix: Prefixo (pasta virtual) no bucket.
-        :return: True se sucesso, False caso contrário.
+        :param mundo: Instância de Mundo a ser enviada
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta virtual) no bucket
+        :return: True se sucesso, False caso contrário
         """
         try:
-            # --- 1. Serializar ---
-            data = Serializador.to_serializable_dict(mundo)
-            json_data = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
-            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
+            # --- 1. Serializar com Serializador (para garantir compatibilidade) ---
+            full_data = Serializador.to_serializable_dict(mundo)
 
-            # --- 2. Upload para S3 ---
+            # Extrair apenas o necessário para o S3
+            data_s3 = {
+                "id_mundo": full_data["id_mundo"],
+                "geografia": full_data["geografia"],
+                "civilizacoes": full_data["civilizacoes"]
+            }
+
+            # Upload para S3
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
             s3_client = self.aws_loader.get_client('s3')
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=s3_key,
-                Body=json_data,
+                Body=json.dumps(data_s3, ensure_ascii=False, indent=2).encode('utf-8'),
                 ContentType='application/json'
             )
             print(f"✅ Mundo enviado para S3: s3://{bucket_name}/{s3_key}")
 
-            # --- 3. Salvar metadados no DynamoDB ---
-            dynamodb = self.aws_loader.get_client('dynamodb')
+            # --- 2. Salvar metadados no DynamoDB (GlobalArena) ---
+            pk = f"PLANET#{mundo.id_mundo}"
+            sk = "METADATA"
             bioma_inicial = mundo.planeta.geografia.nodes[mundo.planeta.capitais_players[0]]['bioma']
-            item = {
-                'id_mundo': {'S': mundo.id_mundo},
-                'fator': {'N': str(mundo.planeta.fator)},
-                'bioma_inicial': {'S': bioma_inicial},
-                'vagas': {'SS': []}  # Set vazio para IDs de usuários
-            }
-            dynamodb.put_item(TableName="planetas_metadata", Item=item)
-            print(f"✅ Metadados salvos no DynamoDB: {mundo.id_mundo}")
+            vagas = mundo.planeta.numero_de_jogadores
+
+            dynamodb = self.aws_loader.get_client('dynamodb')
+            dynamodb.put_item(
+                TableName="GlobalArena",
+                Item={
+                    'PK': {'S': pk},
+                    'SK': {'S': sk},
+                    'entityType': {'S': 'Planet'},
+                    'fator': {'N': str(mundo.planeta.fator)},
+                    'bioma_inicial': {'S': bioma_inicial},
+                    'vagas': {'N': str(vagas)}  # número de vagas (atualizável)
+                }
+            )
+            print(f"✅ Metadados salvos no DynamoDB: {pk}")
 
             return True
 
