@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-14 11:41:59
+Gerado em: 2025-08-15 21:46:40
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo de todos os scripts principais reunidos.
 
@@ -11,22 +11,36 @@ Conteúdo de todos os scripts principais reunidos.
 
 📁 .
 ├── server
+│   ├── routes
+│   │   └── auth.py
 │   ├── saves
 │   │   └── mundo_5e946bdf-961d-43dd-8b5b-6284733ef02b.json
+│   ├── services
+│   │   └── user_service.py
+│   ├── app.py
 │   ├── aws_loader.py
 │   ├── commander.py
+│   ├── config.py
+│   ├── extensions.py
 │   ├── initializer.py
 │   ├── interface.py
-│   ├── main.py
 │   ├── manager.py
+│   ├── sei_la_o_que.py
 │   └── serialization.py
 ├── client
+│   ├── components
+│   │   └── logo_renderer.py
+│   ├── resources
+│   │   ├── log-in.png
+│   │   └── smile.png
+│   ├── states
+│   │   ├── __init__.py
+│   │   └── main_menu.py
 │   ├── main.py
 │   └── window.py
 ├── shared
 │   ├── civilization.py
 │   ├── geography.py
-│   ├── naming.py
 │   ├── planet.py
 │   ├── polygons.py
 │   ├── province.py
@@ -279,6 +293,88 @@ if __name__ == "__main__":
     inicializador.inicializar(confirmar=True)
 
 ================================================================================
+📄 server/extensions.py
+================================================================================
+# server/extensions.py
+from server.aws_loader import AWSLoader
+
+class Extensions:
+    def __init__(self):
+        self.dynamodb = None
+        # self.redis = None # Futuro
+
+    def init_app(self, app):
+        """Inicializa as extensões com base na configuração da app Flask."""
+        try:
+            aws_loader = AWSLoader(
+                profile_name=app.config['AWS_PROFILE_NAME'],
+                region_name=app.config['AWS_REGION_NAME']
+            )
+            self.dynamodb = aws_loader.get_client('dynamodb')
+            print("✅ Cliente DynamoDB conectado via Extensions.")
+        except Exception as e:
+            print(f"❌ Falha ao conectar ao DynamoDB na inicialização: {e}")
+            self.dynamodb = None # Ou lançar exceção, dependendo da política de falhas
+
+# Instância global
+ext = Extensions()
+
+================================================================================
+📄 server/sei_la_o_que.py
+================================================================================
+# sei_la_o_que.py
+
+from aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
+
+def main():
+    print("🚀 Iniciando aplicação...\n")
+
+    # --- Configuração ---
+    loader = AWSLoader(
+        region_name='us-east-2',
+        # profile_name='seu-perfil'  # opcional
+    )
+
+    # --- 1. Informações da conta ---
+    try:
+        account = loader.get_account_info()
+        print(f"✅ Logado na conta AWS: {account['account_id']}")
+        print(f"👤 Usuário/Role: {account['arn']}\n")
+    except Exception as e:
+        print(f"❌ Falha ao obter conta: {e}")
+        return
+
+    # --- 2. Listar buckets S3 ---
+    try:
+        buckets = loader.list_s3_buckets()
+        print(f"📦 Buckets S3 encontrados ({len(buckets)}):")
+        for bucket in buckets:
+            print(f"  - {bucket}")
+    except Exception as e:
+        print(f"❌ Erro ao listar buckets S3: {e}")
+
+    # --- 3. Listar tabelas DynamoDB ---
+    try:
+        tables = loader.list_dynamodb_tables()
+        print(f"\n📊 Tabelas DynamoDB encontradas ({len(tables)}):")
+        for table in tables:
+            print(f"  - {table}")
+    except Exception as e:
+        print(f"❌ Erro ao listar tabelas DynamoDB: {e}")
+
+    # --- 4. Exemplo: usar cliente S3 ---
+    try:
+        s3 = loader.get_client('s3')
+        response = s3.list_buckets()
+        print(f"\n🌍 Conexão S3 bem-sucedida. Total de buckets: {len(response['Buckets'])}")
+    except Exception as e:
+        print(f"❌ Falha ao usar cliente S3: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
 📄 server/aws_loader.py
 ================================================================================
 # aws_loader.py
@@ -523,6 +619,94 @@ class Gerenciador:
         return Mundo(fator=fator, bioma=bioma)
 
 ================================================================================
+📄 server/app.py
+================================================================================
+# server/app.py
+from flask import Flask
+from server.config import config
+from server.extensions import ext
+from server.services.user_service import UserService
+# Importa o blueprint e a função de registro
+from server.routes.auth import auth_bp, register_routes
+
+
+def create_app(config_name='default'):
+    """Factory function para criar a aplicação Flask."""
+    app = Flask(__name__)
+
+    # 1. Carrega a configuração
+    app.config.from_object(config[config_name])
+
+    # 2. Inicializa as extensões
+    ext.init_app(app)
+
+    # 3. Cria instâncias de serviços, injetando dependências
+    user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
+
+    # 4. Registra os Blueprints e injeta dependências
+    # Registra as rotas do auth_bp, passando o serviço de usuário
+    register_routes(user_service)
+    app.register_blueprint(auth_bp)
+
+    # 5. Rotas principais (opcional)
+    @app.route('/')
+    def home():
+        return "🚀 Servidor Global Arena - API (Refatorado com Classes)", 200
+
+    return app
+
+
+# Para execução direta (ex: python server/app.py)
+if __name__ == '__main__':
+    app = create_app('development')  # Ou 'production'
+    print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
+    print("📄 Endpoints disponíveis:")
+    print("   GET  /             - Status do servidor")
+    print("   GET  /auth/teste_dynamodb - Teste de conexão com DynamoDB (via UserService)")
+    print("-" * 40)
+    app.run(host='127.0.0.1', port=5000, debug=app.config['DEBUG'])
+
+
+================================================================================
+📄 server/config.py
+================================================================================
+# server/config.py
+import os
+
+
+class Config:
+    # Flask
+    SECRET_KEY = os.environ.get(
+        'SECRET_KEY') or 'chave_secreta_dev_super_segura'  # Em produção, use variável de ambiente
+
+    # AWS
+    AWS_PROFILE_NAME = os.environ.get('AWS_PROFILE_NAME') or None
+    AWS_REGION_NAME = os.environ.get('AWS_REGION_NAME') or 'us-east-2'  # Certifique-se de usar a mesma região
+
+    # DynamoDB
+    DYNAMODB_TABLE_NAME = os.environ.get(
+        'DYNAMODB_TABLE_NAME') or 'GlobalArena'  # Ou 'UsuariosGlobalArena' se criar uma nova
+
+    # Futuras configurações (ex: Redis, Logging)
+    # REDIS_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'
+
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+
+
+class ProductionConfig(Config):
+    DEBUG = False
+    # SECRET_KEY = os.environ.get('SECRET_KEY') # Obrigatório em produção
+
+
+config = {
+    'development': DevelopmentConfig,
+    'production': ProductionConfig,
+    'default': DevelopmentConfig
+}
+
+================================================================================
 📄 server/serialization.py
 ================================================================================
 # server/serialization.py
@@ -668,61 +852,6 @@ class Serializador:
 
         sucesso = cls.save_to_json(mundo, filepath)
         return str(filepath) if sucesso else ""
-
-================================================================================
-📄 server/main.py
-================================================================================
-# main.py
-
-from aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
-
-def main():
-    print("🚀 Iniciando aplicação...\n")
-
-    # --- Configuração ---
-    loader = AWSLoader(
-        region_name='us-east-2',
-        # profile_name='seu-perfil'  # opcional
-    )
-
-    # --- 1. Informações da conta ---
-    try:
-        account = loader.get_account_info()
-        print(f"✅ Logado na conta AWS: {account['account_id']}")
-        print(f"👤 Usuário/Role: {account['arn']}\n")
-    except Exception as e:
-        print(f"❌ Falha ao obter conta: {e}")
-        return
-
-    # --- 2. Listar buckets S3 ---
-    try:
-        buckets = loader.list_s3_buckets()
-        print(f"📦 Buckets S3 encontrados ({len(buckets)}):")
-        for bucket in buckets:
-            print(f"  - {bucket}")
-    except Exception as e:
-        print(f"❌ Erro ao listar buckets S3: {e}")
-
-    # --- 3. Listar tabelas DynamoDB ---
-    try:
-        tables = loader.list_dynamodb_tables()
-        print(f"\n📊 Tabelas DynamoDB encontradas ({len(tables)}):")
-        for table in tables:
-            print(f"  - {table}")
-    except Exception as e:
-        print(f"❌ Erro ao listar tabelas DynamoDB: {e}")
-
-    # --- 4. Exemplo: usar cliente S3 ---
-    try:
-        s3 = loader.get_client('s3')
-        response = s3.list_buckets()
-        print(f"\n🌍 Conexão S3 bem-sucedida. Total de buckets: {len(response['Buckets'])}")
-    except Exception as e:
-        print(f"❌ Falha ao usar cliente S3: {e}")
-
-
-if __name__ == "__main__":
-    main()
 
 ================================================================================
 📄 server/interface.py
@@ -990,19 +1119,136 @@ if __name__ == "__main__":
     sys.exit(app.exec())
 
 ================================================================================
+📄 server/services/user_service.py
+================================================================================
+# server/services/user_service.py
+import boto3
+from botocore.exceptions import ClientError
+
+class UserService:
+    def __init__(self, dynamodb_client, table_name):
+        self.dynamodb = dynamodb_client
+        self.table_name = table_name
+
+    def _format_user_key(self, username: str) -> dict:
+        """Formata a chave primária do usuário no DynamoDB."""
+        # Assumindo o esquema PK='USER#<username>', SK='PROFILE' da tabela GlobalArena
+        return {
+            'PK': {'S': f'USER#{username}'},
+            'SK': {'S': 'PROFILE'}
+        }
+
+    def get_user(self, username: str) -> dict:
+        """Busca um usuário pelo username."""
+        if not self.dynamodb:
+            print("⚠️ Cliente DynamoDB não disponível no UserService.")
+            return None
+        try:
+            response = self.dynamodb.get_item(
+                TableName=self.table_name,
+                Key=self._format_user_key(username)
+            )
+            return response.get('Item')
+        except ClientError as e:
+            print(f"❌ Erro do DynamoDB ao buscar usuário '{username}': {e.response['Error']['Message']}")
+            return None
+        except Exception as e:
+            print(f"❌ Erro inesperado ao buscar usuário '{username}': {e}")
+            return None
+
+    def create_user_item(self, username: str, **attributes) -> bool:
+        """
+        Cria um novo item de usuário no DynamoDB.
+        `attributes` deve conter os outros atributos do usuário (ex: password_hash).
+        """
+        if not self.dynamodb:
+             print("⚠️ Cliente DynamoDB não disponível no UserService.")
+             return False
+        try:
+            item = {
+                'PK': {'S': f'USER#{username}'},
+                'SK': {'S': 'PROFILE'},
+                # Adiciona outros atributos fornecidos
+                **{k: {'S': str(v)} for k, v in attributes.items()} # Simplificação: assume string. Use 'B' para bytes (hash).
+            }
+            self.dynamodb.put_item(
+                TableName=self.table_name,
+                Item=item
+            )
+            print(f"✅ Item de usuário '{username}' criado/Atualizado no DynamoDB.")
+            return True
+        except ClientError as e:
+             print(f"❌ Erro do DynamoDB ao criar usuário '{username}': {e.response['Error']['Message']}")
+             return False
+        except Exception as e:
+             print(f"❌ Erro inesperado ao criar usuário '{username}': {e}")
+             return False
+
+    # Métodos para verificar senha, gerar token, etc., virão aqui depois.
+
+================================================================================
+📄 server/routes/auth.py
+================================================================================
+# server/routes/auth.py
+from flask import Blueprint, request, jsonify, current_app
+
+# from server.extensions import ext # Se precisar acessar extensões diretamente
+# from server.services.user_service import UserService # Se instanciar aqui
+
+# Cria um Blueprint para as rotas de autenticação
+auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+
+# Esta função será chamada em app.py para registrar as rotas e passar dependências
+def register_routes(user_service_instance):
+    """Registra as rotas do Blueprint com as dependências injetadas."""
+
+    @auth_bp.route('/teste_dynamodb')
+    def teste_dynamodb():
+        """Endpoint de teste para verificar a conexão com o DynamoDB."""
+        # Acessa o cliente DynamoDB através da instância de serviço injetada
+        # ou através de current_app.extensions se usar Flask Extensions
+        if not user_service_instance.dynamodb:
+            return jsonify({"status": "erro", "message": "Cliente DynamoDB não disponível no serviço."}), 500
+
+        try:
+            response = user_service_instance.dynamodb.list_tables()
+            tabelas = response.get('TableNames', [])
+            return jsonify({
+                "status": "sucesso",
+                "message": "Conexão com DynamoDB bem-sucedida via UserService.",
+                "tabelas": tabelas
+            }), 200
+        except Exception as e:
+            return jsonify({"status": "erro", "message": f"Falha ao testar DynamoDB: {str(e)}"}), 500
+
+    # Outras rotas como /registrar, /login serão adicionadas aqui
+    # e usarão user_service_instance
+
+# Se não usar injeção de dependência direta no registro, pode instanciar o serviço aqui
+# Mas a injeção é mais limpa e testável.
+
+================================================================================
 📄 client/window.py
 ================================================================================
+# client/window.py
 import glfw
 from OpenGL.GL import *
 import sys
+import imgui
+# Importa o backend GlfwRenderer. Este é o ponto chave.
+# Se o import falhar, significa que `imgui` ou o backend específico não está instalado corretamente.
+from imgui.integrations.glfw import GlfwRenderer
+# Corrigir a importação do glm também
+from pyglm import glm
 
 
 class Janela:
-    def __init__(self, width=800, height=600, title="OpenGL Fullscreen"):
-        self.width = width
-        self.height = height
+    def __init__(self, title="Global Arena"):
         self.title = title
         self.window = None
+        self.monitor = None
+        self.imgui_impl = None  # Vai armazenar o backend do ImGui
 
         # Inicializa o GLFW
         if not glfw.init():
@@ -1014,16 +1260,14 @@ class Janela:
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)  # Necessário no macOS
 
-        # Obter o monitor primário e modo de vídeo
+        # Modo fullscreen com resolução nativa
         self.monitor = glfw.get_primary_monitor()
         mode = glfw.get_video_mode(self.monitor)
         self.width = mode.size.width
         self.height = mode.size.height
 
         # Criar janela em fullscreen
-        self.window = glfw.create_window(
-            self.width, self.height, self.title, self.monitor, None
-        )
+        self.window = glfw.create_window(self.width, self.height, self.title, self.monitor, None)
         if not self.window:
             glfw.terminate()
             raise Exception("Falha ao criar a janela")
@@ -1031,98 +1275,725 @@ class Janela:
         # Tornar o contexto OpenGL atual
         glfw.make_context_current(self.window)
 
-        # Capturar teclado (para ESC)
-        glfw.set_key_callback(self.window, self.key_callback)
+        # === INICIALIZAÇÃO DO DEAR IMGUI ===
+        # 1. Criar contexto do ImGui
+        imgui.create_context()
+        # 2. Criar o backend de renderização.
+        # Usando attach_callbacks=True (padrão) para que ele gerencie os callbacks automaticamente.
+        # Isso elimina a necessidade de chamar manualmente imgui_impl.algum_callback.
+        self.imgui_impl = GlfwRenderer(self.window, attach_callbacks=True)
+
+        # === CALLBACKS (apenas os específicos da sua aplicação, se necessário) ===
+        # Capturar teclado (para ESC). O ImGui receberá os eventos automaticamente.
+        glfw.set_key_callback(self.window, self._key_callback)
+        # Se você precisar de callbacks adicionais para lógica específica (além do ImGui),
+        # pode adicioná-los aqui. Mas os básicos (mouse, teclado) são tratados pelo backend.
 
         # Habilitar vsync
         glfw.swap_interval(1)
 
-        print(f"Janela em fullscreen: {self.width}x{self.height}")
+        # Estados de input (opcional, pode ser simplificado ou removido se usar ImGui para input)
+        # Se você não usar mais esses estados, pode removê-los.
+        self.keys = {}
+        self.mouse_b1_pressed = False
+        self.mouse_x = 0.0
+        self.mouse_y = 0.0
 
-    def key_callback(self, window, key, scancode, action, mods):
-        """Callback para teclas"""
+        # === ESCALA E PROJEÇÃO ===
+        self.base_resolution = (1600, 900)
+        self.scale = self.width / self.base_resolution[0]
+        self.projection_matrix = glm.ortho(
+            0.0, float(self.width),
+            float(self.height), 0.0,
+            -1.0, 1.0
+        )
+
+        self.ui_sidebar_width = 320  # Largura das barras laterais
+        self.ui_toolbar_height = 30  # Altura das barras superior e inferior
+
+        print(f"🎮 Janela criada em fullscreen: {self.width}x{self.height}")
+        print(f"📐 Escala de UI: {self.scale:.2f}x (base: {self.base_resolution[0]}x{self.base_resolution[1]})")
+        print("🎨 Dear ImGui inicializado.")
+
+    # === CALLBACKS PARA LÓGICA ESPECÍFICA DA APLICAÇÃO ===
+    # O backend do ImGui já está ouvindo esses eventos.
+    def _key_callback(self, window, key, scancode, action, mods):
+        """Callback para teclas — fecha com ESC"""
+        # Lógica específica da sua aplicação
         if key == glfw.KEY_ESCAPE and action == glfw.PRESS:
             glfw.set_window_should_close(window, True)
 
-    def setup_opengl(self):
-        """Configurações iniciais do OpenGL"""
-        glViewport(0, 0, self.width, self.height)
-        glClearColor(0.1, 0.1, 0.4, 1.0)  # Fundo azul escuro
+    # Se você não precisar mais desses callbacks para lógica própria, pode removê-los.
+    # O backend do ImGui os trata.
+    # def _mouse_position_callback(self, window, xpos, ypos):
+    #     """Atualiza posição do mouse"""
+    #     # O ImGui já processa isso. Se precisar para lógica própria:
+    #     self.mouse_x = xpos
+    #     self.mouse_y = self.height - ypos  # Inverte Y: 0 no topo
 
-    def main_loop(self):
-        """Loop principal de renderização"""
-        self.setup_opengl()
+    # def _mouse_button_callback(self, window, button, action, mods):
+    #     """Detecta clique do botão esquerdo"""
+    #     # O ImGui já processa isso. Se precisar para lógica própria:
+    #     if button == glfw.MOUSE_BUTTON_LEFT:
+    #         self.mouse_b1_pressed = (action == glfw.PRESS)
 
-        while not glfw.window_should_close(self.window):
-            # Processar eventos
-            glfw.poll_events()
+    # === MÉTODOS PARA INTEGRAR IMGUI NO LOOP ===
+    def processar_eventos(self):
+        """Processa eventos do GLFW e inicia o frame do ImGui"""
+        # O backend do ImGui (com attach_callbacks=True) já processou os eventos de input.
+        glfw.poll_events()
+        # Inicia um novo frame do ImGui
+        if self.imgui_impl:
+            # self.imgui_impl.process_inputs() # Geralmente chamado internamente por new_frame no backend
+            imgui.new_frame()
 
-            # Limpar tela
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    def trocar_buffers(self):
+        """Renderiza a interface ImGui e troca os buffers"""
+        # Finaliza o frame do ImGui e obtém os dados de renderização
+        imgui.render()
+        if self.imgui_impl:
+            # O backend desenha a interface ImGui usando OpenGL
+            self.imgui_impl.render(imgui.get_draw_data())
 
-            # Aqui você pode adicionar sua renderização (shaders, buffers, etc.)
+        glfw.swap_buffers(self.window)
 
-            # Trocar buffers
-            glfw.swap_buffers(self.window)
+    # === FINALIZAÇÃO ===
+    def terminar(self):
+        """Libera recursos do GLFW e do ImGui"""
+        # Limpa o backend do ImGui primeiro.
+        # O shutdown do backend geralmente cuida da destruição do contexto imgui.
+        if self.imgui_impl:
+            self.imgui_impl.shutdown()
+            # Definir como None para evitar uso acidental após shutdown
+            self.imgui_impl = None
 
-        self.terminate()
+            # O imgui.destroy_context() pode não ser necessário se o backend já cuidou disso.
+        # Mas, para garantir (e evitar o erro se o backend não tiver feito),
+        # podemos verificar se o contexto ainda é válido antes de destruí-lo.
+        # No entanto, a forma mais segura é confiar no backend e NÃO chamar
+        # imgui.destroy_context() manualmente neste ponto.
+        #
+        # Se você quiser ser explícito, pode fazer uma verificação, mas geralmente
+        # não é necessária:
+        # contexto_atual = imgui.get_current_context()
+        # if contexto_atual is not None:
+        #     imgui.destroy_context(contexto_atual) # Destroi o contexto específico
 
-    def terminate(self):
-        """Encerra o GLFW"""
-        glfw.destroy_window(self.window)
+        # Libera recursos do GLFW
+        if self.window:
+            glfw.destroy_window(self.window)
+            self.window = None  # Boa prática
         glfw.terminate()
-        print("Aplicação encerrada.")
 
-    def run(self):
-        """Inicia a aplicação"""
-        self.main_loop()
+    # --- Métodos de utilidade para renderização (sem alterações) ---
+    # Mantenha esses métodos conforme sua necessidade.
+    def definir_viewport(self):
+        glViewport(0, 0, self.width, self.height)
 
+    def limpar_tela(self, r=0.1, g=0.1, b=0.4, a=1.0):
+        glClearColor(r, g, b, a)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-# === Execução ===
-if __name__ == "__main__":
-    app = Janela(title="Minha Janela Fullscreen")
-    app.run()
-    sys.exit()
+    def habilitar_depth_test(self):
+        glEnable(GL_DEPTH_TEST)
+
+    def desabilitar_depth_test(self):
+        glDisable(GL_DEPTH_TEST)
+
+    def habilitar_blend(self):
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+    def desabilitar_blend(self):
+        glDisable(GL_BLEND)
+
+    # Se você removeu os callbacks de mouse/teclado, pode remover esses métodos também,
+    # ou mantê-los se ainda forem usados para alguma lógica específica.
+    def get_mouse_position(self):
+        """Retorna posição do mouse com origem no canto superior esquerdo"""
+        xpos, ypos = glfw.get_cursor_pos(self.window)
+        return xpos, self.height - ypos  # Inverte Y
+
+    def is_key_pressed(self, key):
+        """Verifica se uma tecla está pressionada"""
+        return glfw.get_key(self.window, key) == glfw.PRESS
+
+    def deve_fechar(self):  # <-- Adicionado conforme solicitado
+        """Verifica se a janela deve ser fechada."""
+        return glfw.window_should_close(self.window)
+
+    # === MÉTODO AUXILIAR PARA TESTE ===
+    def renderizar_demo_imgui(self):
+        """Renderiza a janela de demonstração do ImGui. Útil para testes."""
+        imgui.show_demo_window()
+
 
 ================================================================================
 📄 client/main.py
 ================================================================================
-# client/aws_loader.py
-
-"""
-Ponto de entrada do cliente gráfico.
-Inicializa a janela OpenGL em fullscreen e inicia o loop principal.
-"""
-
+# client/sei_la_o_que.py
+"""Ponto de entrada do cliente gráfico.
+Inicializa a janela com suporte Dear ImGui e inicia o loop principal."""
 import sys
+import imgui
+import glfw # Importar glfw no topo
 from client.window import Janela
-
+# Importa o novo estado (certifique-se de que o caminho está correto)
+# Se o arquivo for client/states/main_menu.py, a importação está correta.
+from client.states.main_menu import EstadoMenuPrincipal
 
 def main():
-    """
-    Função principal do cliente.
-    Cria a janela e inicia o loop de renderização.
-    """
-    print("Inicializando cliente gráfico...")
-
+    print("🎮 Inicializando cliente gráfico...")
     try:
-        # Cria a janela em fullscreen
-        app = Janela(title="Cliente OpenGL - Fullscreen")
+        # 1. Criar a janela (com suporte ao Dear ImGui)
+        janela = Janela(title="Global Arena - Dear ImGui")
 
-        # Inicia o loop principal (renderização + eventos)
-        app.run()
+        # === INÍCIO DA GESTÃO DE ESTADOS ===
 
-        print("Cliente encerrado com sucesso.")
+        # Variável para armazenar o estado atual da UI
+        estado_atual_nome = "menu_principal"
+        estado_atual_objeto = None
+
+        # Função callback para mudar de estado
+        def mudar_estado(novo_estado_nome):
+            nonlocal estado_atual_nome, estado_atual_objeto
+            print(f"🔁 Mudando estado de '{estado_atual_nome}' para '{novo_estado_nome}'")
+            estado_atual_nome = novo_estado_nome
+
+            if novo_estado_nome == "menu_principal":
+                # Passa o callback E a referência da janela
+                estado_atual_objeto = EstadoMenuPrincipal(mudar_estado, janela)
+            elif novo_estado_nome == "offline":
+                print("⚠️ Estado 'offline' ainda não implementado.")
+            elif novo_estado_nome == "login":
+                print("⚠️ Estado 'login' ainda não implementado.")
+            elif novo_estado_nome == "sair":
+                glfw.set_window_should_close(janela.window, True) # Usar glfw diretamente
+            else:
+                print(f"❓ Estado '{novo_estado_nome}' desconhecido.")
+                estado_atual_nome = "menu_principal"
+
+            if estado_atual_objeto is None and estado_atual_nome not in ["sair"]:
+                 print("❗ Objeto do estado não foi criado. Voltando ao menu principal.")
+                 estado_atual_nome = "menu_principal"
+                 estado_atual_objeto = EstadoMenuPrincipal(mudar_estado, janela) # Passa a janela
+
+        # Inicializa o primeiro estado - AGORA que a função mudar_estado está definida
+        mudar_estado("menu_principal")
+
+        print("🔁 Iniciando loop principal...")
+        while not janela.deve_fechar():
+            # Processa eventos do GLFW e inicia o frame do ImGui
+            janela.processar_eventos()
+
+            # Limpar tela
+            janela.limpar_tela(r=0.1, g=0.1, b=0.4, a=1.0) # Cor de fundo padrão
+
+            # === INÍCIO DA RENDERIZAÇÃO BASEADA NO ESTADO ===
+
+            # Chama o método de atualização/renderização do estado atual
+            if estado_atual_objeto:
+                estado_atual_objeto.atualizar_e_renderizar()
+
+            # === FIM DA RENDERIZAÇÃO BASEADA NO ESTADO ===
+
+            # Troca os buffers, renderizando a UI do ImGui
+            janela.trocar_buffers()
+
+        print("👋 Cliente encerrado com sucesso.")
+        janela.terminar()
         return 0
 
     except Exception as e:
-        print(f"Erro crítico no cliente: {e}", file=sys.stderr)
+        print(f"❌ Erro crítico no cliente: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        # Certifique-se de terminar a janela mesmo em caso de erro
+        try:
+            if 'janela' in locals():
+                janela.terminar()
+        except:
+            pass
         return 1
 
-
 if __name__ == "__main__":
-    # Executa a aplicação e retorna código de saída
     sys.exit(main())
+
+================================================================================
+📄 client/states/main_menu.py
+================================================================================
+# client/states/main_menu.py
+"""Estado: Menu Principal do Jogo"""
+import imgui
+
+class EstadoMenuPrincipal:
+    """
+    Representa o estado da UI quando o menu principal está ativo.
+    Layout: Barras Superior/Inferior (90px), Laterais (320px), Área Central para conteúdo.
+    A barra lateral direita comporta um banner 300x600.
+    """
+
+    def __init__(self, mudar_estado_callback, janela_ref):
+        """
+        :param mudar_estado_callback: Função para chamar quando se quer mudar de estado.
+        :param janela_ref: Referência à instância da Janela principal.
+        """
+        self.mudar_estado = mudar_estado_callback
+        self.janela_ref = janela_ref
+
+    def _renderizar_barras_e_areas(self):
+        """Renderiza as barras fixas (com efeito 3D) e define a área central jogável."""
+        screen_width = self.janela_ref.width
+        screen_height = self.janela_ref.height
+        sidebar_w = self.janela_ref.ui_sidebar_width
+        toolbar_h = self.janela_ref.ui_toolbar_height
+
+        # --- Obter a lista de desenho da tela principal para desenhar barras ---
+        draw_list = imgui.get_background_draw_list()
+
+        # --- Definir cores para o efeito de luz/sombra nas barras ---
+        bar_color_base = imgui.get_color_u32_rgba(0.12, 0.12, 0.12, 0.9)   # Cor base da barra
+        bar_color_light = imgui.get_color_u32_rgba(0.25, 0.25, 0.25, 0.9)   # Cor de luz (topo/esquerda)
+        bar_color_shadow = imgui.get_color_u32_rgba(0.05, 0.05, 0.05, 0.9)  # Cor de sombra (base/direita)
+        border_thickness = 2.0  # Espessura das linhas de luz/sombra
+
+        # --- 1. Barra Superior (com efeito 3D) ---
+        # 1.1. Desenhar o retângulo principal
+        draw_list.add_rect_filled(0, 0, screen_width, toolbar_h, bar_color_base)
+        # 1.2. Linha de luz no topo
+        draw_list.add_line(0, 0, screen_width, 0, bar_color_light, thickness=border_thickness)
+        # 1.3. Linha de luz à esquerda (vertical)
+        draw_list.add_line(0, 0, 0, toolbar_h, bar_color_light, thickness=border_thickness)
+        # 1.4. Linha de sombra na base
+        draw_list.add_line(0, toolbar_h - border_thickness, screen_width, toolbar_h - border_thickness,
+                           bar_color_shadow, thickness=border_thickness)
+        # 1.5. Linha de sombra à direita (vertical)
+        draw_list.add_line(screen_width - border_thickness, 0, screen_width - border_thickness, toolbar_h,
+                           bar_color_shadow, thickness=border_thickness)
+
+        # --- 2. Barra Inferior (com efeito 3D) ---
+        draw_list.add_rect_filled(0, screen_height - toolbar_h, screen_width, screen_height, bar_color_base)
+        draw_list.add_line(0, screen_height - toolbar_h, screen_width, screen_height - toolbar_h,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(0, screen_height - toolbar_h, 0, screen_height,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(0, screen_height - border_thickness, screen_width, screen_height - border_thickness,
+                           bar_color_shadow, thickness=border_thickness)
+        draw_list.add_line(screen_width - border_thickness, screen_height - toolbar_h,
+                           screen_width - border_thickness, screen_height,
+                           bar_color_shadow, thickness=border_thickness)
+
+        # --- 3. Barra Lateral Esquerda (com efeito 3D) ---
+        sidebar_height = screen_height - 2 * toolbar_h
+        draw_list.add_rect_filled(0, toolbar_h, sidebar_w, toolbar_h + sidebar_height, bar_color_base)
+        draw_list.add_line(0, toolbar_h, sidebar_w, toolbar_h,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(0, toolbar_h, 0, toolbar_h + sidebar_height,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(0, toolbar_h + sidebar_height - border_thickness,
+                           sidebar_w, toolbar_h + sidebar_height - border_thickness,
+                           bar_color_shadow, thickness=border_thickness)
+        draw_list.add_line(sidebar_w - border_thickness, toolbar_h,
+                           sidebar_w - border_thickness, toolbar_h + sidebar_height,
+                           bar_color_shadow, thickness=border_thickness)
+
+        # --- 4. Barra Lateral Direita (para o Banner) (com efeito 3D) ---
+        draw_list.add_rect_filled(screen_width - sidebar_w, toolbar_h,
+                                  screen_width, toolbar_h + sidebar_height, bar_color_base)
+        draw_list.add_line(screen_width - sidebar_w, toolbar_h, screen_width, toolbar_h,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(screen_width - sidebar_w, toolbar_h,
+                           screen_width - sidebar_w, toolbar_h + sidebar_height,
+                           bar_color_light, thickness=border_thickness)
+        draw_list.add_line(screen_width - sidebar_w, toolbar_h + sidebar_height - border_thickness,
+                           screen_width, toolbar_h + sidebar_height - border_thickness,
+                           bar_color_shadow, thickness=border_thickness)
+        draw_list.add_line(screen_width - border_thickness, toolbar_h,
+                           screen_width - border_thickness, toolbar_h + sidebar_height,
+                           bar_color_shadow, thickness=border_thickness)
+
+        # --- 6. Agora, criar as janelas ImGui INVISÍVEIS sobre as barras para colocar texto ---
+        # --- 6.1. Barra Superior (Janela invisível para texto) ---
+        imgui.set_next_window_position(0, 0)
+        imgui.set_next_window_size(screen_width, toolbar_h)
+        imgui.begin("##TopToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE |
+                                      imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_COLLAPSE |
+                                      imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_BACKGROUND |
+                                      imgui.WINDOW_NO_SCROLL_WITH_MOUSE)
+        text = "Barra Superior (90px)"
+        text_size = imgui.calc_text_size(text).x
+        imgui.set_cursor_pos_x((imgui.get_window_width() - text_size) / 2.0)
+        imgui.text(text)
+        imgui.end()
+
+        # --- 6.2. Barra Inferior ---
+        imgui.set_next_window_position(0, screen_height - toolbar_h)
+        imgui.set_next_window_size(screen_width, toolbar_h)
+        imgui.begin("##BottomToolbar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE |
+                                         imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_COLLAPSE |
+                                         imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_BACKGROUND |
+                                         imgui.WINDOW_NO_SCROLL_WITH_MOUSE)
+        text = "Barra Inferior (90px)"
+        text_size = imgui.calc_text_size(text).x
+        imgui.set_cursor_pos_x((imgui.get_window_width() - text_size) / 2.0)
+        imgui.text(text)
+        imgui.end()
+
+        # --- 6.3. Barra Lateral Esquerda ---
+        imgui.set_next_window_position(0, toolbar_h)
+        imgui.set_next_window_size(sidebar_w, sidebar_height)
+        imgui.begin("##LeftSidebar", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE |
+                                      imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_COLLAPSE |
+                                      imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_BACKGROUND |
+                                      imgui.WINDOW_NO_SCROLL_WITH_MOUSE)
+        text = "Barra Lateral Esquerda (320px)"
+        text_size = imgui.calc_text_size(text).x
+        imgui.set_cursor_pos_x((imgui.get_window_width() - text_size) / 2.0)
+        imgui.dummy(0.0, 20.0)
+        imgui.set_cursor_pos_x((imgui.get_window_width() - text_size) / 2.0)
+        imgui.text(text)
+        imgui.end()
+
+        # --- 6.4. Barra Lateral Direita (para o Banner) ---
+        imgui.set_next_window_position(screen_width - sidebar_w, toolbar_h)
+        imgui.set_next_window_size(sidebar_w, sidebar_height)
+        imgui.begin("##RightBannerArea", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE |
+                                          imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_COLLAPSE |
+                                          imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_BACKGROUND |
+                                          imgui.WINDOW_NO_SCROLL_WITH_MOUSE)
+
+        # --- 6.4.1. Conteúdo da Barra Direita: O Banner 300x600 ---
+        # Calcular posição para centralizar o banner de 300x600 dentro da barra de 320px de largura
+        banner_width = 300
+        banner_height = 600
+        banner_x_offset = (sidebar_w - banner_width) / 2.0 # Centraliza horizontalmente
+        banner_y_offset = max(0, (sidebar_height - banner_height) / 2.0) # Centraliza verticalmente
+
+        # --- Efeito 3D para o Banner Placeholder ---
+        # Cores para o banner placeholder
+        banner_color_base = imgui.get_color_u32_rgba(0.2, 0.2, 0.3, 0.7)    # Base do banner
+        banner_color_light = imgui.get_color_u32_rgba(0.3, 0.3, 0.4, 0.7)   # Luz
+        banner_color_shadow = imgui.get_color_u32_rgba(0.1, 0.1, 0.2, 0.7)  # Sombra
+
+        # Obter a posição absoluta da tela para a janela da barra direita
+        window_pos_x, window_pos_y = imgui.get_window_position()
+        # Coordenadas absolutas do retângulo do banner
+        banner_abs_x = window_pos_x + banner_x_offset
+        banner_abs_y = window_pos_y + banner_y_offset
+
+        # 1. Desenhar o retângulo principal do banner
+        draw_list.add_rect_filled(banner_abs_x, banner_abs_y,
+                                  banner_abs_x + banner_width, banner_abs_y + banner_height,
+                                  banner_color_base)
+        # 2. Linha de luz no topo
+        draw_list.add_line(banner_abs_x, banner_abs_y,
+                           banner_abs_x + banner_width, banner_abs_y,
+                           banner_color_light, thickness=border_thickness)
+        # 3. Linha de luz à esquerda
+        draw_list.add_line(banner_abs_x, banner_abs_y,
+                           banner_abs_x, banner_abs_y + banner_height,
+                           banner_color_light, thickness=border_thickness)
+        # 4. Linha de sombra na base
+        draw_list.add_line(banner_abs_x, banner_abs_y + banner_height - border_thickness,
+                           banner_abs_x + banner_width, banner_abs_y + banner_height - border_thickness,
+                           banner_color_shadow, thickness=border_thickness)
+        # 5. Linha de sombra à direita
+        draw_list.add_line(banner_abs_x + banner_width - border_thickness, banner_abs_y,
+                           banner_abs_x + banner_width - border_thickness, banner_abs_y + banner_height,
+                           banner_color_shadow, thickness=border_thickness)
+        # --- Fim do Efeito 3D para o Banner ---
+
+        # Adicionar texto dentro da área do banner (janela invisível)
+        imgui.set_cursor_pos((banner_x_offset, banner_y_offset))
+        imgui.text("Banner 300x600")
+        placeholder_text = "[BANNER PLACEHOLDER]"
+        text_size_x = imgui.calc_text_size(placeholder_text).x
+        text_size_y = imgui.calc_text_size(placeholder_text).y
+        imgui.set_cursor_pos((
+            banner_x_offset + (banner_width - text_size_x) / 2.0,
+            banner_y_offset + (min(banner_height, sidebar_height) - text_size_y) / 2.0
+        ))
+        imgui.text(placeholder_text)
+
+        imgui.end()
+
+        # --- 7. Área Jogável Central ---
+        central_area_x = sidebar_w
+        central_area_y = toolbar_h
+        central_area_width = screen_width - 2 * sidebar_w
+        central_area_height = screen_height - 2 * toolbar_h
+
+        # Retorna as dimensões para que outros elementos possam ser posicionados dentro
+        return central_area_x, central_area_y, central_area_width, central_area_height
+
+    def atualizar_e_renderizar(self):
+        """
+        Método chamado a cada frame para atualizar a lógica (se houver)
+        e renderizar a interface do menu principal dentro do layout definido.
+        """
+        # --- 1. Renderizar as áreas fixas e obter dimensões da área central ---
+        central_x, central_y, central_w, central_h = self._renderizar_barras_e_areas()
+
+        # --- 2. Conteúdo da Área Jogável Central (Menu Principal) ---
+        imgui.set_next_window_position(central_x, central_y)
+        imgui.set_next_window_size(central_w, central_h)
+        imgui.begin("##CentralPlayArea", flags=imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE |
+                                                       imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_COLLAPSE |
+                                                       imgui.WINDOW_NO_SCROLLBAR | imgui.WINDOW_NO_BACKGROUND)
+
+        # --- 3. Posicionar elementos do menu dentro da área central ---
+        menu_block_height = 300.0
+        start_y = central_y + (central_h - menu_block_height) / 2.0
+        button_width = 250.0
+        button_x = central_x + (central_w - button_width) / 2.0
+
+        # --- Título Centralizado na Área Central ---
+        title_text = "GLOBAL ARENA"
+        title_size = imgui.calc_text_size(title_text)
+        title_x = central_x + (central_w - title_size.x) / 2.0
+        imgui.set_cursor_pos((title_x - central_x, start_y - 100 - central_y))
+        imgui.text(title_text)
+
+        # --- Botões ---
+        # Botão "Offline"
+        imgui.set_cursor_pos((button_x - central_x, start_y - central_y))
+        imgui.push_style_var(imgui.STYLE_FRAME_ROUNDING, 5.0)
+        imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (15.0, 15.0))
+        if imgui.button("Offline", width=button_width, height=60):
+            print("Botão 'Offline' clicado.")
+            self.mudar_estado("offline")
+
+        # Botão "Online"
+        imgui.set_cursor_pos((button_x - central_x, start_y + 80 - central_y))
+        if imgui.button("Online", width=button_width, height=60):
+            print("Botão 'Online' clicado.")
+            self.mudar_estado("login")
+
+        # Botão "Sair" (estilo vermelho)
+        imgui.set_cursor_pos((button_x - central_x, start_y + 160 - central_y))
+        imgui.push_style_color(imgui.COLOR_BUTTON, 0.7, 0.2, 0.2, 1.0)
+        imgui.push_style_color(imgui.COLOR_BUTTON_HOVERED, 0.8, 0.3, 0.3, 1.0)
+        imgui.push_style_color(imgui.COLOR_BUTTON_ACTIVE, 0.9, 0.1, 0.1, 1.0)
+        if imgui.button("Sair", width=button_width, height=60):
+            print("Botão 'Sair' clicado.")
+            self.mudar_estado("sair")
+        imgui.pop_style_color(3)
+
+        imgui.pop_style_var(2)
+
+        # --- Finaliza a janela da área central ---
+        imgui.end()
+
+
+================================================================================
+📄 client/states/__init__.py
+================================================================================
+
+
+================================================================================
+📄 client/components/logo_renderer.py
+================================================================================
+# client/components/logo_renderer.py
+"""Componente reutilizável para renderizar logotipos dinâmicos baseados no estado de login."""
+
+import imgui
+import glfw
+from OpenGL.GL import *
+from PIL import Image
+import os
+from pathlib import Path
+
+
+class LogoRenderer:
+    def __init__(self, resources_path="client/resources", janela_ref=None):
+        """
+        Inicializa o renderizador de logotipos.
+
+        :param resources_path: Caminho base para os recursos (texturas).
+        :param janela_ref: Referência à instância da Janela principal (para contexto OpenGL).
+        """
+        self.resources_path = Path(resources_path)
+        self.janela_ref = janela_ref  # Necessário para garantir contexto OpenGL
+        self.logged_in = self._check_login_status()
+        self._texture_id = None
+        self._texture_width = 0
+        self._texture_height = 0
+
+    def _check_login_status(self):
+        """Verifica se o usuário está logado checando a existência do token."""
+        session_file = Path("session.txt")
+        return session_file.exists()
+
+    def get_logo_texture_path(self):
+        """
+        Determina o caminho do logotipo com base no estado de login.
+
+        :return: Path para o arquivo de textura.
+        """
+        if self.logged_in:
+            logo_path = self.resources_path / "logo_logged_in.png"  # Smile
+        else:
+            logo_path = self.resources_path / "logo_default.png"  # Login
+
+        # Se o logotipo específico não existir, usa um genérico
+        if not logo_path.exists():
+            logo_path = self.resources_path / "logo_generic.png"  # Fallback
+
+        return logo_path
+
+    def _load_texture_from_file(self, image_path):
+        """
+        Carrega uma textura OpenGL a partir de um arquivo de imagem.
+        Esta é a parte que substitui o placeholder.
+        """
+        try:
+            # Carrega a imagem usando PIL
+            image = Image.open(image_path)
+
+            # Converte para RGBA se não estiver
+            if image.mode != "RGBA":
+                image = image.convert("RGBA")
+
+            ix, iy, image_data = image.size[0], image.size[1], image.tobytes()
+
+            # Gera um ID de textura OpenGL
+            texture_id = glGenTextures(1)
+
+            # Vincula a textura
+            glBindTexture(GL_TEXTURE_2D, texture_id)
+
+            # Define parâmetros de textura
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+            # Carrega os dados da imagem na textura
+            glTexImage2D(GL_TEXTURE_2D,0, GL_RGBA, ix, iy, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data)
+            glGenerateMipmap(GL_TEXTURE_2D)  # Opcional, mas recomendado
+            # Desvincula a textura
+            glBindTexture(GL_TEXTURE_2D, 0)
+
+            print(f"[LogoRenderer] Textura carregada com sucesso: {image_path} (ID: {texture_id})")
+            return texture_id, ix, iy
+
+        except Exception as e:
+            print(f"[LogoRenderer] Erro ao carregar textura '{image_path}': {e}")
+            # Retorna um ID inválido e dimensões 0
+            return 0, 0, 0
+
+    def load_texture(self):
+        """
+        Carrega a textura apropriada com base no estado de login.
+        """
+        if self.janela_ref is None:
+            print("[LogoRenderer] Erro: janela_ref não fornecida. Necessário para contexto OpenGL.")
+            return 0
+
+        # Certifique-se de estar no contexto OpenGL correto (importante!)
+        # glfw.make_context_current(self.janela_ref.window) # Geralmente já está ativo no loop principal
+
+        logo_path = self.get_logo_texture_path()
+        texture_id, width, height = self._load_texture_from_file(logo_path)
+
+        self._texture_id = texture_id
+        self._texture_width = width
+        self._texture_height = height
+
+        return texture_id
+
+    def render(self, width=None, height=None, center_x=None, center_y=None):
+        """
+        Renderiza o logotipo usando Dear ImGui.
+
+        :param width: Largura desejada do logotipo. Se None, usa largura original.
+        :param height: Altura desejada do logotipo. Se None, usa altura original.
+        :param center_x: Posição X central da tela (para centralizar).
+        :param center_y: Posição Y central da tela (para centralizar).
+        """
+        # Se a textura ainda não foi carregada, carrega agora
+        if self._texture_id is None or self._texture_id == 0:
+            self.load_texture()
+            # Se ainda falhar, não renderiza nada
+            if self._texture_id is None or self._texture_id == 0:
+                print("[LogoRenderer] Não foi possível carregar a textura para renderização.")
+                return False  # Indica que não foi renderizado
+
+        # Determina as dimensões finais
+        final_width = width if width is not None else self._texture_width
+        final_height = height if height is not None else self._texture_height
+
+        # Calcula a posição se centralização for solicitada
+        if center_x is not None and center_y is not None:
+            cursor_x = center_x - (final_width / 2)
+            cursor_y = center_y - (final_height / 2) - 50  # 50 pixels acima do centro
+            imgui.set_cursor_pos((cursor_x, cursor_y))
+
+        # Verifica se a textura é válida antes de tentar renderizar
+        if self._texture_id > 0:
+            # Finalmente, renderiza a imagem usando o ID da textura OpenGL
+            # imgui.image espera o ID da textura, largura e altura
+            imgui.image(self._texture_id, final_width, final_height)
+            rendered = True
+        else:
+            # Placeholder se a textura falhar
+            print("[LogoRenderer] Renderizando placeholder para logotipo.")
+            imgui.dummy(final_width, final_height)
+            rendered = False
+
+        # Espaço reservado para garantir layout
+        imgui.dummy(final_width, final_height)
+
+        return rendered  # Retorna se foi renderizado com sucesso
+
+    def refresh_login_status(self):
+        """Atualiza o estado de login e recarrega a textura se necessário."""
+        old_status = self.logged_in
+        self.logged_in = self._check_login_status()
+        if old_status != self.logged_in:
+            # Se o status mudou, invalida a textura atual para forçar recarregamento
+            if self._texture_id is not None and self._texture_id > 0:
+                glDeleteTextures([self._texture_id])  # Libera a textura OpenGL anterior
+            self._texture_id = None
+            print(f"[LogoRenderer] Status de login atualizado: {'Logado' if self.logged_in else 'Não logado'}")
+
+
+# === Como usar no EstadoMenuPrincipal (client/states/main_menu.py) ===
+"""
+# No __init__ do EstadoMenuPrincipal:
+# Certifique-se de importar o componente
+# from client.components.logo_renderer import LogoRenderer
+
+def __init__(self, mudar_estado_callback, janela_ref):
+    self.mudar_estado = mudar_estado_callback
+    self.janela_ref = janela_ref
+    # Passa a referência da janela para o LogoRenderer
+    self.logo_renderer = LogoRenderer(janela_ref=self.janela_ref) 
+
+# No método atualizar_e_renderizar:
+def atualizar_e_renderizar(self):
+    # ... (código existente para barras e áreas) ...
+    central_x, central_y, central_w, central_h = self._renderizar_barras_e_areas()
+
+    # ... (código existente para janela central) ...
+    imgui.begin("##CentralPlayArea", flags=...)
+
+    # --- Renderiza o logotipo ---
+    # Centraliza na área central
+    center_x_area = central_x + central_w / 2.0
+    center_y_area = central_y + central_h / 2.0
+
+    # Opcional: Atualiza o status de login dinamicamente (útil se login/logout acontecer)
+    # self.logo_renderer.refresh_login_status() 
+
+    # Renderiza com dimensões desejadas (ex: 150x150)
+    self.logo_renderer.render(width=150, height=150, center_x=center_x_area, center_y=center_y_area)
+    # ----------------------------
+
+    # ... (restante do código do menu) ...
+    imgui.end()
+"""
+```
 
 ================================================================================
 📄 shared/polygons.py
@@ -2101,1305 +2972,6 @@ def definir_geografia(poligonos, fator, bioma):
 
 
 ================================================================================
-📄 shared/naming.py
-================================================================================
-import random
-
-# ==========================   NOMES DAS PROVÍNCIAS EM INGLÊS   ==========================#
-
-adj_ing = ["Good", "White", "Sacred", "Broken", "Hidden",
-           "Long", "Little", "Old", "Heavenly", "Big",
-           "High", "Small", "Large", "Pristine", "Bad",
-           "Red", "Blue", "Green", "Yellow", "Black",
-           "Golden", "Calm", "Dry", "Lost", "Brave",
-           "Deep", "Bright", "Heavy", "Joyful", "Mysterious",
-           "Petrified", "Split", "Pleasant", "Cooling", "Falling",
-           "Sharp", "Distant", "Ancient", "Sad", "Beautiful",
-           "Eternal", "Enchanted", "Sunny", "Cold", "Steep",
-           "Gentle", "Peaceful", "Turbulent", "Dead", "Wide",
-           "Open", "Closed", "Flat", "Dark", "Warm",
-           "Serene", "Giant", "Pure"]
-
-nouns_ing = ["Rock", "Mountain", "River", "Land", "House",
-             "Field", "Cavern", "Sky", "Star", "Swamp",
-             "Spring", "Forest", "Lake", "Sand", "Soil",
-             "Winds", "Rain", "Cliff", "Fountain", "Water",
-             "Man", "Grove", "Air", "Fire", "Leaf",
-             "Trail", "Night", "Fruit", "Bird", "Snake",
-             "Ville", "Hill", "Creek", "Hut", "Meadow",
-             "Wolf", "Spirit", "Light", "Slope", "Soldier",
-             "Valley", "Mound", "Town",
-             "Woods", "Ridge", "Day", "Peak",
-             "Refuge", "Sign", "Bush",
-             "Pond", "Road", "Chapel", "City",
-             "Bridge", "Priest", "Grave", "Curse",
-             "Ground", "View", "Grass"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM CHINÊS   ==========================#
-
-adj_chi = [
-    "Hǎo", "Bái", "Shénshèng", "Pòsuì", "Yǐncáng",
-    "Xiǎo", "Lǎo", "Tiāntáng de", "Dà", "Gāo",
-    "Yuánshǐ de", "Huài", "Hóngsè de", "Lánsè de", "Lǜsè de",
-    "Huángsè de", "Hēisè de", "Jīn sè de", "Ānjìng", "Gānzào",
-    "Míshī", "Yǒnggǎn", "Shēn", "Míngliàng", "Zhòng",
-    "Kuàilè", "Shénmì", "Shíhuà", "Fēnliè", "Yúkuài",
-    "Fēnlí", "Yáoyuǎn", "Gǔlǎo", "Bēishāng", "Měilì",
-    "Yǒnghéng", "Qīnglǎng", "Wēnróu", "Píngjìng", "Dòngdàng",
-    "Kuān", "Hēi'àn", "Níngjìng", "Jùdà", "Chúnjìng",
-    "Sǐwáng", "Lěng", "Wēnnuǎn", "Zhāomì"
-]
-
-nouns_chi = [
-    "Yánshí", "Shān", "Hé", "Tǔdì", "Fángzi",
-    "Tián", "Dòngxué", "Tiānkōng", "Xīngxīng", "Zhǎozé",
-    "Quán", "Sēnlín", "Hú", "Shā", "Tǔrǎng",
-    "Fēng", "Yǔ", "Xuányá", "Pēnquán", "Shuǐ",
-    "Nánrén", "Xiǎoshùlín", "Kōngqì", "Huǒ", "Yè",
-    "Xiǎolù", "Yè", "Shuǐguǒ", "Niǎo", "Shé",
-    "Xiǎozhèn", "Qiū", "Xī", "Xiǎowū", "Cǎodì",
-    "Láng", "Líng", "Guāng", "Pō", "Shìbīng",
-    "Shāngǔ", "Tǔqiū", "Chéngzhèn",
-    "Shùlín", "Shānjǐ", "Tiān", "Fēng",
-    "Bìnàn Suǒ", "Biāozhì", "Guànmù",
-    "Chítáng", "Lù", "Xiǎo jiàotáng", "Chéngshì",
-    "Qiáo", "Mùshī", "Fénmù", "Zǔzhòu",
-    "Dìmiàn", "Jǐngsè", "Cǎo"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM WU   ==========================#
-
-adj_wu = [
-    "Hao", "Baek", "Shensheng", "Posui", "Yincang",
-    "Long", "Xiao", "Lao", "Tiantang De", "Da",
-    "Gao", "Xiao", "Da", "Yuanshi", "Huai",
-    "Hong", "Lan", "Lǜ", "Huang", "Hei",
-    "Jin", "Anjing", "Ganzao", "Mishi", "Yonggan",
-    "Shen", "Liang", "Zhong", "Kuaile", "Shenmi",
-    "Shihua", "Fenlie", "Yukuai", "Shuangshuang", "Falling",
-    "Ji", "Yuan", "Gulao", "Beishang", "Meili",
-    "Yongheng", "Jingya", "Wenxin", "Pingjing", "Dongdang",
-    "Guang", "Hei'an", "Ningjing", "Juda", "Chunjing",
-    "Si", "Leng", "Wennuan", "Zhaomi"
-]
-
-nouns_wu = [
-    "Yan", "Shan", "He", "Di", "Fangzi",
-    "Tian", "Dong", "Tian", "Xing", "Zhaoze",
-    "Quan", "Senlin", "Hu", "Sha", "Turang",
-    "Feng", "Yu", "Xuanya", "Penquan", "Shui",
-    "Nan", "Xiaoshulin", "Kongqi", "Huo", "Ye",
-    "Xiaolu", "Ye", "Shuiguo", "Niao", "She",
-    "Zhen", "Qiu", "Xi", "Wu", "Caodi",
-    "Lang", "Ling", "Guang", "Po", "Shibing",
-    "Gu", "Qiu", "Zhen",
-    "Ling", "Tian", "Feng",
-    "Binan", "Biaozhi", "Guanmu",
-    "Chitang", "Lù", "Jiaotang", "Cheng",
-    "Qiao", "Mushi", "Fen", "Zuzhou",
-    "Dimian", "Jingse", "Cao"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM YUE   ==========================#
-
-adj_yue = [
-    "Hóu", "Baahk", "Sān", "Kāp", "Chòih",
-    "Cheung", "Sai", "Louh", "Tin", "Daih",
-    "Hòhng", "Sai", "Daaih", "Chīng", "Wāi",
-    "Hùhng", "Làahm", "Luhk", "Wòhng", "Hāak",
-    "Gām", "Ngaan", "Gaan", "Sāt", "Yùhng",
-    "Sām", "Mihng", "Jung", "Fùhng", "Sām",
-    "Sāam", "Fāan", "Fāan", "Sīk", "Lohk",
-    "Kēui", "Yúhn", "Gú", "Sāam", "Meih",
-    "Yúhn", "Meih", "Tìng", "Làahng", "Ging",
-    "Wān", "Fèihng", "Sūng", "Sīk", "Fú",
-    "Dāk", "Gwán", "Bihn", "Aàm", "Wān",
-    "Nìhng", "Gin", "Kéuhng"
-]
-
-nouns_yue = [
-    "Sék", "Sāan", "Hòh", "Dih", "Uk",
-    "Tìhn", "Duhng", "Tin", "Sīng", "Jóu",
-    "Chēun", "Sāan", "Wuht", "Sā", "Tó",
-    "Fūng", "Yúh", "Nga", "Bāan", "Sēui",
-    "Nàahm", "Làahm", "Hēung", "Fó", "Yihp",
-    "Jīng", "Yeh", "Gwó", "Jīu", "Séh",
-    "Chéng", "Kā", "Hēung", "Wū", "Tīn",
-    "Lòhng", "Lìhng", "Gōng", "Bōu", "Sih",
-    "Gūk", "Fūng", "Māhng",
-    "Líng", "Yaht", "Fūng",
-    "Bāk", "Bīu", "Chāan",
-    "Chìh", "Lóuh", "Sīu", "Sihng",
-    "Kiu", "Sīn", "Fan", "Joek",
-    "Deih", "Jíng", "Chou"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM MIN   ==========================#
-
-adj_min = [
-    "Hó", "Pe̍h", "Siān-tè", "Pō", "Bih",
-    "Tiô", "Sió", "Lō", "Thian-tâng ê", "Tōa",
-    "Kò͘", "Sió", "Tōa", "Chheng-chhiūⁿ", "Phāi",
-    "Âng-sek ê", "Lán-sek ê", "Lū-sek ê", "N̂g-sek ê", "Hēi-sek ê",
-    "Kim-sek ê", "Bêng-an", "Kan", "Lò͘", "Yúng",
-    "Khâm", "Bêng", "Chòng", "Khoai-lo̍h", "Sīm-ji̍t",
-    "Pê", "Pun-liāu", "Khoân-hòaⁿ", "Chhia̍t-liāu", "Tò-lo̍h",
-    "Siam", "Tū", "Kó͘", "Phainn", "Biú",
-    "Íⁿ-chióng", "Tīn-hiong", "Thinn-siaⁿ", "Kang", "Sú",
-    "Lêng", "Khìaⁿ", "Lóng", "Sǹg", "Oân",
-    "Chhiūⁿ", "Khí-á", "Chêng"
-]
-
-nouns_min = [
-    "Chioh", "Suann", "Hô", "Tō", "Tiám",
-    "Chhân", "Tōng", "Thinn", "Chhiⁿ", "Chháu",
-    "Chhûn", "Sng-lîm", "Oh", "Sòaⁿ", "Thô",
-    "Hûiⁿ", "Hō͘", "Kiám", "Pun", "Chúi",
-    "Lâng", "Siâu", "Khong-khì", "Hóe", "Hâ",
-    "Lō͘-chhù", "I̍aⁿ", "Kúi", "Chhui", "Chôa",
-    "Chiâⁿ", "Kio", "Kè", "Koe", "Chháu-lí",
-    "Lâng-kī", "Seng", "Chhìng", "Pò", "Chû",
-    "Kheh", "Kiôⁿ", "Chhng",
-    "Lêng", "Jat", "Hiong"
-    "Pi-bāng", "Pió", "Chhe-bò",
-    "Chhê", "Lō͘", "Chha", "Chhīⁿ",
-    "Kiô", "Sūn", "Būn", "Chòe",
-    "Toē", "Chhīng", "Chháu"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM ESPANHOL   ==========================#
-
-nouns_esp_mas = ["Río", "Hombre", "Viento", "Fuego", "Sendero",
-                 "Campo", "Pueblo", "Lobo", "Soldado", "Arroyo",
-                 "Montículo", "Día", "Bosque", "Rancho", "Pantano",
-                 "Parque", "Señal", "Estanque", "Camino", "Puente",
-                 "Cielo", "Manantial", "Bosque", "Lago", "Suelo",
-                 "Acantilado", "Pájaro", "Sitio", "Valle", "Pozo",
-                 "Refugio", "Arbusto", "Nacimiento", "Terreno", "Espíritu"]
-
-nouns_esp_fem = ["Roca", "Montaña", "Tierra", "Casa", "Fruta",
-                 "Caverna", "Estrella", "Arena", "Cima",
-                 "Lluvia", "Fuente", "Agua", "Arboleda", "Hoja",
-                 "Noche", "Serpiente", "Colina", "Cabaña", "Pradera",
-                 "Luz", "Ladera", "Margem", "Ciudad", "Cresta",
-                 "Hada", "Capilla", "Tumba", "Maldición", "Vista",
-                 "Hierba", "Cruz"]
-
-adj_esp_mas = ["Bueno", "Blanco", "Sagrado", "Roto", "Oculto",
-               "Pequeño", "Pequeño", "Viejo", "Celestial", "Grande",
-               "Alto", "Pequeño", "Grande", "Prístino", "Malo",
-               "Rojo", "Azul", "Verde", "Amarillo", "Negro",
-               "Dorado", "Calmado", "Ruidoso", "Seco", "Perdido",
-               "Profundo", "Brillante", "Pesado", "Alegre", "Misterioso",
-               "Móvil", "Dividido", "Agradable", "Refrigerante", "Cayente",
-               "Afilado", "Distante", "Antiguo", "Triste", "Hermoso",
-               "Rasgado", "Majestuoso", "Soleado", "Sombrío", "Empinado",
-               "Suave", "Pacífico", "Turbulento", "Áspero", "Ancho",
-               "Abierto", "Cerrado", "Plano", "Oscuro", "Infinito",
-               "Sereno", "Gigante", "Fino", "Largo", "Ruidoso",
-               "Frío", "Cálido", "Peligroso", "Encantado", "Carvado",
-               "Puro", "Valiente", "Eterno", "Petrificado", "Muerto"]
-
-adj_esp_fem = ["Buena", "Blanca", "Sacra", "Rota", "Oculta",
-               "Pequeña", "Pequeña", "Vieja", "Celestial", "Grande",
-               "Alta", "Pequeña", "Grande", "Prístina", "Mala",
-               "Roja", "Azul", "Verde", "Amarilla", "Negra",
-               "Dorada", "Calmada", "Ruidosa", "Seca", "Perdida",
-               "Profunda", "Brillante", "Pesada", "Alegre", "Misteriosa",
-               "Móvil", "Dividida", "Agradable", "Refrigerante", "Cayente",
-               "Afilada", "Distante", "Antigua", "Triste", "Hermosa",
-               "Rasgada", "Majestuosa", "Soleada", "Sombría", "Empinada",
-               "Suave", "Pacífica", "Turbulenta", "Áspera", "Ancha",
-               "Abierta", "Cerrada", "Plana", "Oscura", "Infinita",
-               "Serena", "Gigante", "Fina", "Larga", "Ruidosa",
-               "Fría", "Cálida", "Peligrosa", "Encantada", "Carvada",
-               "Pura", "Valiente", "Eterna", "Petrificada", "Muerta"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM FRANCÊS   ==========================#
-
-adj_fra_mas = ["Bon", "Blanc", "Sacré", "Cassé", "Caché",
-               "Petit", "Mort", "Vieux", "Céleste", "Grand",
-               "Haut", "Pétrifié", "Éternel", "Pristin", "Mauvais",
-               "Rouge", "Bleu", "Vert", "Jaune", "Noir",
-               "Doré", "Calme", "Bruyant", "Sec", "Perdu",
-               "Profond", "Brillant", "Lourd", "Joyeux", "Mystérieux",
-               "Mouvant", "Divisé", "Agréable", "Rafraîchissant", "Tombant",
-               "Tranchant", "Lointain", "Ancien", "Triste", "Beau",
-               "Déchiré", "Majestueux", "Ensoleillé", "Sombre", "Escarpé",
-               "Douc", "Paisible", "Turbulent", "Dur", "Large",
-               "Ouvert", "Fermé", "Pur", "Sombre", "Infini",
-               "Serein", "Géant", "Fin", "Long", "Courageux",
-               "Froid", "Chaud", "Périlleux", "Enchanté", "Taillé"]
-
-adj_fra_fem = ["Bonne", "Blanche", "Sacrée", "Cassée", "Cachée",
-               "Petite", "Morte", "Vieille", "Céleste", "Grande",
-               "Haute", "Pétrifiée", "Éternelle", "Pristine", "Mauvaise",
-               "Rouge", "Bleue", "Verte", "Jaune", "Noire",
-               "Dorée", "Calme", "Bruyante", "Sèche", "Perdue",
-               "Profonde", "Brillante", "Lourde", "Joyeuse", "Mystérieuse",
-               "Mouvante", "Divisée", "Agréable", "Rafraîchissante", "Tombante",
-               "Tranchante", "Lointaine", "Ancienne", "Triste", "Belle",
-               "Déchirée", "Majestueuse", "Ensoleillée", "Sombre", "Escarpée",
-               "Douce", "Paisible", "Turbulente", "Dure", "Large",
-               "Ouverte", "Fermée", "Pure", "Sombre", "Infinie",
-               "Sereine", "Géante", "Fine", "Longue", "Courageuse",
-               "Froide", "Chaude", "Périlleuse", "Enchantée", "Taillée"]
-
-bags = ["Bon", "Petit", "Vieux", "Grand", "Haut",
-        "Ancien", "Beau", "Large", "Long", "Bonne",
-        "Petite", "Vieille", "Grande", "Haute", "Ancienne",
-        "Belle", "Large", "Longue"]
-
-nouns_fra_mas = ["Champ", "Ciel", "Marais", "Site", "Lac",
-                 "Sable", "Sol", "Vent", "Homme", "Bosquet",
-                 "Air", "Feu", "Sentier", "Oiseau", "Ruisseau",
-                 "Pré", "Loup", "Esprit", "Soldat", "Puits",
-                 "Tertre", "Bois", "Jour", "Pic", "Parc",
-                 "Refuge", "Signe", "Buisson", "Étang", "Pont",
-                 "Prêtre", "Sol"]
-
-nouns_fra_fem = ["Roche", "Montagne", "Rivière", "Terre", "Maison",
-                 "Caverne", "Étoile", "Forêt", "Pluie",
-                 "Falaise", "Fontaine", "Eau", "Feuille",
-                 "Nuit", "Fruit", "Serpent", "Ville", "Colline",
-                 "Cabane", "Lumière", "Pente", "Vallée", "Rive",
-                 "Ville", "Crête", "Croix", "Ligne", "Fée",
-                 "Route", "Chapelle", "Ville", "Tombe", "Malédiction",
-                 "Naissance", "Vue", "Herbe"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM HINDI   ==========================#
-
-adj_hin_mas = ["Achchha", "Safed", "Pavitr", "Toota Hua", "Chhipa Hua",
-               "Chhota", "Thoda", "Puraana", "Swargiy", "Bada",
-               "Ucch", "Chhota", "Bada", "Nirmal", "Bura",
-               "Laal", "Neela", "Hara", "Peela", "Kaala",
-               "Svarnim", "Shaant", "Sookha", "Kho Gaya", "Bahadur",
-               "Gahra", "Chamkeela", "Bhaari", "Aanandmay", "Rahasyamay",
-               "Shilajit", "Vibhaajit", "Sukhad", "Sheetal", "Girta",
-               "Tez", "Door", "Praacheen", "Dukhii", "Sundar",
-               "Shaashvat", "Mantramugdh", "Sooryamay", "Thanda", "Dhalwaan",
-               "Naram", "Shaantipoorn", "Ashaant", "Mara Hua",
-               "Chaudaa", "Khula", "Band", "Lamba", "Andhera",
-               "Garam", "Shaant", "Vishaalkaay", "Shuddh"]
-
-adj_hin_fem = ["Achchhi", "Safed", "Pavitr", "Tooti Hui", "Chhupi Hui",
-               "Chhoti", "Thodi", "Puraani", "Swargiy", "Badi",
-               "Ucchi", "Chhoti", "Badi", "Nirmal", "Buri",
-               "Laal", "Neeli", "Hari", "Peeli", "Kaali",
-               "Svarn", "Shaant", "Sookhi", "Kho Gayi", "Bahadur",
-               "Gahri", "Chamkeeli", "Bhaari", "Aanandmay", "Rahasyamay",
-               "Shilajit", "Vibhaajit", "Sukhad", "Sheetal", "Girti",
-               "Tez", "Door", "Praacheen", "Dukhii", "Sundar",
-               "Shaashvat", "Mantramugdh", "Sooryamay", "Thandi", "Dhalwaan",
-               "Naram", "Shaantipoorn", "Ashaant", "Mari", "Chaudii",
-               "Khulii", "Band", "Andherii", "Garam",
-               "Shaant", "Vishaal", "Shuddh", "Lambii"]
-
-nouns_hin_mas = ["Pahaad", "Parvat", "Ghar", "Khet", "Guha",
-                 "Aakash", "Tara", "Aadmi", "Vriksh", "Vayu",
-                 "Aag", "Gaon", "Pahaadi", "Jhupri", "Maidaan",
-                 "Prakash", "Dhalan", "Sainik", "Teela", "Din",
-                 "Shikhar", "Aashray", "Sanket", "Talab", "Sadak",
-                 "Pul", "Pujari", "Shaap"]
-
-nouns_hin_fem = ["Nadi", "Bhoomi", "Daldal", "Junglai", "Jheel",
-                 "Ret", "Mitti", "Hawa", "Baarish", "Khaai",
-                 "Fawara", "Paani", "Patta", "Raat",
-                 "Pakshi", "Saanp", "Nadiya", "Bheriya", "Aatma",
-                 "Ghaati", "Nagari", "Chotee", "Jangal", "Jhaadi",
-                 "Ghaas", "Nagar", "Kabar", "Zameen", "Drishya"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM RUSSO   ==========================#
-
-adj_rus_mas = ["Khoroshiy", "Belyy", "Svyatoy", "Slomannyy", "Skrytyy",
-               "Malen'kiy", "Staryy", "Nebesnyy", "Bol'shoy", "Vysokiy",
-               "Gigantskiy", "Dlinnyy", "Chistyy", "Netronutyy", "Plokhoy",
-               "Krasnyy", "Siniy", "Zelenyy", "Zheltyy", "Chernyy",
-               "Zolotoy", "Spokoinyy", "Sukhoy", "Poteryannyy", "Smelyy",
-               "Glubokiy", "Yarkiy", "Tyazhelyy", "Radostnyy", "Zagadochnyy",
-               "Okamenelyy", "Raskolotyy", "Priyatnyy", "Okhlazhdayushchiy", "Padayushchiy",
-               "Ostryy", "Dalekiy", "Drevniy", "Grustnyy", "Prekrasnyy",
-               "Vechnyy", "Ocharovannyy", "Solnechnyy", "Kholodnyy", "Krutoy",
-               "Nezhnyy", "Spokoinyy", "Burnyy", "Mertvyy", "Shirokiy",
-               "Otkrytyy", "Zakrytyy", "Ploskiy", "Temnyy", "Teplyy",
-               "Bezmyatezhnyy"]
-
-adj_rus_fem = ["Khoroshaya", "Belaya", "Svyataya", "Slomannaya", "Skrytaya",
-               "Malen'kaya", "Chistaya", "Staraya", "Nebesnaya", "Bol'shaya",
-               "Vysokaya", "Malen'kaya", "Dlinnaya", "Netronutaya", "Plohaya",
-               "Krasnaya", "Sinyaya", "Zelenaya", "Zhel'taya", "Chernaya",
-               "Zolotaya", "Spokojnaya", "Sukhaya", "Poteryannaya", "Smelaya",
-               "Glubokaya", "Yarkaya", "Tyazhelaya", "Radostnaya", "Zagadochnaya",
-               "Okamenelaya", "Raskolotaya", "Priyatnaya", "Okhlazhdayushchaya", "Padayushchaya",
-               "Ostraya", "Dalekaya", "Drevnyaya", "Grustnaya", "Prekrasnaya",
-               "Vechnaya", "Ocharovannaya", "Solnechnaya", "Kholodnaya", "Krutaya",
-               "Nezhnaya", "Spokojnaya", "Burnaya", "Mertvaya", "Shirokaya",
-               "Otkrytaya", "Zakrytaya", "Ploskaya", "Temnaya", "Teplaya",
-               "Bezmyatezhnaya", "Gigantskaya"]
-
-adj_rus_neu = ["Khoroshee", "Beloe", "Svyatoe", "Slomannoe", "Skrytoe",
-               "Malen'koe", "Chistoe", "Staroe", "Nebesnoe", "Bol'shoe",
-               "Vysokoe", "Gigantskoe", "Dlinnoe", "Netronutoe", "Plokhoе",
-               "Krasnoe", "Sinee", "Zelenoe", "Zheltоe", "Chernoe",
-               "Zolotoe", "Spokoynoe", "Sukhoe", "Poteryannoe", "Smeloe",
-               "Glubokoe", "Yarkoe", "Tyazheloe", "Radostnoe", "Zagadochnoe",
-               "Okameneloe", "Raskolotoe", "Priyatnoe", "Okhlazhdayushchee", "Padayushchee",
-               "Ostroе", "Dalekoe", "Drevnee", "Grustnoe", "Prekrasnoe",
-               "Vechnoe", "Ocharovannoe", "Solnechnoe", "Kholodnoe", "Krutoe",
-               "Nezhnoe", "Spokoynoe", "Burnoe", "Mertvoe", "Shirokoe",
-               "Otkrytoe", "Zakrytoe", "Ploskoe", "Temnoe", "Teploe",
-               "Bezmyatezhnoe"]
-
-nouns_rus_mas = ["Dom", "Rodnik", "Les", "Pesok", "Vetry",
-                 "Dozhd'", "Utes", "Fontan", "Chelovek", "Vozdukh",
-                 "Ogon'", "List", "Frukt", "Kholm", "Ruchey",
-                 "Lug", "Volk", "Dukh", "Svet", "Sklon",
-                 "Soldat", "Valun", "Gorod", "Lesa", "Greben'",
-                 "Den'", "Pik", "Znak", "Kust", "Prud",
-                 "Most", "Svyashchennik", "Vid"]
-
-nouns_rus_fem = ["Skala", "Gora", "Reka", "Zemlya", "Peshchera",
-                 "Zvezda", "Pochva", "Voda", "Rosha", "Tropa",
-                 "Noch'", "Ptitsa", "Zmeya", "Derevnya", "Khizhina",
-                 "Dolina", "Doroga", "Chasovnya", "Mogila", "Zemlya",
-                 "Trava"]
-
-nouns_rus_neu = ["Pole", "Nebo", "Boloto", "Ozero", "Ubezhishche",
-                 "Proklyatie"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM VIETNAMITA   ==========================#
-
-nouns_viet = ["Đá", "Núi", "Sông", "Đất", "Nhà",
-              "Ruộng", "Hang Động", "Bầu Trời", "Sao", "Đầm Lầy",
-              "Suối", "Rừng", "Hồ", "Cát", "Đất",
-              "Gió", "Mưa", "Vách Đá", "Suối", "Nước",
-              "Người", "Rừng", "Không Khí", "Lửa", "Lá",
-              "Đường Mòn", "Đêm", "Trái Cây", "Chim", "Rắn",
-              "Làng", "Đồi", "Rãnh", "Nhà Gỗ", "Đồng Cỏ",
-              "Sói", "Hồn", "Ánh Sáng", "Dốc", "Người Lính",
-              "Thung Lũng", "Gò Đất", "Thị Trấn",
-              "Rừng", "Dãy Núi", "Ngày", "Đỉnh",
-              "Nơi Trú Ẩn", "Dấu Hiệu", "Cây Bụi",
-              "Ao", "Đường", "Nhà Thờ Nhỏ", "Thành Phố",
-              "Cây Cầu", "Thầy Tu", "Nghĩa Trang", "Lời Nguyền",
-              "Mặt Đất", "Quang Cảnh", "Cỏ"]
-
-adj_viet = ["Tốt", "Trắng", "Thánh Thiêng", "Vỡ", "Ẩn",
-            "Nhỏ", "Nhỏ", "Cũ", "Thiên Thần", "Lớn",
-            "Cao", "Nhỏ", "Lớn", "Nguyên Sơ", "Xấu",
-            "Đỏ", "Xanh Dương", "Xanh Lá", "Vàng", "Đen",
-            "Vàng", "Bình Tĩnh", "Khô", "Lạc", "Dũng Cảm",
-            "Sâu", "Sáng", "Nặng", "Vui Vẻ", "Bí Ẩn",
-            "Hóa Thạch", "Chia", "Dễ Chịu", "Làm Mát", "Rơi",
-            "Sắc", "Xa Xôi", "Cổ Xưa", "Buồn", "Xinh Đẹp",
-            "Vĩnh Cửu", "Phù Thủy", "Nắng", "Lạnh", "Dốc",
-            "Nhẹ Nhàng", "Thanh Bình", "Hỗn Loạn", "Chết", "Rộng",
-            "Mở", "Đóng", "Bằng Phẳng", "Tối", "Ấm Áp",
-            "Yên Bình", "Khổng Lồ", "Trong Trắng", "Dài"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM TURCO   ==========================#
-
-adj_tur = ["İyi", "Beyaz", "Kutsal", "Kırık", "Gizli",
-           "Minik", "Küçük", "Eski", "Cennetsel", "Büyük",
-           "Yüksek", "Küçük", "Büyük", "El değmemiş", "Kötü",
-           "Kırmızı", "Mavi", "Yeşil", "Sarı", "Siyah",
-           "Altın", "Sakin", "Kuru", "Kayıp", "Cesur",
-           "Derin", "Parlak", "Ağır", "Sevinçli", "Gizemli",
-           "Taşlaşmış", "Bölünmüş", "Hoş", "Serinletici", "Düşen",
-           "Keskin", "Uzak", "Antik", "Üzgün", "Güzel",
-           "Ebedi", "Büyülenmiş", "Güneşli", "Soğuk", "Dik",
-           "Nazik", "Huzurlu", "Turbulanslı", "Ölü", "Geniş",
-           "Açık", "Kapalı", "Düz", "Karanlık", "Sıcak",
-           "Sakin", "Dev", "Saf", "Uzun"]
-
-nouns_tur = ["Kaya", "Dağ", "Nehir", "Toprak", "Ev",
-             "Tarla", "Mağara", "Gökyüzü", "Yıldız", "Bataklık",
-             "Pınar", "Orman", "Göl", "Kum", "Toprak",
-             "Rüzgarlar", "Yağmur", "Uçurum", "Fıskiye", "Su",
-             "Adam", "Ağaçlık", "Hava", "Ateş", "Yaprak",
-             "Yol", "Gece", "Meyve", "Kuş", "Yılan",
-             "Köy", "Tepelik", "Köy", "Kümes", "Çayır",
-             "Kurt", "Ruh", "Işık", "Yamaç", "Asker",
-             "Vadi", "Tepenin", "Şehir",
-             "Orman", "Sırt", "Gün", "Zirve",
-             "Sığınak", "İşaret", "Çalı",
-             "Gölet", "Yol", "Kapalı Mekan", "Şehir",
-             "Köprü", "Rahip", "Mezar", "Lanet",
-             "Toprak", "Manzara", "Çim"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM ÁRABE   ==========================#
-
-nouns_ara_mas = ["Jabal", "Nahr", "Ard", "Bayt", "Haql",
-                 "Kahf", "Najm", "Naba", "Ramal", "Turab",
-                 "Riyah", "Matar", "Jurf", "Maa", "Rajul",
-                 "Bustan", "Hawa", "Nar", "Mamar", "Layl",
-                 "Tair", "Tal", "Jadwal", "Koukh", "Dhi'b",
-                 "Ruh", "Daw'", "Munhadar", "Jundi", "Wadi",
-                 "Tal", "Balda", "Yawm", "Qimma", "Malja'",
-                 "Alama", "Shujaira", "Birka", "Tariq", "Jisr",
-                 "Kahin", "Qabr", "Manzar"]
-
-nouns_ara_fem = ["Sakhra", "Samaa", "Mustanqaa", "Ghaabah", "Buhayrah",
-                 "Nafura", "Waraqa", "Fakihah", "Thu'ban", "Madina",
-                 "Marj", "La'na", "Ard", "Ushb"]
-
-adj_ara_mas = ["Jayyid", "Abyad", "Muqaddas", "Maksur", "Makhfi",
-               "Saghir", "Qadeem", "Samaawi", "Kabir",
-               "Aali", "Naqi", "Sayyi'", "Hadi'",
-               "Ahmar", "Azraq", "Akhdar", "Asfar", "Aswad",
-               "Dhahabi", "Haade", "Jaa'if", "Mafqood",
-               "Ameek", "Mashriq", "Thaqeel", "Mufrih", "Ghaamid",
-               "Mutaharrik", "Mashquq", "Latif'", "Mubarrid", "Suqut",
-               "Had", "Ba'id", "Qadeem", "Hazeen", "Jameel",
-               "Mumazziq", "Muhib", "Mashmis", "Ka'ib", "Shadid",
-               "Salem", "Mutadarrib", "Qaas", "Wasi'",
-               "Muftuh", "Maghluq", "Mustah", "Dakn", "Lanha'i",
-               "Amlaq", "Twil", "Sakhb",
-               "Baarid", "Daa'if", "Khaatir",
-               "Naqi", "Shaji'", "Abedi", "Mutahjar", "Mayyit"]
-
-adj_ara_fem = ["Jayyidah", "Abyadah", "Muqaddasah", "Maksurah", "Makhfiyah",
-               "Saghirah", "Qadeemah", "Samaawiyah", "Kabirah", "Aaliyah",
-               "Naqiyah", "Sayyi'ah", "Hadi'ah", "Ahmarah", "Azraqah",
-               "Akhdarah", "Asfarah", "Aswadah", "Dhahabiyah", "Haadeh",
-               "Jaa'ifah", "Mafqoodah", "Ameekah", "Mashriqah", "Thaqeelah",
-               "Mufrihah", "Ghaamidah", "Mutaharrikah", "Mashquqah", "Latif'ah",
-               "Mubarridah", "Suqutah", "Hadh", "Baidah", "Qadeemah",
-               "Hazeenah", "Jameelah", "Mumazziqah", "Muhibah", "Mashmisah",
-               "Salemah", "Mutadarribah", "Qaasah", "Wasi'ah", "Muftuhah",
-               "Maghluqah", "Mustahah", "Daknah", "Lanha'iah", "Amlaqah",
-               "Twilah", "Sakhbah", "Baaridah", "Daa'ifah", "Khaatirah",
-               "Naqiyah", "Shaji'ah", "Abediyah", "Mutahjarah", "Mayyitah"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM INDONÉSIO   ==========================#
-
-nouns_ind = ["Batu", "Gunung", "Sungai", "Tanah", "Rumah",
-             "Lapangan", "Gua", "Langit", "Bintang", "Lembah",
-             "Mata Air", "Hutan", "Danau", "Pasir", "Angin",
-             "Hujan", "Tebing", "Air", "Pria", "Udara",
-             "Api", "Daun", "Jejak", "Malam", "Buah",
-             "Burung", "Ular", "Desa", "Bukit",
-             "Gubuk", "Padang", "Serigala", "Roh", "Cahaya",
-             "Kemiringan", "Prajurit", "Bank", "Sumur", "Gundukan",
-             "Kota", "Punggung", "Ranch", "Hari", "Puncak",
-             "Garis", "Taman", "Tempat Perlindungan", "Tanda", "Semak",
-             "Kolam", "Peri", "Jalan", "Gereja", "Jembatan",
-             "Imam", "Kuburan", "Kutukan", "Kelahiran", "Pemandangan",
-             "Rumput", "Tempat"]
-
-adj_ind = ["Baik", "Putih", "Suci", "Patah", "Tersembunyi",
-           "Kecil", "Tua", "Ilahi", "Besar",
-           "Tinggi", "Besar", "Buruk",
-           "Merah", "Biru", "Hijau", "Kuning", "Hitam",
-           "Emas", "Tenang", "Bising", "Kering", "Hilang",
-           "Dalam", "Terang", "Berat", "Gembira", "Misterius",
-           "Bergerak", "Terbelah", "Menyenangkan", "Pendinginan", "Jatuh",
-           "Tajam", "Jauh", "Kuno", "Sedih", "Indah",
-           "Robek", "Mewah", "Cerah", "Suram", "Curam",
-           "Lembut", "Damai", "Berombak", "Kasar", "Lebar",
-           "Terbuka", "Tertutup", "Dat", "Gelap", "Tak Terbatas",
-           "Tenang", "Raksasa", "Bagus", "Panjang", "Loud",
-           "Dingin", "Hangat", "Berbahaya", "Bertih", "Diukir",
-           "Murni", "Berani", "Abadi", "Membeku", "Mati"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM FARSI   ==========================#
-
-nouns_far = [
-    "Sang", "Kūh", "Rudkhāneh", "Zamīn", "Khāneh",
-    "Keshāvarzī", "Ghar", "Āsemān", "Setāreh", "Batlāgh",
-    "Cheshmeh", "Jangal", "Daryācheh", "Shen", "Khat",
-    "Bād", "Bārān", "Sakhreh", "Cheshmeh", "Āb",
-    "Mard", "Bāgh", "Havā", "Ātash", "Barg",
-    "Rāh", "Shab", "Miveh", "Parandeh", "Mār",
-    "Shahrak", "Tappeh", "Juybār", "Kolbeh", "Marghzār",
-    "Gorg", "Rūh", "Nūr", "Sarak", "Sarbaaz",
-    "Dara", "Tappey", "Shahr",
-    "Kamar", "Ruz", "Qolleh",
-    "Panāh", "Neshān", "Booteh",
-    "Hawz", "Jādeh", "Kelīsā", "Shahr",
-    "Pol", "Keshīsh", "Ghabr", "Lanat",
-    "Zamīn", "Manzareh", "Alaf"
-]
-
-adj_far = [
-    "Khoob", "Sefid", "Moghaddas", "Shekasteh", "Penhan",
-    "Toolani", "Koochak", "Pir", "Asemani", "Bozorg",
-    "Boland", "Koochak", "Bozorg", "Pāk", "Bad",
-    "Ghermez", "Ābi", "Sabz", "Zard", "Siah",
-    "Talāyi", "Ārām", "Khoshk", "Gomshodeh", "Shoja",
-    "Amigh", "Roshan", "Sangin", "Shad", "Asrārāmiz",
-    "Sang Shodeh", "Taghseem Shodeh", "Khoshāyand", "Sard Konandeh", "Soghut Konandeh",
-    "Tez", "Door", "Bāstān", "Ghamgin", "Ziba",
-    "Abadi", "Gonjunje", "Aftābi", "Sard", "Sakht",
-    "Lotf", "Āram", "Ashofteh", "Morde", "Pahn",
-    "Bāz", "Basteh", "Hamvār", "Tārik", "Garm",
-    "Arām", "Azim", "Pak"
-]
-
-
-# ==========================   NOMES DAS PROVÍNCIAS EM HAUSA   ==========================#
-
-nouns_hau = ["Dutse", "Kogi", "Kasa", "Gida", "Fili",
-             "Sama", "Tauraro", "Fadama", "Bazara", "Daji",
-             "Tafkin", "Yashi", "Iska", "Ruwan Sama", "Hayi",
-             "Ruwa", "Mutum", "Wuta", "Ganye", "Hanya",
-             "Dare", "Ya'yan Itace", "Tsuntsu", "Maciji", "Kauye",
-             "Tudu", "Daki", "Ruhu", "Fitila", "Soja",
-             "Kwari", "Gari", "Katako", "Rana", "Hanya",
-             "Birni", "Gada", "Firist", "Kabari", "Tsinewa",
-             "Haihuwa", "Ciyawa"]
-
-adj_hau = ["Mai Kyau", "Fari", "Mai Tsarki", "Boye", "Karami",
-           "Tsoho", "Babba", "Mugu", "Ja", "Shudi"
-            "Kore", "Rawaya", "Baki", "Jarumi", "Mai Zurfi"
-            "Mai Haske", "Mai Nauyi", "Mai Kaifi",
-            "Mai Nisa", "Mai Fadi",
-            "Mai Duhu", "Dogo", "Mai Sanyi", "Mai Dumi"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM SWAHILI   ==========================#
-
-nouns_sua_c1 = ["Mwanajeshi", "Mchungaji"]
-
-nouns_sua_c3 = ["Mlima", "Mto", "Msitu", "Mchanga", "Mwamba",
-                "Moto", "Mwanga", "Mteremko", "Mji", "Mwitu",
-                "Mgongo", "Mwatuko", "Mzizi", "Msalaba"]
-
-nouns_sua_c5 = ["Jiwe", "Pango", "Anga", "Bwawa", "Ziwa",
-                "Hori", "Bwana", "Jani", "Tunda", "Shamba",
-                "Bonde", "Kimbilio", "Daraja", "Jini", "Kanisa",
-                "Jiji"]
-
-nouns_sua_c7 = ["Kisima", "Kichaka", "Kijiji", "Kilima", "Kibanda",
-                "Kilele"]
-
-nouns_sua_c9 = ["Nchi", "Nyumba", "Nyota", "Mvua", "Chemchem",
-                "Hewa", "Njia", "Ndege", "Nyoka", "Mbwa Mwito",
-                "Roho", "Kando", "Siku", "Ishara", "Barabara",
-                "Kaburi", "Ardhi"]
-
-nouns_sua_c11 = ["Uwanja", "Udongo", "Upepo", "Unyasi"]
-
-adj_sua_c1 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
-              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
-              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
-              "Mwekundu", "Mbuluu", "Mkijani", "Mnjano", "Mweusi",
-              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
-              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
-              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
-              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
-              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
-              "Mpole", "Mamani", "Mvurugu", "Mkali", "Mpana",
-              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
-              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
-              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
-              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
-
-adj_sua_c3 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
-              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
-              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
-              "Mwekundu", "Mbuluu", "Mkjani", "Mnjano", "Mweusi",
-              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
-              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
-              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
-              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
-              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
-              "Mpole", "Mmani", "Mvurugu", "Mkali", "Mpana",
-              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
-              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
-              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
-              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
-
-adj_sua_c5 = ["Jema", "Jeupe", "Takatifu", "Vunjika", "Fichwa",
-              "Dogo", "Dogo", "Zee", "Mbinguni", "Kubwa",
-              "Refu", "Dogo", "Kubwa", "Safi", "Baya",
-              "Jekundu", "Buluu", "Kijani", "Njano", "Jeusi",
-              "Dhahabu", "Tulivu", "Kelele", "Kavu", "Potea",
-              "Refu", "Angavu", "Zito", "Furaha", "Siri",
-              "Songa", "Gawanyika", "Pendeza", "Burudisha", "Anguka",
-              "Kali", "Mbali", "Kale", "Huzuni", "Zuri",
-              "Raruka", "Adhimu", "Jua", "Giza", "Wima",
-              "Mpole", "Amani", "Vurugu", "Kali", "Pana",
-              "Wazi", "Fungwa", "Bapa", "Giza", "Milele",
-              "Tulivu", "Kubwa", "Zuri", "Refu", "Kelele",
-              "Baridi", "Joto", "Hatari", "Pumbaza", "Chonga",
-              "Safi", "Jasiri", "Milele", "Ganda", "Kufa"]
-
-adj_sua_c7 = ["Kizuri", "Kyeupe", "Kitakatifu", "Kivunjika", "Kifichika",
-              "Kidogo", "Kidogo", "Kikongwe", "Kimbingu", "Kikubwa",
-              "Kirefu", "Kidogo", "Kikubwa", "Kisafi", "Kibaya",
-              "Kikundu", "Kibuluu", "Kijani", "Kinanjano", "Kyeusi",
-              "Kidhahabu", "Kitulivu", "Kelele", "Kavu", "Kipotea",
-              "Kina", "Kangavu", "Kizito", "Kifuraha", "Kiujabu",
-              "Kisonga", "Kigawanyika", "Kipendeza", "Kipooza", "Kianguka",
-              "Kikali", "Kimbali", "Kikale", "Kihuzuni", "Kizuri",
-              "Kiraruka", "Kifalme", "Kijua", "Kigiza", "Kishuka",
-              "Kipole", "Kiamani", "Kiturbulent", "Kikali", "Kipan",
-              "Ki wazi", "Kifungwa", "Kibapa", "Kigiza", "Kisicho Na Mwisho",
-              "Kitulivu", "Kijitu", "Kizuri", "Kirefu", "Kenye Sauti Kubwa",
-              "Kibaridi", "Kijoto", "Kihatari", "Kivutia", "Kichongwa",
-              "Kisafi", "Kijasiri", "Kidaima", "Kikamilifu", "Kimfu"]
-
-adj_sua_c9 = ["Nzuri", "Nyeupe", "Takatifu", "Vunjika", "Fichwa",
-              "Ndogo", "Ndogo", "Nzee", "Nbinguni", "Nkubwa",
-              "Nrefu", "Ndogo", "Nkubwa", "Nsafi", "Nbaya",
-              "Nyekundu", "Nbuluu", "Nkijani", "Nnjano", "Njeusi",
-              "Ndahabu", "Ntulivu", "Nkelele", "Nkavu", "Npotea",
-              "Nrefu", "Nangavu", "Nzito", "Nfuraha", "Nsiri",
-              "Nsonga", "Ngawanyika", "Npendeza", "Nburudisha", "Nanguka",
-              "Nkali", "Nmbali", "Nkale", "Nhuzuni", "Nzuri",
-              "Nraruka", "Nadhimu", "Njua", "Ngiza", "Nwima",
-              "Nmpole", "Namani", "Nvurugu", "Nkali", "Npana",
-              "Nwazi", "Nfungwa", "Nbapa", "Ngiza", "Nmilele",
-              "Ntulivu", "Nkubwa", "Nzuri", "Nrefu", "Nkelele",
-              "Nbaridi", "Njoto", "Nhatari", "Npumbaza", "Nchonga",
-              "Nsafi", "Njasiri", "Nmilele", "Nganda", "Nkufa"]
-
-adj_sua_c11 = ["Uzuri", "Ueupe", "Utakatifu", "Unywele", "Uficho",
-               "Udogo", "Udogo", "Uzee", "Ubinguni", "Ukubwa",
-               "Urefu", "Udogo", "Ukubwa", "Usafi", "Ubayo",
-               "Uekundu", "Ubuluu", "Ukijani", "Unjano", "Ueusi",
-               "Udhahabu", "Utulivu", "Ukelele", "Ukavu", "Upotea",
-               "Urefu", "Uangavu", "Uzito", "Ufuraha", "Usiri",
-               "Usonga", "Ugawanyika", "Upendeza", "Uburudisha", "Uanguka",
-               "Ukali", "Umbali", "Ukale", "Uhuzuni", "Uzuri",
-               "Uraruka", "Uadhimu", "Ujua", "Ugiza", "Uwima",
-               "Upole", "Uamani", "Uvurugu", "Ukali", "Upana",
-               "Uwazi", "Ufungwa", "Ubapa", "Ugiza", "Umilele",
-               "Utulivu", "Ukubwa", "Uzuri", "Urefu", "Ukelele",
-               "Ubaridi", "Ujoto", "Uhatari", "Upumbaza", "Uchonga",
-               "Usafi", "Ujasiri", "Umilele", "Uganda", "Ukufa"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM PORTUGUÊS   ==========================#
-
-nouns_por_mas = ["Rio", "Campo", "Céu", "Pântano", "lago", "Solo",
-                 "Vento", "Penhasco", "Homem", "Ar", "Fogo", "Pássaro",
-                 "Morro", "Riacho", "Lobo", "Espírito", "Soldado",
-                 "Vale", "Monte", "Dia", "Pico", "Refúgio",
-                 "Sinal", "Arbusto", "Sacerdote", "Terreno", "Gramado",
-                 "Feitiço", "Jardim"]
-
-nouns_por_fem = ["Pedra", "Montanha", "Terra", "Casa", "Caverna",
-                 "Estrela", "Nascente", "Floresta", "Areia",
-                 "Chuva", "Escarpa", "Fonte", "Água", "Gruta",
-                 "Folha", "Trilha", "Noite", "Fruta", "Serpente",
-                 "Vila", "Cabana", "Campina", "Luz", "Barra",
-                 "Serra", "Cidade", "Mata", "Lagoa", "Estrada",
-                 "Capela", "Ponte", "Cova", "Vista"]
-
-adj_por_mas = ["Bom", "Branco", "Sagrado", "Quebrado", "Escondido",
-               "Longo", "Pequeno", "Velho", "Paradisíaco", "Grande",
-               "Alto", "Pristino", "Mau",
-               "Vermelho", "Azul", "Verde", "Amarelo", "Preto",
-               "Dourado", "Calmo", "Seco", "Perdido", "Bravio",
-               "Profundo", "Brilhante", "Pesado", "Alegre", "Misterioso",
-               "Petrificado", "Dividido", "Agradável", "Cadente",
-               "Afiado", "Distante", "Antigo", "Triste", "Bonito",
-               "Eterno", "Encantado", "Ensolarado", "Frio", "Íngrime",
-               "Gentil", "Pacífico", "Turbulento", "Morto", "Amplo",
-               "Aberto", "Fechado", "Plano", "Escuro", "Quente",
-               "Sereno", "Gigante", "Puro"]
-
-adj_por_fem = ["Boa", "Branca", "Sagrada", "Quebrada", "Escondida",
-               "Longa", "Pequena", "Velha", "Paradisíaca", "Grande",
-               "Alta", "Pristina", "Má",
-               "Vermelha", "Azul", "Verde", "Amarela", "Preta",
-               "Dourada", "Calma", "Seca", "Perdida", "Bravia",
-               "Profunda", "Brilhante", "Pesada", "Alegre", "Misteriosa",
-               "Petrificada", "Dividida", "Agradável", "Cadente",
-               "Afiada", "Distante", "Antiga", "Triste", "Bonita",
-               "Eterna", "Encantada", "Ensolarada", "Fria", "Íngrime",
-               "Gentil", "Pacífica", "Turbulenta", "Morta", "Ampla",
-               "Aberta", "Fechada", "Plana", "Escura", "Quente",
-               "Serena", "Gigante", "Pura"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM TELUGU   ==========================#
-
-adj_tel = ["Manchi", "Telupu", "PavitraMaina", "Virigina", "Dachina",
-           "Podavaine", "Chinna", "Pata", "Devatal", "Pedda",
-           "Ettaina", "Pristine", "Chedu",
-           "Erupu", "Neelam", "Aakupacha", "Pasupu", "Nalupu",
-           "Bangaru", "Uppika", "Poyina", "Dhairyanga",
-           "Lothaina", "Prakasince", "Bharinga", "AnandakarMaina", "RahasyaMaina",
-           "Oragina", "VibhajinchaBadina", "AahladaKaramaina", "Kooling", "Pade",
-           "Padunaine", "Dooramaina", "Praachina", "Vipulu", "Andamaina",
-           "ShashvataMaina", "MantramugdhaMaina", "EndaKaala", "Challani", "Nitaaaruga",
-           "Susaadyam", "Shantamaina", "KuduPulaaga", "Chanipoina", "VistaraMaina",
-           "Terichina", "Moochina", "SamataTa", "Cheekati", "VechaNani",
-           "Telikapaatia", "Daitamt", "Parishuddha"]
-
-nouns_tel = ["Parvatam", "Nakshatram", "Vasanta", "Sarassu",
-             "Varsham", "Uuta", "Paadam", "Phalam",
-             "Pakshi", "Grama", "Konda", "Vaagu", "Cheruvu",
-             "Meda", "Metta", "EluguBanti",
-             "Vampu", "Sainikudu", "Gutta", "Pattanam", "Agni",
-             "Shikharam", "Chenulo", "Puli", "Poojari",
-             "Raayi", "Nadi", "Guha", "Isuka", "Matti",
-             "Raatri", "Paamu", "Loya", "Adavi",
-             "Poda", "Thota", "Kaanti",
-             "Bhumi", "Drushti", "Gali",
-             "Illu", "Aakasham", "Neeru", "Dinam", "Kunta",
-             "Pullu", "Aaka", "Ashrayam", "Suchakam", "Palakame",
-             "Shaapam", "Podavu", "Nagaram", "Atma"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM BENGALI   ==========================#
-
-adj_ben = ["Bhalo", "Shada", "Pabitra", "Bhanga", "Lukiye",
-               "Lomba", "Puraono", "Swargiya", "Boro",
-               "Ucca", "Chhoto", "Nirmal", "Kharaap",
-               "Lal", "Neel", "Shobuj", "Holud", "Kalo",
-               "Swarna", "Shanto", "Shukna", "Hariye", "Sahasik",
-               "Gahiro", "Ujjwal", "Bhari", "Anandomoy", "Rahasyojano",
-               "Kothin", "Bhenge", "Sundor", "Shitala",
-               "Tikto", "Duro", "Prachin", "Dukho",
-               "Chironton", "Mohaishwarya", "Roudro", "Thanda", "Khar",
-               "Komal", "Shanti", "Ashanto", "Mrito", "Chowra",
-               "Khola", "Bondho", "Andhakar", "Garam",
-               "Santo", "Bipul"]
-
-nouns_ben = ["Pahar", "Nodi", "Bhumi", "Bari",
-                 "Math", "Guhar", "Akash", "Tara", "Jheel",
-                 "Jhorna", "Bon", "Hrida", "Balu", "Mati",
-                 "Hawa", "Brishti", "Ku", "Fowara", "Jol",
-                 "Manush", "Udyan", "Bayu", "Agun", "Pata",
-                 "Potht", "Raat", "Fol", "Pakhi", "Saanp",
-                 "Gram", "Tila", "Chhara", "Jhupi",
-                 "Atma", "Aalo", "Shar",
-                 "Upoth", "Tapaswi",
-                 "Upottok", "Teerthashala", "Nagor",
-                 "Raka", "Din", "Parbat",
-                 "Chinho", "Jhop",
-                 "Pukure", "Rasta", "Palakame", "Nagar",
-                 "Setu", "Pujari", "Shoshan", "Shopath",
-                 "Drishti", "Ghass"]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM JAPONÊS   ==========================#
-
-adj_jap = [
-    "Yoi", "Shiroi", "Shinseina", "Kowareta", "Kakushita",
-    "Nagai", "Chiisana", "Furui", "Ten no", "Ookii",
-    "Takai", "Chiisana", "Ookii", "Kiyoi", "Warui",
-    "Akai", "Aoi", "Midori no", "Kiiroi", "Kuroi",
-    "Kin'iro no", "Odayaka na", "Kawaita", "Ushinawareta", "Yuukan na",
-    "Fukai", "Akarui", "Omoi", "Ureshii", "Nazo no",
-    "Ishika shita", "Wakareta", "Tanoshii", "Reitou shita", "Ochiru",
-    "Surudoi", "Tooi", "Kodai no", "Kanashii", "Utsukushii",
-    "Eien no", "Maho ni kakerareta", "Hareta", "Samui", "Kyu",
-    "Yasashii", "Heiwa na", "Arasoi no", "Shinda", "Hiroi",
-    "Akeru", "Shimeru", "Taira na", "Kurai", "Atatakai",
-    "Shizuka na", "Kyo na", "Junsei"
-]
-
-nouns_jap = [
-    "Iwa", "Yama", "Kawa", "Chi", "Ie",
-    "Hatake", "Horaana", "Sora", "Hoshi", "Numachi",
-    "Izumi", "Mori", "Mizuumi", "Suna", "Tsuchi",
-    "Kaze", "Ame", "Gake", "Izumi", "Mizu",
-    "Otoko", "Hayashi", "Kuki", "Hi", "Ha",
-    "Michi", "Yoru", "Kudamono", "Tori", "Hebi",
-    "Machi", "Oka", "Kawa", "Koya", "No",
-    "Ookami", "Seirei", "Hikari", "Saka", "Heishi",
-    "Tani", "Tsuka", "Machi",
-    "Hayashi", "Mine", "Hi", "Takane",
-    "Hinansho", "Hyoushiki", "Shigeru",
-    "Ike", "Michi", "Kyokai", "Toshi",
-    "Hashi", "Shisai", "Haka", "Noroi",
-    "Ji", "Keshiki", "Shiba"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM MARATHI   ==========================#
-
-adj_mar_mas = [
-    "Changla", "Pandhra", "Pavitra", "Tuta", "Laplele",
-    "Lamb", "Chhota", "Juna", "Swargiya", "Motha",
-    "Uccha", "Chhota", "Motha", "Nirmal", "Vait",
-    "Lal", "Neela", "Hirva", "Pivla", "Kala",
-    "Soneri", "Shanta", "Sukha", "Haravlela", "Shur",
-    "Khola", "Tej", "Jadh", "Anandi", "Gudh",
-    "Shila", "Vibhag", "Sukhada", "Shital", "Padnara",
-    "Tikshna", "Durcha", "Prachin", "Dukhi", "Sundar",
-    "Anadi", "Jadui", "Divasli", "Thanda", "Kadar",
-    "Mild", "Shanta", "Gunj", "Mela", "Vishal",
-    "Ughad", "Band", "Sad", "Andhara", "Garam",
-    "Sthir", "Bhim", "Shuddha"
-]
-
-adj_mar_fem = [
-    "Changli", "Pandhri", "Pavitra", "Tuti", "Lapleleli",
-    "Lambi", "Chhoti", "Juni", "Swargiya", "Mothi",
-    "Ucchi", "Chhoti", "Mothi", "Nirmal", "Vait",
-    "Lali", "Neeli", "Hiravi", "Pivli", "Kali",
-    "Soneri", "Shanti", "Sukhi", "Haravleli", "Shur",
-    "Khola", "Tej", "Jadhi", "Anandi", "Gudh",
-    "Shila", "Vibhag", "Sukhada", "Shital", "Padnari",
-    "Tikshni", "Durchi", "Prachin", "Dukhi", "Sundar",
-    "Anadi", "Jadui", "Divasli", "Thandi", "Kadak",
-    "Mild", "Shanti", "Gunji", "Meli", "Vishal",
-    "Ughadi", "Band", "Sad", "Andhari", "Garam",
-    "Sthir", "Bhim", "Shuddha"
-]
-
-adj_mar_neu = [
-    "Changle", "Pandhre", "Pavitra", "Tute", "Laplelele",
-    "Lambe", "Chhote", "June", "Swargiya", "Mothe",
-    "Ucche", "Chhote", "Mothe", "Nirmal", "Vait",
-    "Lale", "Neel", "Hirve", "Pivle", "Kale",
-    "Soneri", "Shant", "Sukhe", "Haravlele", "Shur",
-    "Khol", "Tej", "Jadh", "Anand", "Gudh",
-    "Shil", "Vibhag", "Sukhada", "Shital", "Padnar",
-    "Tikshne", "Durcha", "Prachin", "Dukh", "Sundar",
-    "Anad", "Jadui", "Divasle", "Thand", "Kadak",
-    "Mild", "Shant", "Gunje", "Mel", "Vishal",
-    "Ughad", "Band", "Sad", "Andhar", "Garam",
-    "Sthir", "Bhim", "Shuddha"
-]
-
-nouns_mar_mas = [
-    "Khadak", "Parvat", "Ghar", "Shet", "Aakash",
-    "Jangal", "Vara", "Paus", "Kada", "Purush",
-    "Van", "Pan", "Phal", "Pakshi", "Saap",
-    "Gav", "Dongar", "Landga", "Atma", "Sainik",
-    "Khor", "Shahar", "Pul", "Pujari", "Shap",
-    "Drushya", "Gavat"
-]
-
-nouns_mar_fem = [
-    "Nadi", "Zamin", "Guha", "Tara", "Chikhal",
-    "Jhara", "Valu", "Mati", "Hawa", "Aag",
-    "Paulwat", "Ratra", "Zhopdi", "Kuran",
-    "Dhig", "Chinha", "Zhudup"
-]
-
-nouns_mar_neu = [
-    "Karanje", "Pani", "Talav", "Shikhar", "Aashray"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM COREANO   ==========================#
-
-adj_cor = [
-    "Joeun", "Hayan", "Shinseonghan", "Buseojin", "Sumgyeojin",
-    "Gin", "Jageun", "Oraedoen", "Cheonsang-ui", "Keun",
-    "Nop-eun", "Jageun", "Keun", "Wonsh-ui", "Nappeun",
-    "Ppalgan", "Paran", "Chorok-ui", "Noran", "Geom-eun",
-    "Geumsaeg-ui", "Pyeong-onhan", "Geonjohan", "Il-eobeolin", "Yong-gamhan",
-    "Gip-eun", "Balgeun", "Mugeoun", "Jeulgeoun", "Shinbihan",
-    "Seoghwadwin", "Bunyeol-dwin", "Jeulgeoun", "Siwonhan", "Tteoreojineun",
-    "Nalkaroun", "Meolli Inneun", "Godae-ui", "Seulpeun", "Areumdaun",
-    "Yeong-wonhan", "Mabeob-e Geollin", "Malgeun", "Chuun", "Gapareun",
-    "Budeureoun", "Pyeonghwaro-un", "Gyeokdongjeogin", "Jukeun", "Neolbeun",
-    "Yeollin", "Dat-eun", "Pyeongpyeonghan", "Eoduun", "Ttatteushan",
-    "Goyohan", "Geodaehan", "Sunsuhan"
-]
-
-nouns_cor = [
-    "Bawi", "San", "Gang", "Jigu", "Jip",
-    "Bat", "Donggul", "Haneul", "Byeol", "Neup",
-    "Saem", "Sup", "Ho", "Morae", "To",
-    "Baram", "Bi", "Jeolbyeok", "Sup", "Mul",
-    "Namja", "Sogeum", "Gonggi", "Bul", "Ip",
-    "Gil", "Bam", "Gwail", "Sae", "Baem",
-    "Ma-eul", "Eondeok", "Cheon", "Jjokbang", "Pyeongan",
-    "Neukdae", "Yeonghon", "Bit", "Gyeon", "Gundae",
-    "Gok", "Hwasal", "Doshi",
-    "Sanrim", "Gogae", "Nal", "Jeomjeong",
-    "Bigae", "Pyo", "Namuguri",
-    "Mot", "Gildo", "Seongdang", "Dosi",
-    "Dari", "Seongnyun", "Myoji", "Ju",
-    "Bam", "Gyeong", "Pul"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM ITALIANO   ==========================#
-
-adj_ita_mas = [
-    "Buono", "Bianco", "Sacro", "Rotto", "Nascosto",
-    "Lungo", "Vecchio", "Celeste", "Grande",
-    "Alto", "Piccolo", "Puro", "Cattivo",
-    "Rosso", "Blu", "Verde", "Giallo", "Nero",
-    "Dorato", "Calmo", "Secco", "Perso", "Coraggioso",
-    "Profondo", "Luminoso", "Pesante", "Gioioso", "Misterioso",
-    "Pietrificato", "Diviso", "Piacevole", "Rinfrescante", "Cadente",
-    "Affilato", "Distante", "Antico", "Triste", "Bello",
-    "Eterno", "Incantato", "Soleggiato", "Freddo", "Ripido",
-    "Gentile", "Pacifico", "Turbulento", "Morto", "Ampio",
-    "Aperto", "Chiuso", "Piatto", "Scuro", "Caldo",
-    "Sereno", "Gigantesco", "Puro"
-]
-
-adj_ita_fem = [
-    "Buona", "Bianca", "Sacra", "Rotta", "Nascosta",
-    "Lunga", "Piccola", "Vecchia", "Celeste",
-    "Alta", "Grande", "Pura", "Cattiva",
-    "Rossa", "Blu", "Verde", "Gialla", "Nera",
-    "Dorata", "Calma", "Secca", "Persa", "Coraggiosa",
-    "Profonda", "Luminosa", "Pesante", "Gioiosa", "Misteriosa",
-    "Pietrificata", "Divisa", "Piacevole", "Rinfrescante", "Cadente",
-    "Affilata", "Distante", "Antica", "Triste", "Bella",
-    "Eterna", "Incantata", "Soleggiata", "Fredda", "Ripida",
-    "Gentile", "Pacifica", "Turbulenta", "Morta", "Ampia",
-    "Aperta", "Chiusa", "Piatta", "Scura", "Calda",
-    "Serena", "Gigantesca", "Pura"
-]
-
-nouns_ita_mas = [
-    "Fiume", "Campo", "Cielo", "Lago", "Vento",
-    "Uomo", "Boschetto", "Fuoco", "Sentiero", "Uccello",
-    "Ruscello", "Prato", "Lupo", "Spirito",
-    "Pendio", "Soldato", "Tumulo", "Bosco", "Giorno",
-    "Rifugio", "Segno", "Cespuglio", "Stagno",
-    "Sacerdote", "Terreno"
-]
-
-nouns_ita_fem = [
-    "Roccia", "Montagna", "Terra", "Casa",
-    "Caverna", "Stella", "Palude", "Sorgente",
-    "Foresta", "Sabbia", "Pioggia", "Scogliera",
-    "Fontana", "Acqua", "Aria", "Foglia", "Ponte",
-    "Notte", "Frutta", "Cittadina", "Collina",
-    "Capanna", "Luce", "Valle", "Città", "Serpente",
-    "Cresta", "Cima", "Strada", "Cappella",
-    "Tomba", "Maledizione", "Vista", "Erba"
-]
-
-ita_bags = [
-    "Buono", "Grande", "Piccolo", "Vecchio", "Bello",
-    "Buona", "Piccola", "Vecchia", "Bella"
-]
-
-# ==========================   NOMES DAS PROVÍNCIAS EM ALEMÃO   ==========================#
-
-adj_ale_mas = [
-    "Guter", "Weißer", "Heiliger", "Gebrochener", "Versteckter",
-    "Langer", "Kleiner", "Alter", "Himmlischer", "Großer",
-    "Hoher", "Kleiner", "Großer", "Makelloser", "Schlechter",
-    "Roter", "Blauer", "Grüner", "Gelber", "Schwarzer",
-    "Goldener", "Ruhiger", "Trockener", "Verlorener", "Tapferer",
-    "Tiefer", "Heller", "Schwerer", "Fröhlicher", "Geheimnisvoller",
-    "Versteinerter", "Geteilter", "Angenehmer", "Erfrischender", "Fallender",
-    "Scharfer", "Ferns", "Alter", "Trauriger", "Schöner",
-    "Ewiger", "Verzauberter", "Sonniger", "Kalter", "Steiler",
-    "Sanfter", "Friedlicher", "Stürmischer", "Toter", "Weiter",
-    "Offener", "Geschlossener", "Flacher", "Dunkler", "Warmer",
-    "Heiterer", "Gigantischer", "Reiner"
-]
-
-adj_ale_fem = [
-    "Gute", "Weiße", "Heilige", "Gebrochene", "Versteckte",
-    "Lange", "Kleine", "Alte", "Himmlische", "Große",
-    "Hohe", "Kleine", "Große", "Makellose", "Schlechte",
-    "Rote", "Blaue", "Grüne", "Gelbe", "Schwarze",
-    "Goldene", "Ruhige", "Trockene", "Verlorene", "Tapfere",
-    "Tiefe", "Helle", "Schwere", "Fröhliche", "Geheimnisvolle",
-    "Versteinerte", "Geteilte", "Angenehme", "Erfrischende", "Fallende",
-    "Scharfe", "Ferne", "Alte", "Traurige", "Schöne",
-    "Ewige", "Verzauberte", "Sonnige", "Kalte", "Steile",
-    "Sanfte", "Friedliche", "Stürmische", "Tote", "Weite",
-    "Offene", "Geschlossene", "Flache", "Dunkle", "Warme",
-    "Heitere", "Gigantische", "Reine"
-]
-
-adj_ale_neu = [
-    "Gutes", "Weißes", "Heiliges", "Gebrochenes", "Verstecktes",
-    "Langes", "Kleines", "Altes", "Himmlisches", "Großes",
-    "Hohes", "Kleines", "Großes", "Makelloses", "Schlechtes",
-    "Rotes", "Blaues", "Grünes", "Gelbes", "Schwarzes",
-    "Goldenes", "Ruhiges", "Trockenes", "Verlorenes", "Tapferes",
-    "Tiefes", "Helles", "Schweres", "Fröhliches", "Geheimnisvolles",
-    "Versteinertes", "Geteiltes", "Angenehmes", "Erfrischendes", "Fallendes",
-    "Scharfes", "Fernes", "Altes", "Trauriges", "Schönes",
-    "Ewiges", "Verzaubertes", "Sonniges", "Kaltes", "Steiles",
-    "Sanftes", "Friedliches", "Stürmisches", "Totes", "Weites",
-    "Offenes", "Geschlossenes", "Flaches", "Dunkles", "Warmes",
-    "Heiteres", "Gigantisches", "Reines"
-]
-
-nouns_ale_mas = [
-    "Felsen", "Berg", "Fluss", "Wind", "Regen",
-    "Brunnen", "Mann", "Hain", "Feuer", "Pfad",
-    "Vogel", "Bach", "Wolf", "Geist",
-    "Hang", "Soldat", "Grat", "Tag",
-    "Gipfel", "Busch", "Teich", "Priester",
-    "Fluch", "Boden"
-]
-
-nouns_ale_fem = [
-    "Höhle", "Klippe", "Quelle", "Wiese", "Luft",
-    "Nacht", "Frucht", "Schlange", "Stadt", "Straße",
-    "Kapelle", "Brücke", "Zuflucht", "Aussicht",
-    "Erde"
-]
-
-nouns_ale_neu = [
-    "Land", "Haus", "Feld", "Himmel", "Stern",
-    "Sumpf", "See", "Sand", "Wasser", "Blatt",
-    "Licht", "Tal", "Zeichen",
-    "Grab", "Gras"
-]
-
-# ==========================   CONSTRUIR FUNÇÕES DOS NOMES DAS CAPITAIS E PROVÍNCIAS   ==========================#
-
-def formar_nome_chines(adj_chi, nouns_chi):
-    adj = random.choice(adj_chi)
-    noun = random.choice(nouns_chi)
-    nome = adj + " " + noun
-    return nome
-
-
-def formar_nome_indonesio(nouns_ind, adj_ind):
-    noun = random.choice(nouns_ind)
-    adj = random.choice(adj_ind)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_vietnamita(nouns_viet, adj_viet):
-    noun = random.choice(nouns_viet)
-    adj = random.choice(adj_viet)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_hindi(adj_hin_mas, adj_hin_fem, nouns_hin_mas, nouns_hin_fem):
-    lista_combinada = nouns_hin_mas + nouns_hin_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_hin_mas:
-        adj = random.choice(adj_hin_mas)
-    else:
-        adj = random.choice(adj_hin_fem)
-    nome = adj + " " + noun
-    return nome
-
-
-def formar_nome_farsi(nouns_far, adj_far):
-    noun = random.choice(nouns_far)
-    adj = random.choice(adj_far)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_arabe(nouns_ara_mas, nouns_ara_fem, adj_ara_mas, adj_ara_fem):
-    lista_combinada = nouns_ara_mas + nouns_ara_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_ara_mas:
-        adj = random.choice(adj_ara_mas)
-    else:
-        adj = random.choice(adj_ara_fem)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_russo(adj_rus_mas, adj_rus_fem, adj_rus_neu, nouns_rus_mas, nouns_rus_fem, nouns_rus_neu):
-    lista_combinada = nouns_rus_mas + nouns_rus_fem + nouns_rus_neu
-    noun = random.choice(lista_combinada)
-    if noun in nouns_rus_mas:
-        adj = random.choice(adj_rus_mas)
-    elif noun in nouns_rus_fem:
-        adj = random.choice(adj_rus_fem)
-    else:
-        adj = random.choice(adj_rus_neu)
-    nome = adj + " " + noun
-    return nome
-
-
-def formar_nome_suaili(nouns_sua_c1, nouns_sua_c3, nouns_sua_c5, nouns_sua_c7, nouns_sua_c9, nouns_sua_c11, adj_sua_c1,
-                       adj_sua_c3, adj_sua_c5, adj_sua_c7, adj_sua_c9, adj_sua_c11):
-    lista_combinada = nouns_sua_c1 + nouns_sua_c3 + nouns_sua_c5 + nouns_sua_c7 + nouns_sua_c9 + nouns_sua_c11
-    noun = random.choice(lista_combinada)
-    if noun in nouns_sua_c1:
-        adj = random.choice(adj_sua_c1)
-    elif noun in nouns_sua_c3:
-        adj = random.choice(adj_sua_c3)
-    elif noun in nouns_sua_c5:
-        adj = random.choice(adj_sua_c5)
-    elif noun in nouns_sua_c7:
-        adj = random.choice(adj_sua_c7)
-    elif noun in nouns_sua_c9:
-        adj = random.choice(adj_sua_c9)
-    else:
-        adj = random.choice(adj_sua_c11)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_turco(adj_tur, nouns_tur):
-    adj = random.choice(adj_tur)
-    noun = random.choice(nouns_tur)
-    nome = adj + " " + noun
-    return nome
-
-
-def formar_nome_frances(adj_fra_mas, adj_fra_fem, bags, nouns_fra_mas, nouns_fra_fem):
-    lista_combinada = nouns_fra_mas + nouns_fra_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_fra_mas:
-        adj = random.choice(adj_fra_mas)
-    else:
-        adj = random.choice(adj_fra_fem)
-    if adj in bags:
-        nome = adj + " " + noun
-    else:
-        nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_hausa(nouns_hau, adj_hau):
-    noun = random.choice(nouns_hau)
-    adj = random.choice(adj_hau)
-    nome = noun + " " + adj
-    return nome
-
-
-def formar_nome_ingles(adj_ing, nouns_ing):
-    adj = random.choice(adj_ing)
-    noun = random.choice(nouns_ing)
-    nome = adj + " " + noun
-    return nome
-
-
-def formar_nome_espanhol(nouns_esp_mas, nouns_esp_fem, adj_esp_mas, adj_esp_fem):
-    lista_combinada = nouns_esp_mas + nouns_esp_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_esp_mas:
-        adj = random.choice(adj_esp_mas)
-    else:
-        adj = random.choice(adj_esp_fem)
-    nome = noun + " " + adj
-    return nome
-
-def formar_nome_portugues(nouns_por_mas, nouns_por_fem, adj_por_mas, adj_por_fem):
-    lista_combinada = nouns_por_mas + nouns_por_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_por_mas:
-        adj = random.choice(adj_por_mas)
-    else:
-        adj = random.choice(adj_por_fem)
-    nome = noun + " " + adj
-    return nome
-
-def formar_nome_telugu(adj_tel, nouns_tel):
-    adj = random.choice(adj_tel)
-    noun = random.choice(nouns_tel)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_bengali(adj_ben, nouns_ben):
-    adj = random.choice(adj_ben)
-    noun = random.choice(nouns_ben)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_japones(adj_jap, nouns_jap):
-    adj = random.choice(adj_jap)
-    noun = random.choice(nouns_jap)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_marathi(adj_mar_mas, adj_mar_fem, adj_mar_neu, nouns_mar_mas, nouns_mar_fem, nouns_mar_neu):
-    lista_combinada = nouns_mar_mas + nouns_mar_fem + nouns_mar_neu
-    noun = random.choice(lista_combinada)
-    if noun in nouns_mar_mas:
-        adj = random.choice(adj_mar_mas)
-    elif noun in nouns_mar_fem:
-        adj = random.choice(adj_mar_fem)
-    else:
-        adj = random.choice(adj_mar_neu)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_coreano(adj_cor, nouns_cor):
-    adj = random.choice(adj_cor)
-    noun = random.choice(nouns_cor)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_italiano(nouns_ita_mas, nouns_ita_fem, adj_ita_mas, adj_ita_fem):
-    lista_combinada = nouns_ita_mas + nouns_ita_fem
-    noun = random.choice(lista_combinada)
-    if noun in nouns_ita_mas:
-        adj = random.choice(adj_ita_mas)
-    else:
-        adj = random.choice(adj_ita_fem)
-    if adj in ita_bags:
-        nome = adj + " " + noun
-    else:
-        nome = noun + " " + adj
-    return nome
-
-def formar_nome_alemao(adj_ale_mas, adj_ale_fem, adj_ale_neu, nouns_ale_mas, nouns_ale_fem, nouns_ale_neu):
-    lista_combinada = nouns_ale_mas + nouns_ale_fem + nouns_ale_neu
-    noun = random.choice(lista_combinada)
-    if noun in nouns_ale_mas:
-        adj = random.choice(adj_ale_mas)
-    elif noun in nouns_ale_fem:
-        adj = random.choice(adj_ale_fem)
-    else:
-        adj = random.choice(adj_ale_neu)
-    nome = adj + " " + noun
-    return nome
-
-def formar_nome_wu(adj_wu, nouns_wu):
-    adj = random.choice(adj_wu)
-    noun = random.choice(nouns_wu)
-    nome = adj + " " + noun
-    return nome
-
-######################################################################################################################
-
-def formar_nome(cultura):
-    if cultura == "Chinese":
-        return formar_nome_chines(adj_chi, nouns_chi)
-    elif cultura == "Indonesian":
-        return formar_nome_indonesio(nouns_ind, adj_ind)
-    elif cultura == "Vietnamese":
-        return formar_nome_vietnamita(nouns_viet, adj_viet)
-    elif cultura == "Indian":
-        return formar_nome_hindi(adj_hin_mas, adj_hin_fem, nouns_hin_mas, nouns_hin_fem)
-    elif cultura == "Persian":
-        return formar_nome_farsi(nouns_far, adj_far)
-    elif cultura == "Arabic":
-        return formar_nome_arabe(nouns_ara_mas, nouns_ara_fem, adj_ara_mas, adj_ara_fem)
-    elif cultura == "Russian":
-        return formar_nome_russo(adj_rus_mas, adj_rus_fem, adj_rus_neu, nouns_rus_mas, nouns_rus_fem, nouns_rus_neu)
-    elif cultura == "Swahili":
-        return formar_nome_suaili(
-            nouns_sua_c1, nouns_sua_c3, nouns_sua_c5,
-            nouns_sua_c7, nouns_sua_c9, nouns_sua_c11,
-            adj_sua_c1, adj_sua_c3, adj_sua_c5,
-            adj_sua_c7, adj_sua_c9, adj_sua_c11
-        )
-    elif cultura == "Turkish":
-        return formar_nome_turco(adj_tur, nouns_tur)
-    elif cultura == "French":
-        return formar_nome_frances(adj_fra_mas, adj_fra_fem, bags, nouns_fra_mas, nouns_fra_fem)
-    elif cultura == "Hausa":
-        return formar_nome_hausa(nouns_hau, adj_hau)
-    elif cultura == "English":
-        return formar_nome_ingles(adj_ing, nouns_ing)
-    elif cultura == "Portuguese":
-        return formar_nome_portugues(nouns_por_mas, nouns_por_fem, adj_por_mas, adj_por_fem)
-    elif cultura == "Telugu":
-        return formar_nome_telugu(adj_tel, nouns_tel)
-    elif cultura == "Bengali":
-        return formar_nome_bengali(adj_ben, nouns_ben)
-    elif cultura == "Japanese":
-        return formar_nome_japones(adj_jap, nouns_jap)
-    elif cultura == "Marathi":
-        return formar_nome_marathi(adj_mar_mas, adj_mar_fem, adj_mar_neu, nouns_mar_mas, nouns_mar_fem, nouns_mar_neu)
-    elif cultura == "Korean":
-        return formar_nome_coreano(adj_cor, nouns_cor)
-    elif cultura == "Italian":
-        return formar_nome_italiano(nouns_ita_mas, nouns_ita_fem, adj_ita_mas, adj_ita_fem)
-    elif cultura == "German":
-        return formar_nome_alemao(adj_ale_mas, adj_ale_fem, adj_ale_neu, nouns_ale_mas, nouns_ale_fem, nouns_ale_neu)
-    elif cultura == "Wu":
-        return formar_nome_wu(adj_wu, nouns_wu)
-    elif cultura == "Yue":
-        return formar_nome_wu(adj_yue, nouns_yue)
-    elif cultura == "Min":
-        return formar_nome_wu(adj_min, nouns_min)
-    else:
-        return formar_nome_espanhol(nouns_esp_mas, nouns_esp_fem, adj_esp_mas, adj_esp_fem)
-
-
-================================================================================
 📄 shared/civilization.py
 ================================================================================
 import random
@@ -3498,5 +3070,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 17 arquivos incluídos.
+✅ Total de 24 arquivos incluídos.
 ================================================================================

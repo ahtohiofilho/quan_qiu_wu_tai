@@ -23,7 +23,8 @@ EXCLUDE_FILES = {
     ".egg-info",
     "dist",
     "build",
-    "flags"
+    "flags",
+    "naming"
 }  # Nomes ou substrings para ignorar
 
 # Cabeçalho do arquivo gerado
