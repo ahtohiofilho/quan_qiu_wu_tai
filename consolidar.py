@@ -4,12 +4,12 @@ from pathlib import Path
 
 # ⚙️ CONFIGURAÇÕES
 PROJECT_ROOT = "."                   # Diretório raiz do projeto
-OUTPUT_FILE = "todos_os_scripts.txt" # Nome do arquivo de saída
+OUTPUT_FILE = "scripts.txt" # Nome do arquivo de saída
 FILE_EXTENSIONS = {".py"}            # Extensões incluídas no conteúdo
 INCLUDE_DIRS = [
-    "server",
+    #"server",
     "client",
-    "shared"
+    #"shared"
 ]  # Diretórios principais a varrer
 EXCLUDE_FILES = {
     "consolidar.py",
@@ -32,7 +32,7 @@ HEADER = f"""\
 ARQUIVO DE CÓDIGO CONSOLIDADO
 Gerado em: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Diretório: {os.path.abspath(PROJECT_ROOT)}
-Conteúdo de todos os scripts principais reunidos.
+Conteúdo dos scripts principais reunidos.
 
 {'='*80}
 """

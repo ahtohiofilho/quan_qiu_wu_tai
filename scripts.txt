@@ -1,3 +1,35 @@
+ARQUIVO DE CÓDIGO CONSOLIDADO
+Gerado em: 2025-08-18 17:58:25
+Diretório: /home/mariagoreti/quan_qiu_wu_tai
+Conteúdo dos scripts principais reunidos.
+
+================================================================================
+
+================================================================================
+📁 ESTRUTURA DO PROJETO
+================================================================================
+
+📁 .
+├── client
+│   ├── components
+│   │   ├── __init__.py
+│   │   └── icon_manager.py
+│   ├── resources
+│   │   ├── arrow-left.png
+│   │   ├── log-in.png
+│   │   ├── play.png
+│   │   └── smile.png
+│   ├── states
+│   │   └── __init__.py
+│   └── main.py
+
+================================================================================
+📄 CONTEÚDO DOS ARQUIVOS
+================================================================================
+
+================================================================================
+📄 client/main.py
+================================================================================
 # client/main.py
 
 import sys
@@ -171,6 +203,31 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # Limpa o buffer com a cor definida em initializeGL
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
+        # --- Desenhar o Triângulo ---
+        # Verifica se tudo foi inicializado corretamente
+        if self.shader_program and self.VAO:
+            try:
+                gl.glUseProgram(self.shader_program)
+                gl.glBindVertexArray(self.VAO)
+                gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)  # Desenha 3 vértices
+                gl.glBindVertexArray(0)
+                gl.glUseProgram(0)
+            except Exception as e:
+                print(f"❌ Erro durante a renderização: {e}")
+        # else:
+        #     # Opcional: Desenhar algo simples se shaders/VAO falharem
+        #     # Por exemplo, um fundo ligeiramente diferente ou uma mensagem de erro
+        #     pass
+
+        # TODO: Usar shaders, vincular VAOs, desenhar geometria (texto)
+        # Exemplo:
+        # if self.shader_program_texto and self.VAO_texto:
+        #     gl.glUseProgram(self.shader_program_texto)
+        #     gl.glBindVertexArray(self.VAO_texto)
+        #     # ... comandos de desenho para texto ...
+        #     gl.glBindVertexArray(0)
+        #     gl.glUseProgram(0)
+
 
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
@@ -211,6 +268,7 @@ class JanelaPrincipal(QMainWindow):
         label_status = QLabel("Status: Aguardando...")
         layout_barra_superior.addWidget(label_status)
         layout_barra_superior.addStretch()
+        # --- BOTÃO SAIR REMOVIDO DA BARRA SUPERIOR ---
 
         # --- Conteúdo Principal ---
         conteudo_principal_widget = QWidget()
@@ -248,80 +306,50 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.overlay_widget.setStyleSheet("background: transparent; border: none;")
+        # Conectar o resize para manter o overlay cobrindo o container
+        self.opengl_container.resizeEvent = self._on_opengl_container_resized
 
         # --- Layout do Overlay para o Título e Subtítulo ---
         overlay_layout = QVBoxLayout(self.overlay_widget)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.setSpacing(10)  # Espaçamento ajustado para hierarquia
+        overlay_layout.setSpacing(20) # Espaço entre título e subtítulo
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: "Welcome to" (pequeno, acima) ---
-        self.label_welcome = QLabel("Welcome to")
-        font_welcome = QFont()
-        font_welcome.setPointSize(14)
-        font_welcome.setItalic(True)
-        font_welcome.setWeight(500)
-        self.label_welcome.setFont(font_welcome)
-        self.label_welcome.setStyleSheet("color: #aaaaaa; background: transparent; border: none;")
-        self.label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # --- Label: "Global Arena" (grande, destaque) ---
-        self.label_titulo = QLabel("Global Arena")
+        # --- Criar e Configurar o Label do Título ---
+        self.label_titulo = QLabel("Welcome to Global Arena")
         font_titulo = QFont()
-        font_titulo.setPointSize(48)
+        font_titulo.setPointSize(28)
         font_titulo.setBold(True)
-        font_titulo.setWeight(700)
         self.label_titulo.setFont(font_titulo)
         self.label_titulo.setStyleSheet("""
             color: white;
             background-color: transparent;
             border: none;
-            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            qproperty-alignment: AlignCenter;
         """)
         self.label_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: Subtítulo (teaser provocativo) ---
-        self.label_subtitulo = QLabel("the only one for non-flat-earthers")
+        # --- Criar e Configurar o Label do Subtítulo ---
+        self.label_subtitulo = QLabel("The Only One for non-flat-earthers")
         font_subtitulo = QFont()
         font_subtitulo.setPointSize(16)
-        font_subtitulo.setItalic(True)
+        # font_subtitulo.setItalic(True) # Opcional
         self.label_subtitulo.setFont(font_subtitulo)
         self.label_subtitulo.setStyleSheet("""
-            color: #cccccc;
+            color: #cccccc; /* Cinza claro */
             background-color: transparent;
             border: none;
-            font-style: italic;
+            qproperty-alignment: AlignCenter;
         """)
         self.label_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Adicionar ao layout na ordem correta ---
-        overlay_layout.addWidget(self.label_welcome)
+        # --- Adicionar os Labels ao Layout do Overlay ---
         overlay_layout.addWidget(self.label_titulo)
         overlay_layout.addWidget(self.label_subtitulo)
 
         # --- Adicionar Widgets ao Container OpenGL ---
-        container_layout.addWidget(self.opengl_widget)
-
-        # --- Correção robusta do resizeEvent ---
-        def _safe_resize_event(event):
-            self.overlay_widget.setGeometry(self.opengl_container.rect())
-            self.overlay_widget.raise_()
-            QWidget.resizeEvent(self.opengl_container, event)
-
-        self.opengl_container.resizeEvent = _safe_resize_event
-
-        # --- FORÇAR O OVERLAY A APARECER IMEDIATAMENTE ---
-        self.overlay_widget.setGeometry(self.opengl_container.rect())
-        self.overlay_widget.raise_()
-        self.overlay_widget.show()
-
-        # --- Fallback pós-show: Garante posicionamento após renderização inicial ---
-        from PyQt6.QtCore import QTimer
-        QTimer.singleShot(50, lambda: [
-            self.overlay_widget.setGeometry(self.opengl_container.rect()),
-            self.overlay_widget.raise_(),
-            self.overlay_widget.show()
-        ])
+        container_layout.addWidget(self.opengl_widget) # OpenGL no fundo
+        # self.overlay_widget é posicionado absolutamente
 
         # --- Barra Direita ---
         self.barra_direita = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraDireita")
@@ -335,7 +363,7 @@ class JanelaPrincipal(QMainWindow):
         layout_direita.addStretch()
 
         # --- Adicionar widgets à área central ---
-        area_central_layout.addWidget(self.opengl_container)
+        area_central_layout.addWidget(self.opengl_container) # Adiciona o CONTAINER
         area_central_layout.addWidget(self.barra_direita)
 
         # --- Adicionar widgets ao conteúdo principal ---
@@ -361,11 +389,11 @@ class JanelaPrincipal(QMainWindow):
         self.show()
         self.setWindowState(Qt.WindowState.WindowFullScreen)
 
-        # --- Debug final ---
-        print("✅ Janela exibida. Overlay forçado a aparecer.")
-        print("🔍 Geometria do container:", self.opengl_container.geometry())
-        print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
-        print("🔍 Overlay visível?", self.overlay_widget.isVisible())
+    def _on_opengl_container_resized(self, event):
+        """Ajusta o tamanho do overlay para cobrir o container."""
+        self.overlay_widget.setGeometry(self.opengl_container.rect())
+        if event:
+            QWidget.resizeEvent(self.opengl_container, event)
 
     def _criar_barra(self, tamanho, is_horizontal, object_name="Barra"):
         """Cria um widget para representar uma barra, com estilo básico."""
@@ -443,3 +471,200 @@ if __name__ == "__main__":
     # with open("session.txt", "w") as f:
     #     f.write("usuario_teste_logado")
     main()
+
+================================================================================
+📄 client/states/__init__.py
+================================================================================
+
+
+================================================================================
+📄 client/components/icon_manager.py
+================================================================================
+# client/components/icon_manager.py
+"""Componentes para gerenciar ícones interativos na barra lateral esquerda."""
+
+import os
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QPixmap, QCursor
+import traceback
+
+
+class IconeInterativo(QLabel):
+    """
+    Um QLabel que exibe uma imagem e emite um sinal quando clicado.
+    """
+    clicado = pyqtSignal(str)  # Sinal emitido ao ser clicado, passando um identificador
+
+    def __init__(self, icone_path, identificador, tamanho=(64, 64), parent=None):
+        """
+        :param icone_path: Caminho para o arquivo PNG do ícone.
+        :param identificador: String única para identificar este ícone ("login", "play", "sair").
+        :param tamanho: Tupla (largura, altura) para redimensionar o ícone.
+        :param parent: Widget pai.
+        """
+        super().__init__(parent)
+        self.identificador = identificador
+        self.tamanho = tamanho
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Estilo para feedback visual (opcional)
+        self.setStyleSheet("""
+            IconeInterativo {
+                border: 2px solid transparent; /* Borda invisível por padrão */
+                border-radius: 5px; /* Bordas arredondadas */
+            }
+            IconeInterativo:hover {
+                border: 2px solid #3498db; /* Borda azul ao passar o mouse */
+                background-color: rgba(52, 152, 219, 30); /* Fundo azul claro transparente */
+            }
+        """)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Muda o cursor para mãozinha
+
+        self.carregar_icone(icone_path)
+        # Redimensionar o QLabel para o tamanho desejado
+        self.setFixedSize(*self.tamanho)
+
+    def carregar_icone(self, caminho):
+        """
+        Carrega e define a imagem do ícone.
+        Inclui verificações detalhadas e logs para facilitar depuração.
+        """
+        print(f"[DEBUG] [IconeInterativo] Tentando carregar ícone '{self.identificador}' de: '{caminho}'")
+
+        # --- Verificações detalhadas do caminho ---
+        caminho_absoluto = os.path.abspath(caminho)
+        existe = os.path.exists(caminho)
+        eh_arquivo = os.path.isfile(caminho) if existe else False
+
+        print(f"[DEBUG] [IconeInterativo] Caminho absoluto resolvido: '{caminho_absoluto}'")
+        print(f"[DEBUG] [IconeInterativo] os.path.exists('{caminho}') = {existe}")
+        print(f"[DEBUG] [IconeInterativo] os.path.isfile('{caminho}') = {eh_arquivo}")
+
+        # --- Determinar se o carregamento pode prosseguir ---
+        pixmap = None
+        if not existe:
+            print(
+                f"⚠️ [IconeInterativo] O caminho '{caminho}' NÃO EXISTE. Diretório de execução pode estar incorreto. Usando placeholder.")
+        elif not eh_arquivo:
+            print(
+                f"⚠️ [IconeInterativo] O caminho '{caminho}' EXISTE, mas NÃO É um arquivo (pode ser um diretório). Usando placeholder.")
+        else:
+            # Caminho existe e é um arquivo, tentar carregar com QPixmap
+            print(f"[DEBUG] [IconeInterativo] Caminho válido, tentando QPixmap('{caminho}')...")
+            try:
+                pixmap = QPixmap(caminho)
+
+                # Verificar se o carregamento foi bem-sucedido
+                if pixmap.isNull():
+                    print(f"⚠️ [IconeInterativo] QPixmap falhou ao carregar o arquivo '{caminho}'. "
+                          f"O arquivo pode estar corrompido ou não ser uma imagem válida. Usando placeholder.")
+                    pixmap = None  # Forçar uso do placeholder
+                else:
+                    print(
+                        f"[DEBUG] [IconeInterativo] QPixmap carregou com sucesso. Tamanho original: {pixmap.width()}x{pixmap.height()}")
+
+            except Exception as e:
+                print(f"❌ [IconeInterativo] Erro inesperado ao carregar QPixmap de '{caminho}': {e}")
+                import traceback
+                traceback.print_exc()  # Imprime o stack trace completo
+                pixmap = None  # Forçar uso do placeholder
+
+        # --- Criar pixmap final (carregada ou placeholder) ---
+        if pixmap is None:
+            # Criar um pixmap de placeholder se a imagem não for carregada
+            pixmap = QPixmap(self.tamanho[0], self.tamanho[1])
+            pixmap.fill(Qt.GlobalColor.gray)  # Cor cinza para placeholder
+            print(f"[DEBUG] [IconeInterativo] Placeholder cinza criado para '{self.identificador}'.")
+        else:
+            # Redimensionar a pixmap carregada para o tamanho desejado
+            pixmap = pixmap.scaled(
+                self.tamanho[0],
+                self.tamanho[1],
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            print(
+                f"[DEBUG] [IconeInterativo] Pixmap (carregada) redimensionada para {self.tamanho[0]}x{self.tamanho[1]}.")
+
+        # --- Definir a pixmap (carregada ou placeholder) no QLabel ---
+        self.setPixmap(pixmap)
+        print(f"[DEBUG] [IconeInterativo] Pixmap definida para o ícone '{self.identificador}'.")
+
+    def mousePressEvent(self, event):
+        """Sobrescreve para emitir o sinal ao ser clicado."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            print(f"🖱️ Ícone '{self.identificador}' clicado.")
+            self.clicado.emit(self.identificador)  # Emite o sinal com o identificador
+        super().mousePressEvent(event)  # Chama o método da classe base
+
+
+class GerenciadorIconesEsquerda(QWidget):
+    """
+    Widget que contém e organiza os ícones interativos na barra esquerda.
+    """
+    icone_clicado = pyqtSignal(str)  # Re-emite o sinal dos ícones filhos
+
+    def __init__(self, caminho_recursos="client/resources", parent=None):
+        """
+        :param caminho_recursos: Caminho para a pasta com os ícones PNG.
+        :param parent: Widget pai.
+        """
+        super().__init__(parent)
+        self.caminho_recursos = caminho_recursos
+        self.icones = {}  # Dicionário para armazenar referências aos ícones {identificador: IconeInterativo}
+        self.TAMANHO_ICONE = (48, 48)
+
+        # Layout vertical para os ícones
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)  # Margens internas
+        layout.setSpacing(20)  # Espaço entre os ícones
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        # --- Criar e adicionar ícones ---
+        # Ícone de Login (Superior Esquerdo)
+        icone_login_path = os.path.join(self.caminho_recursos, "log-in.png")
+        self.icone_login = IconeInterativo(icone_login_path, "login", tamanho=self.TAMANHO_ICONE)
+        self.icone_login.clicado.connect(self._ao_clicar_icone)
+        layout.addWidget(self.icone_login)
+        self.icones["login"] = self.icone_login
+
+        # Ícone de Play (Mais abaixo)
+        icone_play_path = os.path.join(self.caminho_recursos, "play.png")
+        self.icone_play = IconeInterativo(icone_play_path, "play", tamanho=self.TAMANHO_ICONE)
+        self.icone_play.clicado.connect(self._ao_clicar_icone)
+        layout.addWidget(self.icone_play)
+        self.icones["play"] = self.icone_play
+
+        # Espaço elástico para empurrar o ícone de sair para baixo
+        layout.addStretch()
+
+        # Ícone de Sair (Inferior Esquerdo)
+        icone_sair_path = os.path.join(self.caminho_recursos, "arrow-left.png")
+        self.icone_sair = IconeInterativo(icone_sair_path, "sair", tamanho=self.TAMANHO_ICONE)
+        self.icone_sair.clicado.connect(self._ao_clicar_icone)
+        layout.addWidget(self.icone_sair)
+        self.icones["sair"] = self.icone_sair
+
+    def _ao_clicar_icone(self, identificador):
+        """Slot interno para reemitir o sinal do ícone clicado."""
+        print(f"📡 GerenciadorIconesEsquerda: Ícone '{identificador}' acionado.")
+        self.icone_clicado.emit(identificador)  # Re-emite o sinal para o consumidor (JanelaPrincipal)
+
+    # Métodos para atualizar ícones, se necessário (ex: login/logout)
+    def atualizar_icone(self, identificador, novo_caminho):
+        """Atualiza a imagem de um ícone existente."""
+        if identificador in self.icones:
+            self.icones[identificador].carregar_icone(novo_caminho)
+        else:
+            print(f"⚠️ GerenciadorIconesEsquerda: Ícone '{identificador}' não encontrado para atualizar.")
+
+
+================================================================================
+📄 client/components/__init__.py
+================================================================================
+
+
+================================================================================
+✅ Total de 4 arquivos incluídos.
+================================================================================
