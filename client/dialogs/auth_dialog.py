@@ -16,20 +16,18 @@ class DialogoAutenticacao(QDialog):
         layout_principal = QVBoxLayout(self)
 
         # Abas: Login e Registro
-        abas = QTabWidget()
-        abas.addTab(self.criar_aba_login(), "Entrar")
-        abas.addTab(self.criar_aba_registro(), "Registrar")
-        layout_principal.addWidget(abas)
+        self.abas = QTabWidget()  # Salvando como atributo para acesso futuro
+        self.abas.addTab(self.criar_aba_login(), "Entrar")
+        self.abas.addTab(self.criar_aba_registro(), "Registrar")
+        layout_principal.addWidget(self.abas)
 
-        # Botões comuns
-        botoes = QDialogButtonBox(
+        # Botões comuns → AGORA salvo como atributo: self.buttons
+        self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        botoes.accepted.connect(self.on_ok)
-        botoes.rejected.connect(self.reject)
-        layout_principal.addWidget(botoes)
-
-        self.show()
+        self.buttons.accepted.connect(self.on_ok)
+        self.buttons.rejected.connect(self.reject)
+        layout_principal.addWidget(self.buttons)
 
     def criar_aba_login(self):
         widget = QWidget()
@@ -62,7 +60,8 @@ class DialogoAutenticacao(QDialog):
         return widget
 
     def on_ok(self):
-        aba_atual = self.sender().parent().parent().currentIndex()
+        """Chamado quando o botão OK é pressionado. Executa login ou registro conforme aba ativa."""
+        aba_atual = self.abas.currentIndex()  # ✅ Acesso direto ao QTabWidget
         if aba_atual == 0:
             self.tentar_login()
         else:

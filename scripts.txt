@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-19 08:18:04
+Gerado em: 2025-08-19 10:18:09
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -31,6 +31,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── components
 │   │   ├── __init__.py
 │   │   └── icon_manager.py
+│   ├── dialogs
+│   │   └── auth_dialog.py
 │   ├── resources
 │   │   ├── arrow-left.png
 │   │   ├── log-in.png
@@ -1406,11 +1408,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat, QFont
-
-# --- Importação do componente modularizado ---
-# Assumindo a estrutura client/components/gerenciador_icones.py
-# O caminho correto, considerando a execução de client/main.py, é relativo a client/
 from components.icon_manager import GerenciadorIconesEsquerda
+from dialogs.auth_dialog import DialogoAutenticacao
 
 
 # --- Componente OpenGL ---
@@ -1559,7 +1558,6 @@ class MeuOpenGLWidget(QOpenGLWidget):
         """
         # Limpa o buffer com a cor definida em initializeGL
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
-
 
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
@@ -1774,25 +1772,6 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
-    def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
-        """
-        Atualiza a interface do ícone de login com base no estado.
-        :param esta_logado: True se o usuário está logado.
-        :param nome_usuario: Nome do usuário (opcional).
-        """
-        if esta_logado and nome_usuario:
-            # Muda ícone para smile.png
-            caminho_smile = os.path.join(self.caminho_recursos, "smile.png")
-            self.icone_login.carregar_icone(caminho_smile)
-            # Define e mostra o nome
-            self.label_nome_usuario.setText(nome_usuario)
-            self.label_nome_usuario.show()
-        else:
-            # Volta para ícone de login e esconde nome
-            caminho_login = os.path.join(self.caminho_recursos, "log-in.png")
-            self.icone_login.carregar_icone(caminho_login)
-            self.label_nome_usuario.hide()
-
     def _verificar_login(self):
         """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
         return os.path.exists("session.txt")
@@ -1830,7 +1809,7 @@ class JanelaPrincipal(QMainWindow):
             self.on_icone_sair()
 
     def on_icone_login(self):
-        """Ação acionada pelo ícone de login: faz login ou logout."""
+        """Ação acionada pelo ícone de login: abre tela de login ou logout."""
         if self.usuario_logado:
             # Já logado → oferece logout
             reply = QMessageBox.question(
@@ -1841,92 +1820,173 @@ class JanelaPrincipal(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 try:
-                    try:
-                        os.remove("session.txt")
-                        self.usuario_logado = False
-                        # Atualiza UI: volta ao ícone de login e esconde nome
-                        self.gerenciador_icones.atualizar_estado_login(False)
-                        QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
-                    except Exception as e:
-                        QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
+                    os.remove("session.txt")
+                    self.usuario_logado = False
+                    self.gerenciador_icones.atualizar_estado_login(False)
+                    QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
                 except Exception as e:
                     QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
         else:
-            # Não logado → abre tela de login
-            self._abrir_tela_login()
+            # Não logado → abre o novo diálogo com Login/Registro
+            dialog = DialogoAutenticacao(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Após login bem-sucedido, atualiza UI
+                try:
+                    with open("session.txt", "r") as f:
+                        nome_usuario = f.read().strip()
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_estado_login(True, nome_usuario)
+                except Exception as e:
+                    print(f"❌ Erro ao ler session.txt: {e}")
 
     def on_icone_play(self):
-        """Ação acionada pelo ícone de play."""
-        print("Ação: Ícone 'Play' clicado.")
+        """Ação acionada pelo ícone de play: oferece modo offline ou online."""
+        print("Ação: Ícone 'Play' clicado. Oferecendo modos de jogo...")
+
+        modo_dialog = QDialog(self)
+        modo_dialog.setWindowTitle("Modo de Jogo")
+        modo_dialog.setModal(True)
+        modo_dialog.resize(300, 150)
+
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("Escolha o modo de jogo:"))
+
+        btn_offline = QPushButton("Offline")
+        btn_online = QPushButton("Online")
+
+        layout.addWidget(btn_offline)
+        layout.addWidget(btn_online)
+
+        modo_dialog.setLayout(layout)
+
+        # Vamos controlar o fechamento manualmente
+        modo_dialog.accepted.connect(lambda: None)  # Desativar aceitação automática
+
+        def escolher_offline():
+            modo_dialog.reject()  # Fecha sem aceitar (para não disparar lógica de online)
+            self._ir_para_tela_pre_jogo(offline=True)
+
+        def escolher_online():
+            modo_dialog.reject()  # Fecha o diálogo de modo, mas mantém o controle
+            if self.usuario_logado:
+                self._ir_para_tela_pre_jogo(offline=False)
+            else:
+                # Abre o diálogo completo (login + registro)
+                self._abrir_dialogo_autenticacao_completo(
+                    success_callback=lambda u: self._ir_para_tela_pre_jogo(offline=False))
+
+        btn_offline.clicked.connect(escolher_offline)
+        btn_online.clicked.connect(escolher_online)
+
+        modo_dialog.exec()
+
+    def _iniciar_offline(self, escolha, dialog):
+        escolha[0] = "offline"
+        dialog.accept()
+
+    def _iniciar_online(self, escolha, dialog):
+        escolha[0] = "online"
+        dialog.accept()
+
+        # Verifica login
+        if not self.usuario_logado:
+            print("Usuário não logado. Abrindo diálogo de autenticação...")
+            self._abrir_dialogo_autenticacao_completo(success_callback=self._on_login_sucesso_pre_jogo)
+        else:
+            self._ir_para_tela_pre_jogo(offline=False)
+
+    def _on_login_sucesso_pre_jogo(self, username: str):
+        """Callback chamado após login bem-sucedido no fluxo de 'play online'."""
+        print(f"✅ Login bem-sucedido. Iniciando pré-jogo online para {username}.")
+        self._ir_para_tela_pre_jogo(offline=False)
+
+    def _ir_para_tela_pre_jogo(self, offline: bool):
+        """Redireciona para a tela de pré-jogo (futura implementação)."""
+        modo = "Offline" if offline else "Online"
+        QMessageBox.information(self, "Pré-Jogo",
+                                f"Iniciando modo {modo}...\n(Tela de pré-jogo será implementada em breve.)")
+        # Futuro: Trocar para widget de pré-jogo
+        # Ex: self.setCentralWidget(TelaPreJogo(offline=offline, parent=self))
 
     def on_icone_sair(self):
         """Ação acionada pelo ícone de sair."""
         print("Ação: Ícone 'Sair' clicado. Fechando aplicação...")
         self.close()
 
-    def _abrir_dialogo_login(self):
-        """Abre um diálogo de login com campos de usuário e senha, conectado ao backend."""
-        import requests
+    def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
+        """Abre o diálogo completo de autenticação (login + registro)."""
+        dialog = DialogoAutenticacao(parent=self)
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Entrar")
-        dialog.setModal(True)
-        dialog.resize(300, 120)
-
-        layout = QFormLayout()
-
-        username_input = QLineEdit()
-        password_input = QLineEdit()
-        password_input.setEchoMode(QLineEdit.EchoMode.Password)
-
-        layout.addRow("Usuário:", username_input)
-        layout.addRow("Senha:", password_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        layout.addRow(buttons)
-
-        dialog.setLayout(layout)
+        def on_login_sucesso(username: str):
+            with open("session.txt", "w") as f:
+                f.write(username)
+            self.usuario_logado = True
+            self.gerenciador_icones.atualizar_estado_login(True, username)
+            if success_callback:
+                success_callback(username)
+            dialog.accept()  # Fecha o diálogo
 
         def tentar_login():
-            username = username_input.text().strip()
-            password = password_input.text()
-
-            if not username:
-                QMessageBox.warning(dialog, "Erro", "Usuário é obrigatório.")
+            username = dialog.username_login.text().strip()
+            password = dialog.senha_login.text()
+            if not username or not password:
+                QMessageBox.warning(dialog, "Erro", "Usuário e senha são obrigatórios.")
                 return
-            if not password:
-                QMessageBox.warning(dialog, "Erro", "Senha é obrigatória.")
-                return
-
             try:
-                response = requests.post(
-                    "http://localhost:5000/auth/login",
-                    json={"username": username, "password": password}
-                )
+                response = requests.post("http://localhost:5000/auth/login",
+                                         json={"username": username, "password": password})
                 data = response.json()
-
                 if response.status_code == 200 and data.get("success"):
-                    # Login bem-sucedido
-                    with open("session.txt", "w") as f:
-                        f.write(username)
-                    self.usuario_logado = True
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
-                    QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
-                    dialog.accept()
+                    on_login_sucesso(username)
                 else:
-                    msg = data.get("message", "Login falhou.")
-                    QMessageBox.critical(dialog, "Erro", msg)
+                    QMessageBox.critical(dialog, "Erro", data.get("message", "Login falhou."))
             except requests.exceptions.ConnectionError:
-                QMessageBox.critical(dialog, "Erro",
-                                     "Não foi possível conectar ao servidor. Certifique-se de que o backend está rodando.")
-            except requests.exceptions.Timeout:
-                QMessageBox.critical(dialog, "Erro", "Tempo de resposta esgotado.")
+                QMessageBox.critical(dialog, "Erro", "Não foi possível conectar ao servidor.")
             except Exception as e:
-                QMessageBox.critical(dialog, "Erro", f"Erro inesperado: {str(e)}")
+                QMessageBox.critical(dialog, "Erro", f"Erro: {str(e)}")
 
-        buttons.accepted.connect(tentar_login)
-        buttons.rejected.connect(dialog.reject)
+        def tentar_registro():
+            username = dialog.username_registro.text().strip()
+            password = dialog.senha_registro.text()
+            confirmar = dialog.confirmar_senha.text()
+            if not username or not password or not confirmar:
+                QMessageBox.warning(dialog, "Erro", "Todos os campos são obrigatórios.")
+                return
+            if password != confirmar:
+                QMessageBox.warning(dialog, "Erro", "As senhas não coincidem.")
+                return
+            if len(password) < 6:
+                QMessageBox.warning(dialog, "Erro", "A senha deve ter pelo menos 6 caracteres.")
+                return
+            try:
+                response = requests.post("http://localhost:5000/auth/registrar",
+                                         json={"username": username, "password": password})
+                data = response.json()
+                if response.status_code == 200 and data.get("success"):
+                    QMessageBox.information(dialog, "Sucesso", "Conta criada com sucesso! Faça login.")
+                    # Preenche o campo de login e muda para aba de login
+                    dialog.username_login.setText(username)
+                    dialog.abas.setCurrentIndex(0)
+                else:
+                    QMessageBox.critical(dialog, "Erro", data.get("message", "Falha no registro."))
+            except requests.exceptions.ConnectionError:
+                QMessageBox.critical(dialog, "Erro", "Não foi possível conectar ao servidor.")
+            except Exception as e:
+                QMessageBox.critical(dialog, "Erro", f"Erro: {str(e)}")
 
+        # 🔁 Conecta os botões do QDialogButtonBox ao comportamento correto
+        # Remover conexão anterior (se houver)
+        try:
+            dialog.buttons.accepted.disconnect()
+        except TypeError:
+            pass  # Já desconectado
+
+        # Conecta "OK" ao comportamento da aba atual
+        dialog.buttons.accepted.connect(
+            lambda: tentar_login() if dialog.abas.currentIndex() == 0 else tentar_registro()
+        )
+
+        # "Cancel" já chama reject() → fecha o diálogo
         dialog.exec()
 
     def _abrir_tela_login(self):
@@ -2024,6 +2084,138 @@ if __name__ == "__main__":
 📄 client/states/__init__.py
 ================================================================================
 
+
+================================================================================
+📄 client/dialogs/auth_dialog.py
+================================================================================
+# client/dialogs/auth_dialog.py
+from PyQt6.QtWidgets import (
+    QDialog, QTabWidget, QWidget, QFormLayout, QLineEdit,
+    QDialogButtonBox, QMessageBox, QVBoxLayout
+)
+import requests
+
+
+class DialogoAutenticacao(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Autenticação")
+        self.setModal(True)
+        self.resize(350, 200)
+
+        layout_principal = QVBoxLayout(self)
+
+        # Abas: Login e Registro
+        self.abas = QTabWidget()  # Salvando como atributo para acesso futuro
+        self.abas.addTab(self.criar_aba_login(), "Entrar")
+        self.abas.addTab(self.criar_aba_registro(), "Registrar")
+        layout_principal.addWidget(self.abas)
+
+        # Botões comuns → AGORA salvo como atributo: self.botoes
+        self.botoes = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.botoes.accepted.connect(self.on_ok)
+        self.botoes.rejected.connect(self.reject)
+        layout_principal.addWidget(self.botoes)
+
+    def criar_aba_login(self):
+        widget = QWidget()
+        layout = QFormLayout()
+
+        self.username_login = QLineEdit()
+        self.senha_login = QLineEdit()
+        self.senha_login.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", self.username_login)
+        layout.addRow("Senha:", self.senha_login)
+        widget.setLayout(layout)
+        return widget
+
+    def criar_aba_registro(self):
+        widget = QWidget()
+        layout = QFormLayout()
+
+        self.username_registro = QLineEdit()
+        self.senha_registro = QLineEdit()
+        self.confirmar_senha = QLineEdit()
+
+        self.senha_registro.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirmar_senha.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", self.username_registro)
+        layout.addRow("Senha:", self.senha_registro)
+        layout.addRow("Confirmar Senha:", self.confirmar_senha)
+        widget.setLayout(layout)
+        return widget
+
+    def on_ok(self):
+        aba_atual = self.sender().parent().parent().currentIndex()
+        if aba_atual == 0:
+            self.tentar_login()
+        else:
+            self.tentar_registro()
+
+    def tentar_login(self):
+        username = self.username_login.text().strip()
+        password = self.senha_login.text()
+
+        if not username or not password:
+            QMessageBox.warning(self, "Erro", "Usuário e senha são obrigatórios.")
+            return
+
+        try:
+            response = requests.post(
+                "http://localhost:5000/auth/login",
+                json={"username": username, "password": password}
+            )
+            data = response.json()
+
+            if response.status_code == 200 and data.get("success"):
+                with open("session.txt", "w") as f:
+                    f.write(username)
+                QMessageBox.information(self, "Sucesso", f"Bem-vindo, {username}!")
+                self.accept()  # Fecha o diálogo com sucesso
+            else:
+                QMessageBox.critical(self, "Erro", data.get("message", "Falha no login."))
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
+
+    def tentar_registro(self):
+        username = self.username_registro.text().strip()
+        password = self.senha_registro.text()
+        confirmar = self.confirmar_senha.text()
+
+        if not username or not password or not confirmar:
+            QMessageBox.warning(self, "Erro", "Todos os campos são obrigatórios.")
+            return
+        if password != confirmar:
+            QMessageBox.warning(self, "Erro", "As senhas não coincidem.")
+            return
+        if len(password) < 6:
+            QMessageBox.warning(self, "Erro", "A senha deve ter pelo menos 6 caracteres.")
+            return
+
+        try:
+            response = requests.post(
+                "http://localhost:5000/auth/registrar",
+                json={"username": username, "password": password}
+            )
+            data = response.json()
+
+            if response.status_code == 200 and data.get("success"):
+                QMessageBox.information(self, "Sucesso", "Conta criada com sucesso! Faça login.")
+                # Podemos mudar para aba de login automaticamente
+                self.parent().findChild(QTabWidget).setCurrentIndex(0)
+                self.username_login.setText(username)
+            else:
+                QMessageBox.critical(self, "Erro", data.get("message", "Falha no registro."))
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
 
 ================================================================================
 📄 client/components/icon_manager.py
@@ -2170,10 +2362,41 @@ class GerenciadorIconesEsquerda(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # --- Criar e adicionar ícones ---
-        # --- Ícone de Login (Superior Esquerdo) ---
+        # --- Ícone de Login com nome do usuário ---
         icone_login_path = os.path.join(self.caminho_recursos, "log-in.png")
         self.icone_login = IconeInterativo(icone_login_path, "login", tamanho=self.TAMANHO_ICONE)
         self.icone_login.clicado.connect(self._ao_clicar_icone)
+
+        # Layout horizontal para ícone + nome
+        self.login_layout = QHBoxLayout()
+        self.login_layout.setContentsMargins(0, 0, 0, 0)
+        self.login_layout.setSpacing(8)
+        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Adicionar ícone
+        self.login_layout.addWidget(self.icone_login)
+
+        # Label para nome do usuário
+        self.label_nome_usuario = QLabel()
+        self.label_nome_usuario.setStyleSheet("""
+            color: #ecf0f1;
+            background: transparent;
+            border: none;
+            font-size: 14px;
+            font-weight: bold;
+        """)
+        self.label_nome_usuario.hide()
+        self.login_layout.addWidget(self.label_nome_usuario)
+
+        # Container final
+        self.login_container = QWidget()
+        self.login_container.setLayout(self.login_layout)
+
+        # Adicionar ao layout principal
+        layout.addWidget(self.login_container)
+
+        # Referência
+        self.icones["login"] = self.icone_login
 
         # Criar um layout horizontal para o ícone + nome
         self.login_layout = QHBoxLayout()
@@ -2223,6 +2446,20 @@ class GerenciadorIconesEsquerda(QWidget):
         self.icone_sair.clicado.connect(self._ao_clicar_icone)
         layout.addWidget(self.icone_sair)
         self.icones["sair"] = self.icone_sair
+
+    def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
+        """
+        Atualiza o ícone e mostra/esconde o nome do usuário.
+        """
+        if esta_logado and nome_usuario:
+            caminho = os.path.join(self.caminho_recursos, "smile.png")
+            self.icone_login.carregar_icone(caminho)
+            self.label_nome_usuario.setText(nome_usuario)
+            self.label_nome_usuario.show()
+        else:
+            caminho = os.path.join(self.caminho_recursos, "log-in.png")
+            self.icone_login.carregar_icone(caminho)
+            self.label_nome_usuario.hide()
 
     def _ao_clicar_icone(self, identificador):
         """Slot interno para reemitir o sinal do ícone clicado."""
@@ -3318,5 +3555,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 23 arquivos incluídos.
+✅ Total de 24 arquivos incluídos.
 ================================================================================
