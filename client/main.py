@@ -13,11 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat, QFont
-
-# --- Importação do componente modularizado ---
-# Assumindo a estrutura client/components/gerenciador_icones.py
-# O caminho correto, considerando a execução de client/main.py, é relativo a client/
 from components.icon_manager import GerenciadorIconesEsquerda
+from dialogs.auth_dialog import DialogoAutenticacao
 
 
 # --- Componente OpenGL ---
@@ -417,7 +414,7 @@ class JanelaPrincipal(QMainWindow):
             self.on_icone_sair()
 
     def on_icone_login(self):
-        """Ação acionada pelo ícone de login: faz login ou logout."""
+        """Ação acionada pelo ícone de login: abre tela de login ou logout."""
         if self.usuario_logado:
             # Já logado → oferece logout
             reply = QMessageBox.question(
@@ -430,14 +427,22 @@ class JanelaPrincipal(QMainWindow):
                 try:
                     os.remove("session.txt")
                     self.usuario_logado = False
-                    # Atualiza UI: volta ao ícone de login e esconde nome
                     self.gerenciador_icones.atualizar_estado_login(False)
                     QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
                 except Exception as e:
                     QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
         else:
-            # Não logado → abre tela de login
-            self._abrir_tela_login()
+            # Não logado → abre o novo diálogo com Login/Registro
+            dialog = DialogoAutenticacao(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Após login bem-sucedido, atualiza UI
+                try:
+                    with open("session.txt", "r") as f:
+                        nome_usuario = f.read().strip()
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_estado_login(True, nome_usuario)
+                except Exception as e:
+                    print(f"❌ Erro ao ler session.txt: {e}")
 
     def on_icone_play(self):
         """Ação acionada pelo ícone de play."""
