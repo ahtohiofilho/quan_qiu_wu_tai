@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-19 10:18:09
+Gerado em: 2025-08-19 17:30:16
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -26,7 +26,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── interface.py
 │   ├── manager.py
 │   ├── sei_la_o_que.py
-│   └── serialization.py
+│   ├── serialization.py
+│   └── signals.py
 ├── client
 │   ├── components
 │   │   ├── __init__.py
@@ -62,7 +63,17 @@ import queue
 import threading
 import time
 import uuid
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
+
+# --- Importações PyQt6 e sinais ---
+from PyQt6.QtCore import QObject
+from server.signals import WorkerSignals
+
+# --- Suas importações existentes ---
+from shared.world import Mundo
+from server.manager import Gerenciador
+from server.initializer import InicializadorAWS
+
 
 class Comando:
     def __init__(
@@ -72,53 +83,43 @@ class Comando:
         args=None,
         kwargs=None,
         on_success: Callable = None,
-        on_error: Callable = None
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo: sinais PyQt6
     ):
         self.id = str(uuid.uuid4())[:8]
         self.nome = nome
         self.callback = callback
         self.args = args or ()
         self.kwargs = kwargs or {}
-        self.on_success = on_success
-        self.on_error = on_error
+        self.on_success = on_success  # ⚠️ Evite UI aqui
+        self.on_error = on_error      # ⚠️ Evite UI aqui
+        self.signals = signals        # ✅ Use para UI segura
         self.timestamp = time.time()
 
     def __repr__(self):
         return f"<Comando(id={self.id}, nome='{self.nome}')>"
 
-class ServidorDeComandos:
-    def __init__(self):
+
+class Comandante:
+    """
+    Orquestrador de operações de domínio.
+    Deve ser usado pela interface gráfica para disparar ações assíncronas.
+    Nunca deve conter lógica de UI.
+    """
+    def __init__(self, gerenciador: Gerenciador, aws_loader):
+        self.gerenciador = gerenciador
+        self.aws_loader = aws_loader
         self.fila = queue.Queue()
         self.ativo = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
 
     def iniciar(self):
+        """Inicia a thread de processamento de comandos."""
         self.thread.start()
-        print("✅ Servidor de comandos iniciado.")
-
-    def enviar(self, comando: Comando):
-        self.fila.put(comando)
-
-    def _loop(self):
-        while self.ativo:
-            try:
-                comando = self.fila.get(timeout=0.2)
-                print(f"⚙️ Executando [{comando.id}]: {comando.nome}")
-                try:
-                    resultado = comando.callback(*comando.args, **comando.kwargs)
-                    print(f"✅ [{comando.id}] {comando.nome} concluído.")
-                    if comando.on_success:
-                        comando.on_success(resultado)
-                except Exception as e:
-                    print(f"❌ [{comando.id}] Erro em '{comando.nome}': {e}")
-                    if comando.on_error:
-                        comando.on_error(e)
-                finally:
-                    self.fila.task_done()
-            except queue.Empty:
-                continue
+        print("✅ Comandante iniciado. Pronto para executar comandos.")
 
     def parar(self, timeout: float = 2.0):
+        """Para o loop de comandos de forma segura."""
         self.ativo = False
         while not self.fila.empty():
             try:
@@ -127,9 +128,156 @@ class ServidorDeComandos:
                 break
         self.thread.join(timeout=timeout)
         if self.thread.is_alive():
-            print("⚠️ Thread do servidor de comandos não encerrou a tempo.")
+            print("⚠️ Thread do Comandante não encerrou a tempo.")
         else:
-            print("🛑 Servidor de comandos parado.")
+            print("🛑 Comandante parado com sucesso.")
+
+    def _loop(self):
+        """Loop principal: executa comandos da fila."""
+        while self.ativo:
+            try:
+                comando = self.fila.get(timeout=0.2)
+                print(f"⚙️ Executando [{comando.id}]: {comando.nome}")
+                try:
+                    resultado = comando.callback(*comando.args, **comando.kwargs)
+                    print(f"✅ [{comando.id}] {comando.nome} concluído.")
+
+                    # ✅ Primeiro: emitir sinais (seguro para UI)
+                    if comando.signals:
+                        comando.signals.success.emit(resultado)
+                        comando.signals.finished.emit()
+
+                    # ⚠️ Segundo: callbacks (cuidado! estão na thread secundária)
+                    if comando.on_success:
+                        try:
+                            comando.on_success(resultado)
+                        except Exception as cb_e:
+                            print(f"⚠️ Erro no callback on_success: {cb_e}")
+
+                except Exception as e:
+                    print(f"❌ [{comando.id}] Erro em '{comando.nome}': {e}")
+
+                    # ✅ Sinais de erro
+                    if comando.signals:
+                        comando.signals.error.emit(str(e))
+                        comando.signals.finished.emit()
+
+                    # ⚠️ Callbacks de erro
+                    if comando.on_error:
+                        try:
+                            comando.on_error(str(e))
+                        except Exception as cb_e:
+                            print(f"⚠️ Erro no callback on_error: {cb_e}")
+
+                finally:
+                    self.fila.task_done()
+
+            except queue.Empty:
+                continue
+
+    def _enviar_comando(self, nome: str, callback: Callable, *args, **kwargs):
+        """
+        Método auxiliar para criar e enviar um comando.
+        Aceita on_success, on_error e signals nos kwargs.
+        """
+        on_success = kwargs.pop('on_success', None)
+        on_error = kwargs.pop('on_error', None)
+        signals = kwargs.pop('signals', None)  # ✅ Extrai os sinais
+
+        comando = Comando(
+            nome=nome,
+            callback=callback,
+            args=args,
+            kwargs=kwargs,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+        self.fila.put(comando)
+
+    # ————————————————————————————
+    # Comandos de Domínio
+    # ————————————————————————————
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/",
+        dynamodb_table_name: str = "GlobalArena",
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: cria e faz upload de um novo mundo."""
+        def task():
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                fator=fator,
+                bioma=bioma,
+                bucket_name=bucket_name,
+                s3_prefix=s3_prefix,
+                dynamodb_table_name=dynamodb_table_name
+            )
+            return sucesso, mundo
+
+        self._enviar_comando(
+            nome=f"Criar e Upload Mundo (fator={fator}, bioma={bioma})",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+
+    def reinicializar_infra(
+        self,
+        confirmar: bool = False,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: reinicializa a infra AWS (S3 + DynamoDB)."""
+        def task():
+            inicializador = InicializadorAWS(self.aws_loader)
+            sucesso = inicializador.inicializar(confirmar=confirmar)
+            return sucesso
+
+        self._enviar_comando(
+            nome="Reinicializar Infra AWS",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+
+    def testar_conexao_aws(
+        self,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: testa conexão com AWS (conta, S3, DynamoDB)."""
+        def task():
+            try:
+                account = self.aws_loader.get_account_info()
+                buckets = self.aws_loader.list_s3_buckets()
+                tables = self.aws_loader.list_dynamodb_tables()
+                return {
+                    'success': True,
+                    'account': account,
+                    'buckets': buckets,
+                    'tables': tables
+                }
+            except Exception as e:
+                raise e
+
+        self._enviar_comando(
+            nome="Testar Conexão AWS",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
 
 ================================================================================
 📄 server/initializer.py
@@ -468,6 +616,7 @@ class AWSLoader:
 ================================================================================
 # server/manager.py
 import json
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -487,63 +636,77 @@ class Gerenciador:
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(exist_ok=True)  # Mantido para compatibilidade futura
 
-    def upload_mundo(self, mundo: Mundo, bucket_name: str = "global-arena-tiles", s3_prefix: str = "planetas/") -> bool:
-        """
-        Separa os dados do mundo:
-        - Dados pesados (geografia, civilizacoes) → S3
-        - Metadados leves (fator, bioma_inicial, vagas) → DynamoDB (GlobalArena)
+    # server/manager.py
 
-        :param mundo: Instância de Mundo a ser enviada
-        :param bucket_name: Nome do bucket S3
-        :param s3_prefix: Prefixo (pasta virtual) no bucket
-        :return: True se sucesso, False caso contrário
+    def upload_mundo(self,
+                     mundo: Mundo,
+                     bucket_name: str = "global-arena-tiles",
+                     s3_prefix: str = "planetas/",
+                     dynamodb_table_name: str = "GlobalArena") -> bool:
+        """
+        Faz upload do mundo: dados pesados para S3, metadados leves para DynamoDB.
+        Agora com rollback se falhar no DynamoDB.
         """
         try:
-            # --- 1. Serializar com Serializador (para garantir compatibilidade) ---
-            full_data = Serializador.to_serializable_dict(mundo)
-
-            # Extrair apenas o necessário para o S3
-            data_s3 = {
-                "id_mundo": full_data["id_mundo"],
-                "geografia": full_data["geografia"],
-                "civilizacoes": full_data["civilizacoes"]
-            }
-
-            # Upload para S3
-            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
-            s3_client = self.aws_loader.get_client('s3')
-            s3_client.put_object(
-                Bucket=bucket_name,
-                Key=s3_key,
-                Body=json.dumps(data_s3, ensure_ascii=False, indent=2).encode('utf-8'),
-                ContentType='application/json'
-            )
-            print(f"✅ Mundo enviado para S3: s3://{bucket_name}/{s3_key}")
-
-            # --- 2. Salvar metadados no DynamoDB (GlobalArena) ---
             pk = f"PLANET#{mundo.id_mundo}"
             sk = "METADATA"
-            bioma_inicial = mundo.planeta.geografia.nodes[mundo.planeta.capitais_players[0]]['bioma']
-            vagas = mundo.planeta.numero_de_jogadores
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
 
+            # --- Verificar se já existe no DynamoDB ---
             dynamodb = self.aws_loader.get_client('dynamodb')
-            dynamodb.put_item(
-                TableName="GlobalArena",
-                Item={
-                    'PK': {'S': pk},
-                    'SK': {'S': sk},
-                    'entityType': {'S': 'Planet'},
-                    'fator': {'N': str(mundo.planeta.fator)},
-                    'bioma_inicial': {'S': bioma_inicial},
-                    'vagas': {'N': str(vagas)}  # número de vagas (atualizável)
-                }
+            response = dynamodb.get_item(
+                TableName=dynamodb_table_name,
+                Key={'PK': {'S': pk}, 'SK': {'S': sk}}
             )
-            print(f"✅ Metadados salvos no DynamoDB: {pk}")
+            if 'Item' in response:
+                print(f"❌ Mundo com ID {mundo.id_mundo} já existe no DynamoDB.")
+                return False
 
-            return True
+            # --- Serializar e enviar para S3 ---
+            dados_s3 = Serializador.to_serializable_dict(mundo)
+            dados_json = json.dumps(dados_s3, ensure_ascii=False, indent=2)
+
+            s3 = self.aws_loader.get_client('s3')
+            s3.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=dados_json,
+                ContentType='application/json'
+            )
+            print(f"✅ Upload para S3 concluído: s3://{bucket_name}/{s3_key}")
+
+            # --- Salvar metadados no DynamoDB ---
+            try:
+                bioma_inicial = getattr(mundo.planeta, 'bioma_inicial', 'Desconhecido')
+                vagas = getattr(mundo.planeta, 'numero_de_jogadores', 0)
+
+                dynamodb.put_item(
+                    TableName=dynamodb_table_name,
+                    Item={
+                        'PK': {'S': pk},
+                        'SK': {'S': sk},
+                        'entityType': {'S': 'Planet'},
+                        'fator': {'N': str(mundo.planeta.fator)},
+                        'bioma_inicial': {'S': bioma_inicial},
+                        'vagas': {'N': str(vagas)},
+                        'timestamp': {'N': str(int(time.time()))}
+                    }
+                )
+                print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")
+                return True
+
+            except Exception as e:
+                print(f"❌ Falha ao salvar no DynamoDB: {e}")
+                print(f"🧹 Removendo arquivo órfão do S3: s3://{bucket_name}/{s3_key}")
+                try:
+                    s3.delete_object(Bucket=bucket_name, Key=s3_key)
+                    print("✅ Arquivo órfão removido com sucesso.")
+                except Exception as del_e:
+                    print(f"⚠️ Falha ao remover arquivo órfão do S3: {del_e}")
+                return False
 
         except Exception as e:
-            print(f"❌ Falha ao salvar/upload mundo: {e}")
+            print(f"❌ Erro inesperado durante upload_mundo: {e}")
             return False
 
     def criar_e_upload_mundo(
@@ -581,30 +744,28 @@ class Gerenciador:
             return False
 
     def criar_e_upload_mundo_com_retorno(
-        self,
-        fator: int,
-        bioma: str,
-        bucket_name: str = "global-arena-tiles",
-        s3_prefix: str = "planetas/"
+            self,
+            fator: int,
+            bioma: str,
+            bucket_name: str = "global-arena-tiles",
+            s3_prefix: str = "planetas/",
+            dynamodb_table_name: str = "GlobalArena"
     ) -> Tuple[bool, Optional[Mundo]]:
         """
         Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
         e retorna sucesso e a instância do mundo.
-
-        Útil para operações que precisam do objeto Mundo após o upload (ex: salvar localmente).
-
-        :param fator: Nível de detalhe da grade geográfica.
-        :param bioma: Bioma inicial para escolha de capitais.
-        :param bucket_name: Nome do bucket S3.
-        :param s3_prefix: Prefixo (pasta) no bucket.
-        :return: (sucesso: bool, mundo: Mundo ou None)
         """
         try:
             print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
             mundo = Mundo(fator=fator, bioma=bioma)
             print(f"✅ Mundo criado: {mundo.id_mundo}")
 
-            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+            sucesso = self.upload_mundo(
+                mundo,
+                bucket_name=bucket_name,
+                s3_prefix=s3_prefix,
+                dynamodb_table_name=dynamodb_table_name
+            )
 
             if sucesso:
                 print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
@@ -615,11 +776,28 @@ class Gerenciador:
 
         except Exception as e:
             print(f"❌ Erro ao criar e upload mundo: {e}")
+            import traceback
+            traceback.print_exc()
             return False, None
 
     def criar_mundo(self, fator: int, bioma: str) -> Mundo:
         """Cria e retorna um novo mundo."""
         return Mundo(fator=fator, bioma=bioma)
+
+================================================================================
+📄 server/signals.py
+================================================================================
+# server/signals.py
+from PyQt6.QtCore import QObject, pyqtSignal
+
+class WorkerSignals(QObject):
+    """
+    Define sinais para comunicação segura com a thread da UI.
+    Usado pelo Comandante para enviar feedback.
+    """
+    success = pyqtSignal(object)   # resultado
+    error = pyqtSignal(str)        # mensagem de erro
+    finished = pyqtSignal()        # operação concluída
 
 ================================================================================
 📄 server/app.py
@@ -860,14 +1038,13 @@ class Serializador:
 # server/interface.py
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton,
-    QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
-    QFileDialog
+    QApplication, QMainWindow, QTabWidget, QWidget,
+    QMessageBox
 )
-from server.serialization import Serializador
+from server.signals import WorkerSignals
 from server.manager import Gerenciador
 from server.aws_loader import AWSLoader
-from server.initializer import InicializadorAWS
+from server.commander import Comandante  # ← Importa o Comandante
 
 
 class Interface(QMainWindow):
@@ -876,7 +1053,7 @@ class Interface(QMainWindow):
         self.setWindowTitle("Gerenciador de Servidor - Global Arena")
         self.setGeometry(100, 100, 700, 500)
 
-        # === Inicialização do Gerenciador ===
+        # === Inicialização de dependências ===
         try:
             self.aws_loader = AWSLoader()
             self.gerenciador = Gerenciador(self.aws_loader)
@@ -885,188 +1062,80 @@ class Interface(QMainWindow):
             QMessageBox.critical(self, "Erro AWS", f"Não foi possível conectar à AWS:\n{e}")
             self.gerenciador = None
 
-        # ✅ Armazena o último mundo criado (inicialmente None)
+        # ✅ Inicializa o Comandante
+        try:
+            self.comandante = Comandante(self.gerenciador, self.aws_loader)
+            self.comandante.iniciar()
+            print("✅ Comandante iniciado.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao iniciar o Comandante:\n{e}")
+            self.comandante = None
+
+        # ✅ Cria e conecta os sinais
+        self.setup_signals()
+
         self.ultimo_mundo = None
 
         # Configuração do sistema de abas
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Criação das abas
         self.backup_tab = self.create_backup_tab()
         self.config_tab = QWidget()
         self.tabs.addTab(self.backup_tab, "Backup & Criação")
         self.tabs.addTab(self.config_tab, "Configurações")
 
-    def create_backup_tab(self):
-        """Cria a aba de operações de backup e criação de mundos"""
-        tab = QWidget()
-        layout = QVBoxLayout()
+    def closeEvent(self, event):
+        if self.comandante:
+            self.comandante.parar()
+        event.accept()
 
-        # === Grupo: Criar e Upload de Mundo ===
-        group_criar = QGroupBox("Criar e Enviar Novo Mundo")
-        form_layout = QFormLayout()
+    def setup_signals(self):
+        """Cria e conecta os sinais para comunicação segura."""
+        self.signals = WorkerSignals()
+        self.signals.success.connect(self.on_success)
+        self.signals.error.connect(self.on_error)
+        self.signals.finished.connect(self.on_finished)
 
-        self.spin_fator = QSpinBox()
-        self.spin_fator.setMinimum(2)
-        self.spin_fator.setMaximum(8)
-        self.spin_fator.setValue(4)
-        form_layout.addRow("Fator:", self.spin_fator)
-
-        self.combo_bioma = QComboBox()
-        biomas = ["Meadow", "Forest", "Savanna", "Desert", "Hills", "Mountains"]
-        self.combo_bioma.addItems(biomas)
-        self.combo_bioma.setCurrentText("Meadow")
-        form_layout.addRow("Bioma Inicial:", self.combo_bioma)
-
-        group_criar.setLayout(form_layout)
-        layout.addWidget(group_criar)
-
-        btn_upload = QPushButton("🌍 Criar e Enviar Mundo para Nuvem")
-        btn_upload.clicked.connect(self.handle_criar_e_upload)
-        layout.addWidget(btn_upload)
-
-        layout.addSpacing(20)
-
-        # === Grupo: Salvar Localmente ===
-        group_local = QGroupBox("Salvar Estado Localmente")
-        layout_local = QVBoxLayout()
-
-        btn_save = QPushButton("💾 Salvar Estado como JSON (Local)")
-        btn_save.clicked.connect(self.handle_save_json)
-        layout_local.addWidget(btn_save)
-
-        group_local.setLayout(layout_local)
-        layout.addWidget(group_local)
-
-        layout.addSpacing(20)
-
-        # === Botão: Reinicializar Infraestrutura AWS ===
-        btn_reiniciar = QPushButton("⚠️ Reinicializar Infraestrutura AWS")
-        btn_reiniciar.setStyleSheet("""
-            QPushButton {
-                background-color: #a83232;
-                color: white;
-                font-weight: bold;
-                border-radius: 6px;
-                padding: 8px;
-            }
-            QPushButton:hover {
-                background-color: #c03939;
-            }
-        """)
-        btn_reiniciar.clicked.connect(self.handle_reinicializar_servidor)
-        layout.addWidget(btn_reiniciar)
-        layout.addSpacing(10)
-
-        layout.addStretch()
-        tab.setLayout(layout)
-        return tab
-
-    def handle_save_json(self):
-        """Cria um mundo com os parâmetros da UI e salva localmente."""
-        if not self.gerenciador:
-            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
-            return
-
-        fator = self.spin_fator.value()
-        bioma = self.combo_bioma.currentText()
-
-        try:
-            # 1. Criar mundo usando o Gerenciador
-            mundo = self.gerenciador.criar_mundo(fator, bioma)
-
-            # 2. Escolher caminho com diálogo
-            filepath, _ = QFileDialog.getSaveFileName(
-                self,
-                "Salvar Mundo como JSON",
-                f"saves/mundo_{mundo.id_mundo}.json",
-                "JSON Files (*.json)"
+    def on_success(self, resultado):
+        sucesso, mundo = resultado
+        if sucesso:
+            self.ultimo_mundo = mundo
+            QMessageBox.information(
+                self, "Sucesso", f"Mundo {mundo.id_mundo} criado e enviado!"
             )
-            if not filepath:
-                return  # Cancelado pelo usuário
+        else:
+            QMessageBox.critical(self, "Falha", "Upload falhou.")
 
-            # 3. Salvar usando Serializador.save_mundo (já trata diretórios)
-            caminho_salvo = Serializador.save_mundo(mundo, filepath)
+    def on_error(self, mensagem: str):
+        QMessageBox.critical(self, "Erro", f"Falha: {mensagem}")
 
-            if caminho_salvo:
-                QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    f"Mundo salvo com sucesso!\nArquivo: {caminho_salvo}",
-                    QMessageBox.StandardButton.Ok
-                )
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Falha",
-                    "Erro ao salvar o arquivo JSON.",
-                    QMessageBox.StandardButton.Ok
-                )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Falha ao salvar: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
+    def on_finished(self):
+        print("✅ Operação concluída.")
 
     def handle_criar_e_upload(self):
-        """Manipula a criação e upload de um novo mundo"""
-        if not self.gerenciador:
-            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
             return
 
         fator = self.spin_fator.value()
         bioma = self.combo_bioma.currentText()
 
-        reply = QMessageBox.question(
-            self,
-            "Confirmar",
-            f"Criar e enviar um novo mundo?\nFator: {fator}\nBioma: {bioma}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        # ✅ Passa os sinais, não callbacks
+        self.comandante.criar_e_upload_mundo(
+            fator=fator,
+            bioma=bioma,
+            signals=self.signals
         )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            print(f"🔄 Criando e enviando mundo com fator={fator}, bioma='{bioma}'...")
-            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(fator=fator, bioma=bioma)
-
-            if sucesso:
-                self.ultimo_mundo = mundo  # Armazena para possível salvamento local
-                QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    f"Mundo criado e enviado com sucesso!\nID: {mundo.id_mundo}",
-                    QMessageBox.StandardButton.Ok
-                )
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Falha",
-                    "O upload falhou. Veja o log para detalhes.",
-                    QMessageBox.StandardButton.Ok
-                )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Erro ao criar/upload do mundo:\n{str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-            print(f"❌ Erro em handle_criar_e_upload: {e}")
 
     def handle_reinicializar_servidor(self):
-        """
-        Abre um diálogo de confirmação e, se confirmado,
-        reinicializa a infraestrutura AWS (S3 + DynamoDB).
-        """
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+
         reply = QMessageBox.question(
             self,
-            "⚠️ Reinicializar Servidor",
+            "⚠️ Reinicializar Infraestrutura",
             "Isso apagará TODOS os mundos e metadados no S3 e DynamoDB.\n"
             "Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -1074,42 +1143,10 @@ class Interface(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            # Reutiliza o aws_loader já inicializado (não cria um novo)
-            if not hasattr(self, 'aws_loader') or self.aws_loader is None:
-                QMessageBox.critical(self, "Erro", "Falha ao acessar AWS Loader.")
-                return
-
-            # Cria o inicializador e executa
-            inicializador = InicializadorAWS(self.aws_loader)
-            sucesso = inicializador.inicializar(confirmar=False)
-
-            if sucesso:
-                QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    "Servidor reinicializado com sucesso!\n"
-                    "Todas as tabelas e arquivos foram limpos e recriados."
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Atenção",
-                    "A reinicialização foi executada, mas pode ter falhado em algum ponto."
-                )
-        except ModuleNotFoundError:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                "Módulo 'inicializador' não encontrado.\n"
-                "Certifique-se de que 'server/inicializador.py' existe."
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Falha ao reinicializar o servidor:\n{str(e)}"
-            )
+        self.comandante.reinicializar_infra(
+            confirmar=False,
+            signals=self.signals
+        )
 
 
 # Execução da aplicação
@@ -1245,11 +1282,25 @@ class UserService:
 📄 server/routes/auth.py
 ================================================================================
 # server/routes/auth.py
+import re
 import bcrypt
+import unicodedata
 from flask import Blueprint, request, jsonify, current_app
 
 # Cria um Blueprint para as rotas de autenticação
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+def normalizar_username(username: str) -> str:
+    # Remove acentos
+    username = unicodedata.normalize('NFKD', username)
+    username = ''.join(c for c in username if not unicodedata.combining(c))
+    # Substitui espaços e caracteres especiais por underscore
+    username = re.sub(r'[^a-zA-Z0-9]', '_', username)
+    # Converte para minúsculas
+    username = username.lower()
+    # Remove underscores múltiplos
+    username = re.sub(r'_+', '_', username).strip('_')
+    return username or None  # Retorna None se vazio
 
 
 # Esta função será chamada em app.py para registrar as rotas e passar dependências
@@ -1282,7 +1333,7 @@ def register_routes(user_service_instance):
         Espera um JSON: {"username": "nome", "password": "senha"}
         Retorna um JSON: {"success": true/false, "message": "..."}
         """
-        # 1. Validar requisição
+        # 1. Validar requisição: deve ser JSON
         if not request.is_json:
             return jsonify({"success": False, "message": "Content-Type deve ser application/json"}), 400
 
@@ -1290,48 +1341,61 @@ def register_routes(user_service_instance):
         username = data.get('username', '').strip()
         password = data.get('password', '')
 
-        # 2. Validar dados de entrada
+        # 2. Validar campos obrigatórios
         if not username or not password:
             return jsonify({"success": False, "message": "Username e password são obrigatórios."}), 400
 
+        # 3. Validar comprimento mínimo
         if len(username) < 3:
             return jsonify({"success": False, "message": "Username deve ter pelo menos 3 caracteres."}), 400
         if len(password) < 6:
             return jsonify({"success": False, "message": "Password deve ter pelo menos 6 caracteres."}), 400
 
-        # 3. Verificar se o usuário já existe
+        # 4. Normalização opcional: remover acentos e forçar formato seguro
+        # Comente ou remova se quiser permitir acentos no username
+        def normalizar_username(s):
+            s = unicodedata.normalize('NFKD', s)
+            return ''.join(c for c in s if not unicodedata.combining(c))
+
+        username_normalizado = normalizar_username(username)
+
+        # 5. Validar formato do username (apenas letras, números, _, -)
+        if not re.match(r"^[a-zA-Z0-9_-]+$", username_normalizado):
+            return jsonify({"success": False, "message": "Username só pode conter letras, números, _ e -."}), 400
+
+        # 6. Verificar se o usuário já existe (usando o nome original ou normalizado)
+        # Aqui você decide: quer unicidade com ou sem acentos?
+        # Opção 1: busca pelo nome original (atual)
         usuario_existente = user_service_instance.get_user(username)
+        # Opção 2: busca pelo nome normalizado (recomendado para evitar colisões)
+        # usuario_existente = user_service_instance.get_user(username_normalizado)
+
         if usuario_existente:
-            # É comum retornar 409 Conflict para recursos que já existem
             return jsonify({"success": False, "message": "Nome de usuário já está em uso."}), 409
 
-        # 4. Hashear a senha
+        # 7. Hashear a senha
         try:
             salt = bcrypt.gensalt()
-            # bcrypt.hashpw retorna bytes
             password_hash_bytes = bcrypt.hashpw(password.encode('utf-8'), salt)
         except Exception as e:
             print(f"❌ Erro ao hashear senha para usuário '{username}': {e}")
             return jsonify({"success": False, "message": "Erro interno ao processar a senha."}), 500
 
-        # 5. Preparar atributos para salvar no DynamoDB
-        # O username e PK/SK são definidos dentro do user_service
+        # 8. Preparar atributos para salvar
         atributos_usuario = {
-            # Armazenar o hash como binário ('B')
             'password_hash': password_hash_bytes,
-            # Você pode adicionar outros atributos aqui, como data de criação
-            # 'data_criacao': datetime.utcnow().isoformat() + 'Z' # Se quiser salvar como string
+            # Campos opcionais para evolução
+            # 'display_name': username,  # Nome exibido (com acentos)
+            # 'created_at': datetime.utcnow().isoformat() + 'Z'
         }
 
-        # 6. Salvar o usuário no DynamoDB
+        # 9. Salvar no DynamoDB
         sucesso_criacao = user_service_instance.create_user_item(username, **atributos_usuario)
 
         if sucesso_criacao:
             print(f"✅ Usuário '{username}' registrado com sucesso.")
-            # 201 Created é o código apropriado para criação bem-sucedida
             return jsonify({"success": True, "message": "Usuário registrado com sucesso."}), 201
         else:
-            # A mensagem de erro já foi impressa pelo user_service
             return jsonify({"success": False, "message": "Falha ao registrar usuário no banco de dados."}), 500
 
     @auth_bp.route('/login', methods=['POST'])
@@ -2111,24 +2175,27 @@ class DialogoAutenticacao(QDialog):
         self.abas.addTab(self.criar_aba_registro(), "Registrar")
         layout_principal.addWidget(self.abas)
 
-        # Botões comuns → AGORA salvo como atributo: self.botoes
-        self.botoes = QDialogButtonBox(
+        # Botões comuns → AGORA salvo como atributo: self.buttons
+        self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        self.botoes.accepted.connect(self.on_ok)
-        self.botoes.rejected.connect(self.reject)
-        layout_principal.addWidget(self.botoes)
+        self.buttons.accepted.connect(self.on_ok)
+        self.buttons.rejected.connect(self.reject)
+        layout_principal.addWidget(self.buttons)
 
     def criar_aba_login(self):
         widget = QWidget()
         layout = QFormLayout()
 
         self.username_login = QLineEdit()
+        self.username_login.setPlaceholderText("seu_username ou email")
+        self.username_login.setToolTip("Digite seu username ou email para login.")
+        layout.addRow("Username:", self.username_login)  # ← Aqui também
+
         self.senha_login = QLineEdit()
         self.senha_login.setEchoMode(QLineEdit.EchoMode.Password)
-
-        layout.addRow("Usuário:", self.username_login)
         layout.addRow("Senha:", self.senha_login)
+
         widget.setLayout(layout)
         return widget
 
@@ -2137,20 +2204,24 @@ class DialogoAutenticacao(QDialog):
         layout = QFormLayout()
 
         self.username_registro = QLineEdit()
+        self.username_registro.setPlaceholderText("ex: jogador_42")
+        self.username_registro.setToolTip("Seu nome de usuário único. Usado para login.")
+        layout.addRow("Username:", self.username_registro)  # ← Alterado de "Usuário"
+
         self.senha_registro = QLineEdit()
-        self.confirmar_senha = QLineEdit()
-
         self.senha_registro.setEchoMode(QLineEdit.EchoMode.Password)
-        self.confirmar_senha.setEchoMode(QLineEdit.EchoMode.Password)
-
-        layout.addRow("Usuário:", self.username_registro)
         layout.addRow("Senha:", self.senha_registro)
-        layout.addRow("Confirmar Senha:", self.confirmar_senha)
+
+        self.confirmar_senha = QLineEdit()
+        self.confirmar_senha.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addRow("Confirmar:", self.confirmar_senha)
+
         widget.setLayout(layout)
         return widget
 
     def on_ok(self):
-        aba_atual = self.sender().parent().parent().currentIndex()
+        """Chamado quando o botão OK é pressionado. Executa login ou registro conforme aba ativa."""
+        aba_atual = self.abas.currentIndex()  # ✅ Acesso direto ao QTabWidget
         if aba_atual == 0:
             self.tentar_login()
         else:
@@ -3555,5 +3626,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 24 arquivos incluídos.
+✅ Total de 25 arquivos incluídos.
 ================================================================================

@@ -1,9 +1,23 @@
 # server/routes/auth.py
+import re
 import bcrypt
+import unicodedata
 from flask import Blueprint, request, jsonify, current_app
 
 # Cria um Blueprint para as rotas de autenticação
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+def normalizar_username(username: str) -> str:
+    # Remove acentos
+    username = unicodedata.normalize('NFKD', username)
+    username = ''.join(c for c in username if not unicodedata.combining(c))
+    # Substitui espaços e caracteres especiais por underscore
+    username = re.sub(r'[^a-zA-Z0-9]', '_', username)
+    # Converte para minúsculas
+    username = username.lower()
+    # Remove underscores múltiplos
+    username = re.sub(r'_+', '_', username).strip('_')
+    return username or None  # Retorna None se vazio
 
 
 # Esta função será chamada em app.py para registrar as rotas e passar dependências
@@ -36,7 +50,7 @@ def register_routes(user_service_instance):
         Espera um JSON: {"username": "nome", "password": "senha"}
         Retorna um JSON: {"success": true/false, "message": "..."}
         """
-        # 1. Validar requisição
+        # 1. Validar requisição: deve ser JSON
         if not request.is_json:
             return jsonify({"success": False, "message": "Content-Type deve ser application/json"}), 400
 
@@ -44,48 +58,61 @@ def register_routes(user_service_instance):
         username = data.get('username', '').strip()
         password = data.get('password', '')
 
-        # 2. Validar dados de entrada
+        # 2. Validar campos obrigatórios
         if not username or not password:
             return jsonify({"success": False, "message": "Username e password são obrigatórios."}), 400
 
+        # 3. Validar comprimento mínimo
         if len(username) < 3:
             return jsonify({"success": False, "message": "Username deve ter pelo menos 3 caracteres."}), 400
         if len(password) < 6:
             return jsonify({"success": False, "message": "Password deve ter pelo menos 6 caracteres."}), 400
 
-        # 3. Verificar se o usuário já existe
+        # 4. Normalização opcional: remover acentos e forçar formato seguro
+        # Comente ou remova se quiser permitir acentos no username
+        def normalizar_username(s):
+            s = unicodedata.normalize('NFKD', s)
+            return ''.join(c for c in s if not unicodedata.combining(c))
+
+        username_normalizado = normalizar_username(username)
+
+        # 5. Validar formato do username (apenas letras, números, _, -)
+        if not re.match(r"^[a-zA-Z0-9_-]+$", username_normalizado):
+            return jsonify({"success": False, "message": "Username só pode conter letras, números, _ e -."}), 400
+
+        # 6. Verificar se o usuário já existe (usando o nome original ou normalizado)
+        # Aqui você decide: quer unicidade com ou sem acentos?
+        # Opção 1: busca pelo nome original (atual)
         usuario_existente = user_service_instance.get_user(username)
+        # Opção 2: busca pelo nome normalizado (recomendado para evitar colisões)
+        # usuario_existente = user_service_instance.get_user(username_normalizado)
+
         if usuario_existente:
-            # É comum retornar 409 Conflict para recursos que já existem
             return jsonify({"success": False, "message": "Nome de usuário já está em uso."}), 409
 
-        # 4. Hashear a senha
+        # 7. Hashear a senha
         try:
             salt = bcrypt.gensalt()
-            # bcrypt.hashpw retorna bytes
             password_hash_bytes = bcrypt.hashpw(password.encode('utf-8'), salt)
         except Exception as e:
             print(f"❌ Erro ao hashear senha para usuário '{username}': {e}")
             return jsonify({"success": False, "message": "Erro interno ao processar a senha."}), 500
 
-        # 5. Preparar atributos para salvar no DynamoDB
-        # O username e PK/SK são definidos dentro do user_service
+        # 8. Preparar atributos para salvar
         atributos_usuario = {
-            # Armazenar o hash como binário ('B')
             'password_hash': password_hash_bytes,
-            # Você pode adicionar outros atributos aqui, como data de criação
-            # 'data_criacao': datetime.utcnow().isoformat() + 'Z' # Se quiser salvar como string
+            # Campos opcionais para evolução
+            # 'display_name': username,  # Nome exibido (com acentos)
+            # 'created_at': datetime.utcnow().isoformat() + 'Z'
         }
 
-        # 6. Salvar o usuário no DynamoDB
+        # 9. Salvar no DynamoDB
         sucesso_criacao = user_service_instance.create_user_item(username, **atributos_usuario)
 
         if sucesso_criacao:
             print(f"✅ Usuário '{username}' registrado com sucesso.")
-            # 201 Created é o código apropriado para criação bem-sucedida
             return jsonify({"success": True, "message": "Usuário registrado com sucesso."}), 201
         else:
-            # A mensagem de erro já foi impressa pelo user_service
             return jsonify({"success": False, "message": "Falha ao registrar usuário no banco de dados."}), 500
 
     @auth_bp.route('/login', methods=['POST'])

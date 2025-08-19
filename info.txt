@@ -1,0 +1,20 @@
+# Iniciar o servidor Flask
+python start.py server
+
+# Iniciar o cliente PyQt6
+python start.py client
+
+# Reinicializar a infra AWS (limpa S3, recria tabelas)
+python start.py init
+
+# Criar e fazer upload de um novo mundo
+python start.py create-world --fator 5 --bioma "Forest"
+
+# Testar conexão com AWS
+python start.py test
+
+# Iniciar a interface web
+python start.py interface
+
+# Iniciar o servidor Flask diretamente
+python server/app.py

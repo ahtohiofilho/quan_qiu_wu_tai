@@ -59,7 +59,9 @@ class Serializador:
             for key in list(attrs.keys()):
                 attrs[key] = cls._convert(attrs[key])
 
-        G_data = nx.node_link_data(G)
+        # Usa 'edges="links"' para manter compatibilidade com o formato antigo
+        # O padrão futuro será 'edges="edges"', mas queremos evitar mudanças inesperadas
+        G_data = nx.node_link_data(G, edges="links")
         G_data.pop("directed", None)
         G_data.pop("multigraph", None)
         G_data.pop("graph", None)

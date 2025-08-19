@@ -34,11 +34,14 @@ class DialogoAutenticacao(QDialog):
         layout = QFormLayout()
 
         self.username_login = QLineEdit()
+        self.username_login.setPlaceholderText("seu_username ou email")
+        self.username_login.setToolTip("Digite seu username ou email para login.")
+        layout.addRow("Username:", self.username_login)  # ← Aqui também
+
         self.senha_login = QLineEdit()
         self.senha_login.setEchoMode(QLineEdit.EchoMode.Password)
-
-        layout.addRow("Usuário:", self.username_login)
         layout.addRow("Senha:", self.senha_login)
+
         widget.setLayout(layout)
         return widget
 
@@ -47,15 +50,18 @@ class DialogoAutenticacao(QDialog):
         layout = QFormLayout()
 
         self.username_registro = QLineEdit()
+        self.username_registro.setPlaceholderText("ex: jogador_42")
+        self.username_registro.setToolTip("Seu nome de usuário único. Usado para login.")
+        layout.addRow("Username:", self.username_registro)  # ← Alterado de "Usuário"
+
         self.senha_registro = QLineEdit()
-        self.confirmar_senha = QLineEdit()
-
         self.senha_registro.setEchoMode(QLineEdit.EchoMode.Password)
-        self.confirmar_senha.setEchoMode(QLineEdit.EchoMode.Password)
-
-        layout.addRow("Usuário:", self.username_registro)
         layout.addRow("Senha:", self.senha_registro)
-        layout.addRow("Confirmar Senha:", self.confirmar_senha)
+
+        self.confirmar_senha = QLineEdit()
+        self.confirmar_senha.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addRow("Confirmar:", self.confirmar_senha)
+
         widget.setLayout(layout)
         return widget
 

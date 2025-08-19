@@ -5,10 +5,11 @@ from PyQt6.QtWidgets import (
     QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
     QFileDialog
 )
+from server.signals import WorkerSignals
 from server.serialization import Serializador
 from server.manager import Gerenciador
 from server.aws_loader import AWSLoader
-from server.initializer import InicializadorAWS
+from server.commander import Comandante
 
 
 class Interface(QMainWindow):
@@ -17,7 +18,7 @@ class Interface(QMainWindow):
         self.setWindowTitle("Gerenciador de Servidor - Global Arena")
         self.setGeometry(100, 100, 700, 500)
 
-        # === Inicialização do Gerenciador ===
+        # === Inicialização de dependências ===
         try:
             self.aws_loader = AWSLoader()
             self.gerenciador = Gerenciador(self.aws_loader)
@@ -26,18 +27,62 @@ class Interface(QMainWindow):
             QMessageBox.critical(self, "Erro AWS", f"Não foi possível conectar à AWS:\n{e}")
             self.gerenciador = None
 
-        # ✅ Armazena o último mundo criado (inicialmente None)
+        # ✅ Inicializa o Comandante
+        try:
+            self.comandante = Comandante(self.gerenciador, self.aws_loader)
+            self.comandante.iniciar()
+            print("✅ Comandante iniciado.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao iniciar o Comandante:\n{e}")
+            self.comandante = None
+
+        # ✅ Cria e conecta os sinais
+        self.setup_signals()
+
+        # ✅ Armazena o último mundo criado
         self.ultimo_mundo = None
 
         # Configuração do sistema de abas
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Criação das abas
+        # ✅ Cria as abas
         self.backup_tab = self.create_backup_tab()
         self.config_tab = QWidget()
         self.tabs.addTab(self.backup_tab, "Backup & Criação")
         self.tabs.addTab(self.config_tab, "Configurações")
+
+    def closeEvent(self, event):
+        if self.comandante:
+            self.comandante.parar()
+        event.accept()
+
+    def setup_signals(self):
+        """Cria e conecta os sinais para comunicação segura."""
+        self.signals = WorkerSignals()
+        self.signals.success.connect(self.on_success)
+        self.signals.error.connect(self.on_error)
+        self.signals.finished.connect(self.on_finished)
+
+    def on_success(self, resultado):
+        sucesso, mundo = resultado
+        if sucesso:
+            self.ultimo_mundo = mundo
+            QMessageBox.information(
+                self, "Sucesso", f"Mundo {mundo.id_mundo} criado e enviado!"
+            )
+        else:
+            QMessageBox.critical(self, "Falha", "Upload falhou.")
+
+    def on_error(self, mensagem: str):
+        QMessageBox.critical(self, "Erro", f"Falha: {mensagem}")
+
+    def on_finished(self):
+        print("✅ Operação concluída.")
+
+    # ————————————————————————————————
+    # Métodos para construção da UI
+    # ————————————————————————————————
 
     def create_backup_tab(self):
         """Cria a aba de operações de backup e criação de mundos"""
@@ -105,19 +150,13 @@ class Interface(QMainWindow):
         return tab
 
     def handle_save_json(self):
-        """Cria um mundo com os parâmetros da UI e salva localmente."""
-        if not self.gerenciador:
-            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+        """Salva o último mundo criado (se existir) como JSON local."""
+        if not self.ultimo_mundo:
+            QMessageBox.warning(self, "Aviso", "Nenhum mundo foi criado ainda.")
             return
 
-        fator = self.spin_fator.value()
-        bioma = self.combo_bioma.currentText()
-
         try:
-            # 1. Criar mundo usando o Gerenciador
-            mundo = self.gerenciador.criar_mundo(fator, bioma)
-
-            # 2. Escolher caminho com diálogo
+            mundo = self.ultimo_mundo
             filepath, _ = QFileDialog.getSaveFileName(
                 self,
                 "Salvar Mundo como JSON",
@@ -125,89 +164,40 @@ class Interface(QMainWindow):
                 "JSON Files (*.json)"
             )
             if not filepath:
-                return  # Cancelado pelo usuário
+                return  # Cancelado
 
-            # 3. Salvar usando Serializador.save_mundo (já trata diretórios)
             caminho_salvo = Serializador.save_mundo(mundo, filepath)
-
             if caminho_salvo:
                 QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    f"Mundo salvo com sucesso!\nArquivo: {caminho_salvo}",
-                    QMessageBox.StandardButton.Ok
+                    self, "Sucesso", f"Mundo salvo localmente:\n{caminho_salvo}"
                 )
             else:
-                QMessageBox.critical(
-                    self,
-                    "Falha",
-                    "Erro ao salvar o arquivo JSON.",
-                    QMessageBox.StandardButton.Ok
-                )
-
+                QMessageBox.critical(self, "Falha", "Erro ao salvar o arquivo.")
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Falha ao salvar: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
+            QMessageBox.critical(self, "Erro", f"Falha ao salvar: {str(e)}")
 
     def handle_criar_e_upload(self):
-        """Manipula a criação e upload de um novo mundo"""
-        if not self.gerenciador:
-            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
             return
 
         fator = self.spin_fator.value()
         bioma = self.combo_bioma.currentText()
 
-        reply = QMessageBox.question(
-            self,
-            "Confirmar",
-            f"Criar e enviar um novo mundo?\nFator: {fator}\nBioma: {bioma}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        self.comandante.criar_e_upload_mundo(
+            fator=fator,
+            bioma=bioma,
+            signals=self.signals
         )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            print(f"🔄 Criando e enviando mundo com fator={fator}, bioma='{bioma}'...")
-            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(fator=fator, bioma=bioma)
-
-            if sucesso:
-                self.ultimo_mundo = mundo  # Armazena para possível salvamento local
-                QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    f"Mundo criado e enviado com sucesso!\nID: {mundo.id_mundo}",
-                    QMessageBox.StandardButton.Ok
-                )
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Falha",
-                    "O upload falhou. Veja o log para detalhes.",
-                    QMessageBox.StandardButton.Ok
-                )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Erro ao criar/upload do mundo:\n{str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-            print(f"❌ Erro em handle_criar_e_upload: {e}")
 
     def handle_reinicializar_servidor(self):
-        """
-        Abre um diálogo de confirmação e, se confirmado,
-        reinicializa a infraestrutura AWS (S3 + DynamoDB).
-        """
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+
         reply = QMessageBox.question(
             self,
-            "⚠️ Reinicializar Servidor",
+            "⚠️ Reinicializar Infraestrutura",
             "Isso apagará TODOS os mundos e metadados no S3 e DynamoDB.\n"
             "Continuar?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -215,42 +205,10 @@ class Interface(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            # Reutiliza o aws_loader já inicializado (não cria um novo)
-            if not hasattr(self, 'aws_loader') or self.aws_loader is None:
-                QMessageBox.critical(self, "Erro", "Falha ao acessar AWS Loader.")
-                return
-
-            # Cria o inicializador e executa
-            inicializador = InicializadorAWS(self.aws_loader)
-            sucesso = inicializador.inicializar(confirmar=False)
-
-            if sucesso:
-                QMessageBox.information(
-                    self,
-                    "Sucesso",
-                    "Servidor reinicializado com sucesso!\n"
-                    "Todas as tabelas e arquivos foram limpos e recriados."
-                )
-            else:
-                QMessageBox.warning(
-                    self,
-                    "Atenção",
-                    "A reinicialização foi executada, mas pode ter falhado em algum ponto."
-                )
-        except ModuleNotFoundError:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                "Módulo 'inicializador' não encontrado.\n"
-                "Certifique-se de que 'server/inicializador.py' existe."
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Erro",
-                f"Falha ao reinicializar o servidor:\n{str(e)}"
-            )
+        self.comandante.reinicializar_infra(
+            confirmar=False,
+            signals=self.signals
+        )
 
 
 # Execução da aplicação
