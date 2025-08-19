@@ -167,7 +167,6 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # Limpa o buffer com a cor definida em initializeGL
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
     """
@@ -223,9 +222,15 @@ class JanelaPrincipal(QMainWindow):
         # Criar gerenciador de ícones
         self.gerenciador_icones = GerenciadorIconesEsquerda(caminho_recursos="client/resources")
 
-        # Atualizar ícone de login com base no estado
+        # Atualizar ícone e nome de login com base no estado
         if self.usuario_logado:
-            self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")
+            try:
+                with open("session.txt", "r") as f:
+                    nome_usuario = f.read().strip()
+            except Exception as e:
+                print(f"❌ Erro ao ler session.txt: {e}")
+                nome_usuario = "Usuário"
+            self.gerenciador_icones.atualizar_estado_login(True, nome_usuario)
 
         # Conectar sinal de clique
         self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
@@ -425,7 +430,8 @@ class JanelaPrincipal(QMainWindow):
                 try:
                     os.remove("session.txt")
                     self.usuario_logado = False
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/log-in.png")
+                    # Atualiza UI: volta ao ícone de login e esconde nome
+                    self.gerenciador_icones.atualizar_estado_login(False)
                     QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
                 except Exception as e:
                     QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
@@ -488,7 +494,7 @@ class JanelaPrincipal(QMainWindow):
                     with open("session.txt", "w") as f:
                         f.write(username)
                     self.usuario_logado = True
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                    self.gerenciador_icones.atualizar_estado_login(True, username)
                     QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
                     dialog.accept()
                 else:
@@ -550,7 +556,8 @@ class JanelaPrincipal(QMainWindow):
                     with open("session.txt", "w") as f:
                         f.write(username)
                     self.usuario_logado = True
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")
+                    # Atualiza UI: ícone + nome
+                    self.gerenciador_icones.atualizar_estado_login(True, username)
                     QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
                     dialog.accept()
                 else:

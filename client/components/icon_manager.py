@@ -2,7 +2,7 @@
 """Componentes para gerenciar ícones interativos na barra lateral esquerda."""
 
 import os
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
 import traceback
@@ -140,12 +140,73 @@ class GerenciadorIconesEsquerda(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # --- Criar e adicionar ícones ---
-        # Ícone de Login (Superior Esquerdo)
+        # --- Ícone de Login com nome do usuário ---
         icone_login_path = os.path.join(self.caminho_recursos, "log-in.png")
         self.icone_login = IconeInterativo(icone_login_path, "login", tamanho=self.TAMANHO_ICONE)
         self.icone_login.clicado.connect(self._ao_clicar_icone)
-        layout.addWidget(self.icone_login)
+
+        # Layout horizontal para ícone + nome
+        self.login_layout = QHBoxLayout()
+        self.login_layout.setContentsMargins(0, 0, 0, 0)
+        self.login_layout.setSpacing(8)
+        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        # Adicionar ícone
+        self.login_layout.addWidget(self.icone_login)
+
+        # Label para nome do usuário
+        self.label_nome_usuario = QLabel()
+        self.label_nome_usuario.setStyleSheet("""
+            color: #ecf0f1;
+            background: transparent;
+            border: none;
+            font-size: 14px;
+            font-weight: bold;
+        """)
+        self.label_nome_usuario.hide()
+        self.login_layout.addWidget(self.label_nome_usuario)
+
+        # Container final
+        self.login_container = QWidget()
+        self.login_container.setLayout(self.login_layout)
+
+        # Adicionar ao layout principal
+        layout.addWidget(self.login_container)
+
+        # Referência
         self.icones["login"] = self.icone_login
+
+        # Criar um layout horizontal para o ícone + nome
+        self.login_layout = QHBoxLayout()
+        self.login_layout.setContentsMargins(0, 0, 0, 0)
+        self.login_layout.setSpacing(8)  # Espaço entre ícone e texto
+        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        # Adicionar ícone
+        self.login_layout.addWidget(self.icone_login)
+
+        # Adicionar label de nome (inicialmente oculto)
+        self.label_nome_usuario = QLabel()
+        self.label_nome_usuario.setStyleSheet("""
+            color: #ecf0f1;
+            background: transparent;
+            border: none;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+        """)
+        self.label_nome_usuario.hide()  # Esconde por padrão
+        self.login_layout.addWidget(self.label_nome_usuario)
+
+        # Container widget para o layout horizontal
+        self.login_container = QWidget()
+        self.login_container.setLayout(self.login_layout)
+
+        # Adicionar o container ao layout principal
+        layout.addWidget(self.login_container)
+
+        # Armazenar referência
+        self.icones["login"] = self.icone_login  # Mantém compatibilidade
 
         # Ícone de Play (Mais abaixo)
         icone_play_path = os.path.join(self.caminho_recursos, "play.png")
@@ -163,6 +224,20 @@ class GerenciadorIconesEsquerda(QWidget):
         self.icone_sair.clicado.connect(self._ao_clicar_icone)
         layout.addWidget(self.icone_sair)
         self.icones["sair"] = self.icone_sair
+
+    def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
+        """
+        Atualiza o ícone e mostra/esconde o nome do usuário.
+        """
+        if esta_logado and nome_usuario:
+            caminho = os.path.join(self.caminho_recursos, "smile.png")
+            self.icone_login.carregar_icone(caminho)
+            self.label_nome_usuario.setText(nome_usuario)
+            self.label_nome_usuario.show()
+        else:
+            caminho = os.path.join(self.caminho_recursos, "log-in.png")
+            self.icone_login.carregar_icone(caminho)
+            self.label_nome_usuario.hide()
 
     def _ao_clicar_icone(self, identificador):
         """Slot interno para reemitir o sinal do ícone clicado."""

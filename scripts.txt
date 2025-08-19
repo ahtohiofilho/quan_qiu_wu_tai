@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-19 06:08:03
+Gerado em: 2025-08-19 08:18:04
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -1199,7 +1199,44 @@ class UserService:
             print(f"❌ Erro inesperado ao criar usuário '{username}': {e}")
             return False
 
-    # Métodos para verificar senha, gerar token, etc., virão aqui depois.
+    def authenticate_user(self, username: str, password: str) -> tuple[bool, str]:
+        """
+        Autentica um usuário verificando a senha com bcrypt.
+
+        :param username: Nome de usuário.
+        :param password: Senha em texto plano.
+        :return: (sucesso: bool, mensagem: str)
+        """
+        if not username or not password:
+            return False, "Usuário ou senha ausentes."
+
+        # 1. Buscar usuário
+        user = self.get_user(username)
+        if not user:
+            return False, "Usuário não encontrado."
+
+        # 2. Extrair o hash da senha
+        password_hash_attr = user.get('password_hash')
+        if not password_hash_attr:
+            return False, "Usuário sem senha cadastrada."
+
+        # 3. O hash pode vir como {'B': bytes} do DynamoDB
+        if isinstance(password_hash_attr, dict) and 'B' in password_hash_attr:
+            stored_hash = password_hash_attr['B']
+        elif isinstance(password_hash_attr, bytes):
+            stored_hash = password_hash_attr
+        else:
+            return False, "Formato de hash de senha inválido."
+
+        # 4. Verificar com bcrypt
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                return True, "Login bem-sucedido."
+            else:
+                return False, "Senha incorreta."
+        except Exception as e:
+            print(f"❌ Erro ao verificar senha com bcrypt: {e}")
+            return False, "Erro interno ao processar autenticação."
 
 
 ================================================================================
@@ -1295,17 +1332,60 @@ def register_routes(user_service_instance):
             # A mensagem de erro já foi impressa pelo user_service
             return jsonify({"success": False, "message": "Falha ao registrar usuário no banco de dados."}), 500
 
-    # --- Novo Endpoint: Login de Usuário (placeholder por enquanto) ---
     @auth_bp.route('/login', methods=['POST'])
     def login():
         """
-        Endpoint para login de usuário.
-        Espera um JSON: {"username": "nome", "password": "senha"}
-        Retorna um JSON: {"success": true, "token": "..."} ou {"success": false, "message": "..."}
+        Endpoint para autenticação de usuário.
+        Espera: {"username": "nome", "password": "senha"}
+        Retorna: {"success": bool, "message": str}
         """
-        # TODO: Implementar lógica de login
-        return jsonify(
-            {"success": False, "message": "Endpoint de login ainda não implementado."}), 501  # 501 Not Implemented
+        # 1. Verificar se o corpo é JSON
+        if not request.is_json:
+            return jsonify({"success": False, "message": "Requisição deve ser JSON."}), 400
+
+        data = request.get_json()
+
+        # 2. Extrair e validar campos
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username:
+            return jsonify({"success": False, "message": "Nome de usuário é obrigatório."}), 400
+        if not password:
+            return jsonify({"success": False, "message": "Senha é obrigatória."}), 400
+
+        # 3. Buscar usuário
+        try:
+            usuario = user_service_instance.get_user(username)
+            if not usuario:
+                return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
+        except Exception as e:
+            print(f"❌ Erro ao buscar usuário '{username}': {e}")
+            return jsonify({"success": False, "message": "Erro interno ao acessar banco de dados."}), 500
+
+        # 4. Extrair e validar hash da senha
+        password_hash_attr = usuario.get('password_hash')
+        if not password_hash_attr:
+            return jsonify({"success": False, "message": "Usuário sem senha cadastrada."}), 500
+
+        # Extrair bytes do campo 'B' se for um dict (formato DynamoDB)
+        if isinstance(password_hash_attr, dict) and 'B' in password_hash_attr:
+            stored_hash = password_hash_attr['B']
+        elif isinstance(password_hash_attr, bytes):
+            stored_hash = password_hash_attr
+        else:
+            print(f"⚠️ Formato inesperado de password_hash para '{username}': {type(password_hash_attr)}")
+            return jsonify({"success": False, "message": "Erro interno de autenticação."}), 500
+
+        # 5. Verificar senha com bcrypt
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                return jsonify({"success": True, "message": "Login bem-sucedido."}), 200
+            else:
+                return jsonify({"success": False, "message": "Senha incorreta."}), 401
+        except Exception as e:
+            print(f"❌ Erro ao verificar senha com bcrypt: {e}")
+            return jsonify({"success": False, "message": "Erro interno ao processar autenticação."}), 500
 
 
 ================================================================================
@@ -1317,8 +1397,11 @@ import sys
 import os  # Para verificar o arquivo de sessão
 import OpenGL.GL as gl
 import ctypes
+
+import requests
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QSizePolicy, QFrame
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
+    QSizePolicy, QFrame, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox
 )
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
@@ -1533,9 +1616,15 @@ class JanelaPrincipal(QMainWindow):
         # Criar gerenciador de ícones
         self.gerenciador_icones = GerenciadorIconesEsquerda(caminho_recursos="client/resources")
 
-        # Atualizar ícone de login com base no estado
+        # Atualizar ícone e nome de login com base no estado
         if self.usuario_logado:
-            self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")  # ou "logged.png"
+            try:
+                with open("session.txt", "r") as f:
+                    nome_usuario = f.read().strip()
+            except Exception as e:
+                print(f"❌ Erro ao ler session.txt: {e}")
+                nome_usuario = "Usuário"
+            self.gerenciador_icones.atualizar_estado_login(True, nome_usuario)
 
         # Conectar sinal de clique
         self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
@@ -1685,6 +1774,25 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
+    def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
+        """
+        Atualiza a interface do ícone de login com base no estado.
+        :param esta_logado: True se o usuário está logado.
+        :param nome_usuario: Nome do usuário (opcional).
+        """
+        if esta_logado and nome_usuario:
+            # Muda ícone para smile.png
+            caminho_smile = os.path.join(self.caminho_recursos, "smile.png")
+            self.icone_login.carregar_icone(caminho_smile)
+            # Define e mostra o nome
+            self.label_nome_usuario.setText(nome_usuario)
+            self.label_nome_usuario.show()
+        else:
+            # Volta para ícone de login e esconde nome
+            caminho_login = os.path.join(self.caminho_recursos, "log-in.png")
+            self.icone_login.carregar_icone(caminho_login)
+            self.label_nome_usuario.hide()
+
     def _verificar_login(self):
         """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
         return os.path.exists("session.txt")
@@ -1733,10 +1841,14 @@ class JanelaPrincipal(QMainWindow):
             )
             if reply == QMessageBox.StandardButton.Yes:
                 try:
-                    os.remove("session.txt")
-                    self.usuario_logado = False
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/log-in.png")
-                    QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
+                    try:
+                        os.remove("session.txt")
+                        self.usuario_logado = False
+                        # Atualiza UI: volta ao ícone de login e esconde nome
+                        self.gerenciador_icones.atualizar_estado_login(False)
+                        QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
+                    except Exception as e:
+                        QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
                 except Exception as e:
                     QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
         else:
@@ -1753,11 +1865,11 @@ class JanelaPrincipal(QMainWindow):
         self.close()
 
     def _abrir_dialogo_login(self):
-        """Abre um diálogo simples para login (usuário e senha)."""
-        from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox
+        """Abre um diálogo de login com campos de usuário e senha, conectado ao backend."""
+        import requests
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Login")
+        dialog.setWindowTitle("Entrar")
         dialog.setModal(True)
         dialog.resize(300, 120)
 
@@ -1782,20 +1894,35 @@ class JanelaPrincipal(QMainWindow):
             if not username:
                 QMessageBox.warning(dialog, "Erro", "Usuário é obrigatório.")
                 return
+            if not password:
+                QMessageBox.warning(dialog, "Erro", "Senha é obrigatória.")
+                return
 
-            # Aqui você pode integrar com uma API real depois
-            # Por enquanto, simula login bem-sucedido
             try:
-                # Exemplo: salvar sessão
-                with open("session.txt", "w") as f:
-                    f.write(username)
-                self.usuario_logado = True
-                # Atualiza o ícone para "logado"
-                self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
-                QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
-                dialog.accept()
+                response = requests.post(
+                    "http://localhost:5000/auth/login",
+                    json={"username": username, "password": password}
+                )
+                data = response.json()
+
+                if response.status_code == 200 and data.get("success"):
+                    # Login bem-sucedido
+                    with open("session.txt", "w") as f:
+                        f.write(username)
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                    QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
+                    dialog.accept()
+                else:
+                    msg = data.get("message", "Login falhou.")
+                    QMessageBox.critical(dialog, "Erro", msg)
+            except requests.exceptions.ConnectionError:
+                QMessageBox.critical(dialog, "Erro",
+                                     "Não foi possível conectar ao servidor. Certifique-se de que o backend está rodando.")
+            except requests.exceptions.Timeout:
+                QMessageBox.critical(dialog, "Erro", "Tempo de resposta esgotado.")
             except Exception as e:
-                QMessageBox.critical(dialog, "Erro", f"Falha ao salvar sessão: {e}")
+                QMessageBox.critical(dialog, "Erro", f"Erro inesperado: {str(e)}")
 
         buttons.accepted.connect(tentar_login)
         buttons.rejected.connect(dialog.reject)
@@ -1804,7 +1931,6 @@ class JanelaPrincipal(QMainWindow):
 
     def _abrir_tela_login(self):
         """Abre um diálogo de login com campos de usuário e senha."""
-        from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Entrar")
@@ -1846,7 +1972,8 @@ class JanelaPrincipal(QMainWindow):
                     with open("session.txt", "w") as f:
                         f.write(username)
                     self.usuario_logado = True
-                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                    # Atualiza UI: ícone + nome
+                    self.gerenciador_icones.atualizar_estado_login(True, username)
                     QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
                     dialog.accept()
                 else:
@@ -1905,7 +2032,7 @@ if __name__ == "__main__":
 """Componentes para gerenciar ícones interativos na barra lateral esquerda."""
 
 import os
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
 import traceback
@@ -2043,12 +2170,42 @@ class GerenciadorIconesEsquerda(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # --- Criar e adicionar ícones ---
-        # Ícone de Login (Superior Esquerdo)
+        # --- Ícone de Login (Superior Esquerdo) ---
         icone_login_path = os.path.join(self.caminho_recursos, "log-in.png")
         self.icone_login = IconeInterativo(icone_login_path, "login", tamanho=self.TAMANHO_ICONE)
         self.icone_login.clicado.connect(self._ao_clicar_icone)
-        layout.addWidget(self.icone_login)
-        self.icones["login"] = self.icone_login
+
+        # Criar um layout horizontal para o ícone + nome
+        self.login_layout = QHBoxLayout()
+        self.login_layout.setContentsMargins(0, 0, 0, 0)
+        self.login_layout.setSpacing(8)  # Espaço entre ícone e texto
+        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        # Adicionar ícone
+        self.login_layout.addWidget(self.icone_login)
+
+        # Adicionar label de nome (inicialmente oculto)
+        self.label_nome_usuario = QLabel()
+        self.label_nome_usuario.setStyleSheet("""
+            color: #ecf0f1;
+            background: transparent;
+            border: none;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+        """)
+        self.label_nome_usuario.hide()  # Esconde por padrão
+        self.login_layout.addWidget(self.label_nome_usuario)
+
+        # Container widget para o layout horizontal
+        self.login_container = QWidget()
+        self.login_container.setLayout(self.login_layout)
+
+        # Adicionar o container ao layout principal
+        layout.addWidget(self.login_container)
+
+        # Armazenar referência
+        self.icones["login"] = self.icone_login  # Mantém compatibilidade
 
         # Ícone de Play (Mais abaixo)
         icone_play_path = os.path.join(self.caminho_recursos, "play.png")
