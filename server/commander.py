@@ -3,14 +3,9 @@ import queue
 import threading
 import time
 import uuid
-from typing import Callable, Optional, Tuple
-
-# --- Importações PyQt6 e sinais ---
-from PyQt6.QtCore import QObject
+import random
+from typing import Callable, Optional
 from server.signals import WorkerSignals
-
-# --- Suas importações existentes ---
-from shared.world import Mundo
 from server.manager import Gerenciador
 from server.initializer import InicializadorAWS
 
@@ -52,6 +47,9 @@ class Comandante:
         self.fila = queue.Queue()
         self.ativo = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
+        # 🔁 Estado da simulação
+        self.simulacao_ativa = False
+        self.thread_simulacao: Optional[threading.Thread] = None
 
     def iniciar(self):
         """Inicia a thread de processamento de comandos."""
@@ -218,3 +216,56 @@ class Comandante:
             on_error=on_error,
             signals=signals  # ✅ Passa os sinais
         )
+
+    def iniciar_simulacao_players(self, signals: Optional[WorkerSignals] = None):
+        """Inicia a simulação de players online."""
+        def task():
+            if self.simulacao_ativa:
+                return
+
+            self.simulacao_ativa = True
+            contador = 0
+
+            def entrar_na_fila(usuario):
+                nonlocal contador
+                try:
+                    import requests
+                    response = requests.post("http://localhost:5000/auth/login", json=usuario)
+                    if response.status_code == 200:
+                        token = response.json().get("token")
+                        headers = {"Authorization": f"Bearer {token}"} if token else {}
+                        requests.post(
+                            "http://localhost:5000/jogo/entrar",
+                            json={"modo": "online"},
+                            headers=headers
+                        )
+                        contador += 1
+                        if signals:
+                            signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
+                except:
+                    pass
+
+            USUARIOS_SIMULADOS = [
+                {"username": f"player{i}", "password": "senha123"} for i in range(1, 51)
+            ]
+
+            while self.simulacao_ativa:
+                usuario = random.choice(USUARIOS_SIMULADOS)
+                thread = threading.Thread(target=entrar_na_fila, args=(usuario,), daemon=True)
+                thread.start()
+                time.sleep(random.uniform(1.0, 3.0))
+
+            if signals:
+                signals.success.emit("🛑 Simulação encerrada.")
+
+        self._enviar_comando(
+            nome="Simular Players Online",
+            callback=task,
+            on_success=lambda msg: signals.success.emit(msg) if signals else None,
+            on_error=lambda err: signals.error.emit(err) if signals else None,
+            signals=signals
+        )
+
+    def parar_simulacao_players(self):
+        """Para a simulação de players."""
+        self.simulacao_ativa = False

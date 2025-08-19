@@ -1,10 +1,10 @@
 # server/app.py
 from flask import Flask
-from config import config
-from extensions import ext
-from services.user_service import UserService
-# Importa o blueprint e a função de registro
-from routes.auth import auth_bp, register_routes
+from server.config import config
+from server.extensions import ext
+from server.services.user_service import UserService
+from server.routes.auth import auth_bp, register_routes
+from server.routes.game import jogo_bp, register_jogo_routes
 
 def create_app(config_name='default'):
     """Factory function para criar a aplicação Flask."""
@@ -20,9 +20,14 @@ def create_app(config_name='default'):
     user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
 
     # 4. Registra os Blueprints e injeta dependências
-    # Registra as rotas do auth_bp, passando o serviço de usuário
+
+    # --- 🔹 Auth ---
     register_routes(user_service)
     app.register_blueprint(auth_bp)
+
+    # --- 🔹 Jogo Online (NOVO) ---
+    register_jogo_routes(user_service)  # Pode injetar outros serviços depois
+    app.register_blueprint(jogo_bp)    # Registra o blueprint
 
     # 5. Rotas principais (opcional)
     @app.route('/')
@@ -36,7 +41,8 @@ if __name__ == '__main__':
     app = create_app('development')  # Ou 'production'
     print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
     print("📄 Endpoints disponíveis:")
-    print("   GET  /             - Status do servidor")
-    print("   GET  /auth/teste_dynamodb - Teste de conexão com DynamoDB (via UserService)")
+    print("   GET  /                        - Status do servidor")
+    print("   GET  /auth/teste_dynamodb     - Teste de conexão com DynamoDB")
+    print("   POST /jogo/entrar             - Entrar na fila de jogo online (novo)")
     print("-" * 40)
     app.run(host='127.0.0.1', port=5000, debug=app.config['DEBUG'])

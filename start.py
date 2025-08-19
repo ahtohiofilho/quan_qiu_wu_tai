@@ -1,5 +1,3 @@
-# start.py (atualizado)
-
 #!/usr/bin/env python3
 """
 Ponto de entrada principal do projeto Global Arena.
@@ -11,12 +9,14 @@ Comandos disponíveis:
     python start.py init             → Reinicializa a infra AWS
     python start.py create-world     → Cria e faz upload de um novo mundo
     python start.py test             → Testa conexão com AWS
+    python start.py simulador        → Simula entrada de players online (teste de carga)
 """
 
 import sys
 import os
 from pathlib import Path
 import argparse
+import signal
 
 # Adiciona o diretório raiz ao caminho de imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description="🌍 Global Arena - Sistema de inicialização central")
     parser.add_argument(
         'command',
-        choices=['server', 'client', 'interface', 'init', 'create-world', 'test'],
+        choices=['server', 'client', 'interface', 'init', 'create-world', 'test', 'simulador'],
         help="Comando a ser executado"
     )
     parser.add_argument('--fator', type=int, default=4, help="Fator do mundo (nível de detalhe)")
@@ -100,6 +100,20 @@ def main():
                 print(f"❌ Erro ao conectar à AWS: {e}")
                 sys.exit(1)
 
+        elif args.command == 'simulador':
+            print("🎮 Iniciando simulador de players online...")
+            print("💡 Pressione Ctrl+C para encerrar a simulação.")
+            from server.simulador_players import simular_entrada_periodica
+            try:
+                # Captura Ctrl+C de forma limpa
+                simular_entrada_periodica(intervalo_min=2, intervalo_max=8)
+            except KeyboardInterrupt:
+                print("\n🛑 Simulador de players encerrado pelo usuário.")
+                sys.exit(0)
+            except Exception as e:
+                print(f"\n❌ Erro no simulador: {e}")
+                sys.exit(1)
+
     except ModuleNotFoundError as e:
         print(f"❌ Módulo não encontrado: {e}")
         print("💡 Dica: certifique-se de estar na raiz do projeto.")
@@ -109,6 +123,15 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+# Garante que Ctrl+C funcione corretamente
+def signal_handler(signum, frame):
+    print("\n🛑 Sinal recebido. Encerrando...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 if __name__ == "__main__":
     main()

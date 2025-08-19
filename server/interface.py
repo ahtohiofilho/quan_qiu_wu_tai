@@ -1,9 +1,9 @@
 # server/interface.py
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton,
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
     QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
-    QFileDialog
+    QFileDialog, QTextEdit, QPushButton
 )
 from server.signals import WorkerSignals
 from server.serialization import Serializador
@@ -65,14 +65,24 @@ class Interface(QMainWindow):
         self.signals.finished.connect(self.on_finished)
 
     def on_success(self, resultado):
-        sucesso, mundo = resultado
-        if sucesso:
-            self.ultimo_mundo = mundo
-            QMessageBox.information(
-                self, "Sucesso", f"Mundo {mundo.id_mundo} criado e enviado!"
-            )
+        """Trata diferentes tipos de sucesso: criação de mundo ou mensagens de log."""
+        if isinstance(resultado, tuple):
+            # Caso 1: resultado de upload de mundo (sucesso, mundo)
+            try:
+                sucesso, mundo = resultado
+                if sucesso:
+                    self.ultimo_mundo = mundo
+                    QMessageBox.information(
+                        self, "Sucesso", f"Mundo {mundo.id_mundo} criado e enviado!"
+                    )
+                else:
+                    QMessageBox.critical(self, "Falha", "Upload falhou.")
+            except Exception as e:
+                print(f"❌ Erro ao processar resultado de upload: {e}")
         else:
-            QMessageBox.critical(self, "Falha", "Upload falhou.")
+            # Caso 2: mensagem de log (ex: simulação de players)
+            self.log_output.append(f"🟢 {resultado}")  # Exibe no widget de log
+            print(f"🟢 {resultado}")  # Também imprime no terminal
 
     def on_error(self, mensagem: str):
         QMessageBox.critical(self, "Erro", f"Falha: {mensagem}")
@@ -114,6 +124,31 @@ class Interface(QMainWindow):
 
         layout.addSpacing(20)
 
+        # === Grupo: Simulação de Players ===
+        group_sim = QGroupBox("Simulação de Players Online")
+        layout_sim = QVBoxLayout()
+
+        btn_iniciar_sim = QPushButton("▶️ Iniciar Simulação de Players")
+        btn_iniciar_sim.setStyleSheet("""
+            QPushButton { background-color: #27ae60; color: white; font-weight: bold; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #2ecc71; }
+        """)
+        btn_iniciar_sim.clicked.connect(self.handle_iniciar_simulacao)
+        layout_sim.addWidget(btn_iniciar_sim)
+
+        btn_parar_sim = QPushButton("⏹️ Parar Simulação de Players")
+        btn_parar_sim.setStyleSheet("""
+            QPushButton { background-color: #e74c3c; color: white; font-weight: bold; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #c0392b; }
+        """)
+        btn_parar_sim.clicked.connect(self.handle_parar_simulacao)
+        layout_sim.addWidget(btn_parar_sim)
+
+        group_sim.setLayout(layout_sim)
+        layout.addWidget(group_sim)
+
+        layout.addSpacing(20)
+
         # === Grupo: Salvar Localmente ===
         group_local = QGroupBox("Salvar Estado Localmente")
         layout_local = QVBoxLayout()
@@ -145,9 +180,30 @@ class Interface(QMainWindow):
         layout.addWidget(btn_reiniciar)
         layout.addSpacing(10)
 
+        # === Log de Atividades ===
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMaximumHeight(150)
+        self.log_output.setPlaceholderText("Log de atividades...")
+        layout.addWidget(self.log_output)
+
         layout.addStretch()
         tab.setLayout(layout)
         return tab
+
+    def handle_iniciar_simulacao(self):
+        """Inicia a simulação de players online."""
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+        self.comandante.iniciar_simulacao_players(signals=self.signals)
+
+    def handle_parar_simulacao(self):
+        """Para a simulação de players online."""
+        if not self.comandante:
+            return
+        self.comandante.parar_simulacao_players()
+        self.signals.success.emit("🛑 Simulação interrompida pelo usuário.")
 
     def handle_save_json(self):
         """Salva o último mundo criado (se existir) como JSON local."""

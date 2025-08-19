@@ -5,17 +5,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/info.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/server/signals.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/start.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/routes/game.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/services/queue_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/server/simulador_players.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/dialogs/auth_dialog.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/dialogs/auth_dialog.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/info.txt" beforeDir="false" afterPath="$PROJECT_DIR$/info.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/commander.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/commander.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/extensions.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/extensions.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/interface.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/interface.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/routes/auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/routes/auth.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/session.txt" beforeDir="false" afterPath="$PROJECT_DIR$/session.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/start.py" beforeDir="false" afterPath="$PROJECT_DIR$/start.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

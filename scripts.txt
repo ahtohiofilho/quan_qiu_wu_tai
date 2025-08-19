@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-19 17:30:16
+Gerado em: 2025-08-19 18:24:25
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -12,11 +12,14 @@ Conteúdo dos scripts principais reunidos.
 📁 .
 ├── server
 │   ├── routes
-│   │   └── auth.py
+│   │   ├── auth.py
+│   │   └── game.py
 │   ├── saves
 │   │   └── mundo_5e946bdf-961d-43dd-8b5b-6284733ef02b.json
 │   ├── services
+│   │   ├── queue_service.py
 │   │   └── user_service.py
+│   ├── __init__.py
 │   ├── app.py
 │   ├── aws_loader.py
 │   ├── commander.py
@@ -27,7 +30,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── manager.py
 │   ├── sei_la_o_que.py
 │   ├── serialization.py
-│   └── signals.py
+│   ├── signals.py
+│   └── simulador_players.py
 ├── client
 │   ├── components
 │   │   ├── __init__.py
@@ -447,7 +451,7 @@ if __name__ == "__main__":
 📄 server/extensions.py
 ================================================================================
 # server/extensions.py
-from aws_loader import AWSLoader
+from server.aws_loader import AWSLoader
 
 class Extensions:
     def __init__(self):
@@ -524,6 +528,70 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+================================================================================
+📄 server/simulador_players.py
+================================================================================
+# simulador_players.py
+import requests
+import random
+import time
+import threading
+
+# Lista de usuários simulados (você pode gerar ou registrar previamente)
+USUARIOS_SIMULADOS = [
+    {"username": "player1", "password": "senha123"},
+    {"username": "player2", "password": "senha123"},
+    {"username": "player3", "password": "senha123"},
+    {"username": "player4", "password": "senha123"},
+    {"username": "player5", "password": "senha123"},
+]
+
+URL_BASE = "http://localhost:5000"
+
+def login_usuario(usuario):
+    try:
+        response = requests.post(f"{URL_BASE}/auth/login", json=usuario)
+        data = response.json()
+        if data.get("success"):
+            print(f"✅ {usuario['username']} logou com sucesso.")
+            return data.get("token")  # se você implementar tokens no futuro
+        else:
+            print(f"❌ {usuario['username']} falhou: {data.get('message')}")
+            return None
+    except Exception as e:
+        print(f"⚠️  Erro ao conectar para {usuario['username']}: {e}")
+        return None
+
+def entrar_na_fila(usuario):
+    token = login_usuario(usuario)
+    if not token:
+        return
+
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        response = requests.post(f"{URL_BASE}/jogo/entrar", json={"modo": "online"}, headers=headers)
+        data = response.json()
+        print(f"🎮 {usuario['username']} {data.get('message')}")
+    except Exception as e:
+        print(f"⚠️  Falha ao entrar na fila: {e}")
+
+def simular_entrada_periodica(intervalo_min=2, intervalo_max=5):
+    """Simula entrada aleatória de players no sistema."""
+    while True:
+        usuario = random.choice(USUARIOS_SIMULADOS)
+        thread = threading.Thread(target=entrar_na_fila, args=(usuario,), daemon=True)
+        thread.start()
+        time.sleep(random.randint(intervalo_min, intervalo_max))
+
+if __name__ == "__main__":
+    print("🚀 Iniciando simulador de players...")
+    simular_entrada_periodica()
+
+================================================================================
+📄 server/__init__.py
+================================================================================
+
 
 ================================================================================
 📄 server/aws_loader.py
@@ -804,11 +872,11 @@ class WorkerSignals(QObject):
 ================================================================================
 # server/app.py
 from flask import Flask
-from config import config
-from extensions import ext
-from services.user_service import UserService
-# Importa o blueprint e a função de registro
-from routes.auth import auth_bp, register_routes
+from server.config import config
+from server.extensions import ext
+from server.services.user_service import UserService
+from server.routes.auth import auth_bp, register_routes
+from server.routes.game import jogo_bp, register_jogo_routes
 
 def create_app(config_name='default'):
     """Factory function para criar a aplicação Flask."""
@@ -824,9 +892,14 @@ def create_app(config_name='default'):
     user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
 
     # 4. Registra os Blueprints e injeta dependências
-    # Registra as rotas do auth_bp, passando o serviço de usuário
+
+    # --- 🔹 Auth ---
     register_routes(user_service)
     app.register_blueprint(auth_bp)
+
+    # --- 🔹 Jogo Online (NOVO) ---
+    register_jogo_routes(user_service)  # Pode injetar outros serviços depois
+    app.register_blueprint(jogo_bp)    # Registra o blueprint
 
     # 5. Rotas principais (opcional)
     @app.route('/')
@@ -840,11 +913,11 @@ if __name__ == '__main__':
     app = create_app('development')  # Ou 'production'
     print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
     print("📄 Endpoints disponíveis:")
-    print("   GET  /             - Status do servidor")
-    print("   GET  /auth/teste_dynamodb - Teste de conexão com DynamoDB (via UserService)")
+    print("   GET  /                        - Status do servidor")
+    print("   GET  /auth/teste_dynamodb     - Teste de conexão com DynamoDB")
+    print("   POST /jogo/entrar             - Entrar na fila de jogo online (novo)")
     print("-" * 40)
     app.run(host='127.0.0.1', port=5000, debug=app.config['DEBUG'])
-
 
 ================================================================================
 📄 server/config.py
@@ -949,7 +1022,9 @@ class Serializador:
             for key in list(attrs.keys()):
                 attrs[key] = cls._convert(attrs[key])
 
-        G_data = nx.node_link_data(G)
+        # Usa 'edges="links"' para manter compatibilidade com o formato antigo
+        # O padrão futuro será 'edges="edges"', mas queremos evitar mudanças inesperadas
+        G_data = nx.node_link_data(G, edges="links")
         G_data.pop("directed", None)
         G_data.pop("multigraph", None)
         G_data.pop("graph", None)
@@ -1038,13 +1113,15 @@ class Serializador:
 # server/interface.py
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget,
-    QMessageBox
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton,
+    QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
+    QFileDialog
 )
 from server.signals import WorkerSignals
+from server.serialization import Serializador
 from server.manager import Gerenciador
 from server.aws_loader import AWSLoader
-from server.commander import Comandante  # ← Importa o Comandante
+from server.commander import Comandante
 
 
 class Interface(QMainWindow):
@@ -1074,12 +1151,14 @@ class Interface(QMainWindow):
         # ✅ Cria e conecta os sinais
         self.setup_signals()
 
+        # ✅ Armazena o último mundo criado
         self.ultimo_mundo = None
 
         # Configuração do sistema de abas
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
+        # ✅ Cria as abas
         self.backup_tab = self.create_backup_tab()
         self.config_tab = QWidget()
         self.tabs.addTab(self.backup_tab, "Backup & Criação")
@@ -1113,6 +1192,102 @@ class Interface(QMainWindow):
     def on_finished(self):
         print("✅ Operação concluída.")
 
+    # ————————————————————————————————
+    # Métodos para construção da UI
+    # ————————————————————————————————
+
+    def create_backup_tab(self):
+        """Cria a aba de operações de backup e criação de mundos"""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # === Grupo: Criar e Upload de Mundo ===
+        group_criar = QGroupBox("Criar e Enviar Novo Mundo")
+        form_layout = QFormLayout()
+
+        self.spin_fator = QSpinBox()
+        self.spin_fator.setMinimum(2)
+        self.spin_fator.setMaximum(8)
+        self.spin_fator.setValue(4)
+        form_layout.addRow("Fator:", self.spin_fator)
+
+        self.combo_bioma = QComboBox()
+        biomas = ["Meadow", "Forest", "Savanna", "Desert", "Hills", "Mountains"]
+        self.combo_bioma.addItems(biomas)
+        self.combo_bioma.setCurrentText("Meadow")
+        form_layout.addRow("Bioma Inicial:", self.combo_bioma)
+
+        group_criar.setLayout(form_layout)
+        layout.addWidget(group_criar)
+
+        btn_upload = QPushButton("🌍 Criar e Enviar Mundo para Nuvem")
+        btn_upload.clicked.connect(self.handle_criar_e_upload)
+        layout.addWidget(btn_upload)
+
+        layout.addSpacing(20)
+
+        # === Grupo: Salvar Localmente ===
+        group_local = QGroupBox("Salvar Estado Localmente")
+        layout_local = QVBoxLayout()
+
+        btn_save = QPushButton("💾 Salvar Estado como JSON (Local)")
+        btn_save.clicked.connect(self.handle_save_json)
+        layout_local.addWidget(btn_save)
+
+        group_local.setLayout(layout_local)
+        layout.addWidget(group_local)
+
+        layout.addSpacing(20)
+
+        # === Botão: Reinicializar Infraestrutura AWS ===
+        btn_reiniciar = QPushButton("⚠️ Reinicializar Infraestrutura AWS")
+        btn_reiniciar.setStyleSheet("""
+            QPushButton {
+                background-color: #a83232;
+                color: white;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #c03939;
+            }
+        """)
+        btn_reiniciar.clicked.connect(self.handle_reinicializar_servidor)
+        layout.addWidget(btn_reiniciar)
+        layout.addSpacing(10)
+
+        layout.addStretch()
+        tab.setLayout(layout)
+        return tab
+
+    def handle_save_json(self):
+        """Salva o último mundo criado (se existir) como JSON local."""
+        if not self.ultimo_mundo:
+            QMessageBox.warning(self, "Aviso", "Nenhum mundo foi criado ainda.")
+            return
+
+        try:
+            mundo = self.ultimo_mundo
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Salvar Mundo como JSON",
+                f"saves/mundo_{mundo.id_mundo}.json",
+                "JSON Files (*.json)"
+            )
+            if not filepath:
+                return  # Cancelado
+
+            caminho_salvo = Serializador.save_mundo(mundo, filepath)
+            if caminho_salvo:
+                QMessageBox.information(
+                    self, "Sucesso", f"Mundo salvo localmente:\n{caminho_salvo}"
+                )
+            else:
+                QMessageBox.critical(self, "Falha", "Erro ao salvar o arquivo.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao salvar: {str(e)}")
+
     def handle_criar_e_upload(self):
         if not self.comandante:
             QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
@@ -1121,7 +1296,6 @@ class Interface(QMainWindow):
         fator = self.spin_fator.value()
         bioma = self.combo_bioma.currentText()
 
-        # ✅ Passa os sinais, não callbacks
         self.comandante.criar_e_upload_mundo(
             fator=fator,
             bioma=bioma,
@@ -1155,6 +1329,35 @@ if __name__ == "__main__":
     window = Interface()
     window.show()
     sys.exit(app.exec())
+
+================================================================================
+📄 server/services/queue_service.py
+================================================================================
+# server/services/queue_service.py
+
+class FilaService:
+    def __init__(self):
+        self.fila = []
+
+    def adicionar_jogador(self, username: str) -> bool:
+        if username in self.fila:
+            return False
+        self.fila.append(username)
+        print(f"📥 Jogador '{username}' adicionado à fila. Total: {len(self.fila)}")
+        self._tentar_formar_partida()
+        return True
+
+    def remover_jogador(self, username: str):
+        if username in self.fila:
+            self.fila.remove(username)
+            print(f"📤 Jogador '{username}' removido da fila.")
+
+    def _tentar_formar_partida(self):
+        """Quando tiver 4+ jogadores, inicia uma partida."""
+        if len(self.fila) >= 4:
+            partida = [self.fila.pop(0) for _ in range(4)]
+            print(f"🎉 Partida iniciada com: {partida}")
+            # Aqui você pode disparar um evento, sinalizar via WebSocket, etc.
 
 ================================================================================
 📄 server/services/user_service.py
@@ -1277,6 +1480,50 @@ class UserService:
             print(f"❌ Erro ao verificar senha com bcrypt: {e}")
             return False, "Erro interno ao processar autenticação."
 
+
+================================================================================
+📄 server/routes/game.py
+================================================================================
+# server/routes/game.py
+from flask import Blueprint, jsonify, request
+from server.services.user_service import UserService
+jogo_bp = Blueprint('jogo', __name__, url_prefix='/jogo')
+
+# Variável para injeção de dependência
+_user_service = None
+
+def register_jogo_routes(user_service: UserService):
+    """Função para injetar dependências no blueprint jogo."""
+    global _user_service
+    _user_service = user_service
+
+@jogo_bp.route('/entrar', methods=['POST'])
+def entrar_na_fila():
+    if not request.is_json:
+        return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+    data = request.get_json()
+    modo = data.get("modo")
+
+    if modo != "online":
+        return jsonify({"success": False, "message": "Modo inválido. Use 'online'."}), 400
+
+    # Aqui você pode validar o usuário via token depois
+    username = data.get("username")
+    if not username:
+        return jsonify({"success": False, "message": "Username necessário."}), 400
+
+    # Simples validação de existência (opcional)
+    usuario = _user_service.get_user(username)
+    if not usuario:
+        return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
+
+    # 🔮 Futuramente: adicionar à fila de matchmaking
+    return jsonify({
+        "success": True,
+        "message": f"{username} entrou na fila de jogo online.",
+        "modo": modo
+    }), 200
 
 ================================================================================
 📄 server/routes/auth.py
@@ -3626,5 +3873,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 25 arquivos incluídos.
+✅ Total de 29 arquivos incluídos.
 ================================================================================
