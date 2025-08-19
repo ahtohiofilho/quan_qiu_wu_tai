@@ -88,14 +88,57 @@ def register_routes(user_service_instance):
             # A mensagem de erro já foi impressa pelo user_service
             return jsonify({"success": False, "message": "Falha ao registrar usuário no banco de dados."}), 500
 
-    # --- Novo Endpoint: Login de Usuário (placeholder por enquanto) ---
     @auth_bp.route('/login', methods=['POST'])
     def login():
         """
-        Endpoint para login de usuário.
-        Espera um JSON: {"username": "nome", "password": "senha"}
-        Retorna um JSON: {"success": true, "token": "..."} ou {"success": false, "message": "..."}
+        Endpoint para autenticação de usuário.
+        Espera: {"username": "nome", "password": "senha"}
+        Retorna: {"success": bool, "message": str}
         """
-        # TODO: Implementar lógica de login
-        return jsonify(
-            {"success": False, "message": "Endpoint de login ainda não implementado."}), 501  # 501 Not Implemented
+        # 1. Verificar se o corpo é JSON
+        if not request.is_json:
+            return jsonify({"success": False, "message": "Requisição deve ser JSON."}), 400
+
+        data = request.get_json()
+
+        # 2. Extrair e validar campos
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username:
+            return jsonify({"success": False, "message": "Nome de usuário é obrigatório."}), 400
+        if not password:
+            return jsonify({"success": False, "message": "Senha é obrigatória."}), 400
+
+        # 3. Buscar usuário
+        try:
+            usuario = user_service_instance.get_user(username)
+            if not usuario:
+                return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
+        except Exception as e:
+            print(f"❌ Erro ao buscar usuário '{username}': {e}")
+            return jsonify({"success": False, "message": "Erro interno ao acessar banco de dados."}), 500
+
+        # 4. Extrair e validar hash da senha
+        password_hash_attr = usuario.get('password_hash')
+        if not password_hash_attr:
+            return jsonify({"success": False, "message": "Usuário sem senha cadastrada."}), 500
+
+        # Extrair bytes do campo 'B' se for um dict (formato DynamoDB)
+        if isinstance(password_hash_attr, dict) and 'B' in password_hash_attr:
+            stored_hash = password_hash_attr['B']
+        elif isinstance(password_hash_attr, bytes):
+            stored_hash = password_hash_attr
+        else:
+            print(f"⚠️ Formato inesperado de password_hash para '{username}': {type(password_hash_attr)}")
+            return jsonify({"success": False, "message": "Erro interno de autenticação."}), 500
+
+        # 5. Verificar senha com bcrypt
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                return jsonify({"success": True, "message": "Login bem-sucedido."}), 200
+            else:
+                return jsonify({"success": False, "message": "Senha incorreta."}), 401
+        except Exception as e:
+            print(f"❌ Erro ao verificar senha com bcrypt: {e}")
+            return jsonify({"success": False, "message": "Erro interno ao processar autenticação."}), 500

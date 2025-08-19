@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-18 17:58:25
+Gerado em: 2025-08-19 06:08:03
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -10,6 +10,23 @@ Conteúdo dos scripts principais reunidos.
 ================================================================================
 
 📁 .
+├── server
+│   ├── routes
+│   │   └── auth.py
+│   ├── saves
+│   │   └── mundo_5e946bdf-961d-43dd-8b5b-6284733ef02b.json
+│   ├── services
+│   │   └── user_service.py
+│   ├── app.py
+│   ├── aws_loader.py
+│   ├── commander.py
+│   ├── config.py
+│   ├── extensions.py
+│   ├── initializer.py
+│   ├── interface.py
+│   ├── manager.py
+│   ├── sei_la_o_que.py
+│   └── serialization.py
 ├── client
 │   ├── components
 │   │   ├── __init__.py
@@ -22,10 +39,1274 @@ Conteúdo dos scripts principais reunidos.
 │   ├── states
 │   │   └── __init__.py
 │   └── main.py
+├── shared
+│   ├── civilization.py
+│   ├── geography.py
+│   ├── planet.py
+│   ├── polygons.py
+│   ├── province.py
+│   ├── references.py
+│   └── world.py
 
 ================================================================================
 📄 CONTEÚDO DOS ARQUIVOS
 ================================================================================
+
+================================================================================
+📄 server/commander.py
+================================================================================
+# server/commander.py
+import queue
+import threading
+import time
+import uuid
+from typing import Callable, Optional
+
+class Comando:
+    def __init__(
+        self,
+        nome: str,
+        callback: Callable,
+        args=None,
+        kwargs=None,
+        on_success: Callable = None,
+        on_error: Callable = None
+    ):
+        self.id = str(uuid.uuid4())[:8]
+        self.nome = nome
+        self.callback = callback
+        self.args = args or ()
+        self.kwargs = kwargs or {}
+        self.on_success = on_success
+        self.on_error = on_error
+        self.timestamp = time.time()
+
+    def __repr__(self):
+        return f"<Comando(id={self.id}, nome='{self.nome}')>"
+
+class ServidorDeComandos:
+    def __init__(self):
+        self.fila = queue.Queue()
+        self.ativo = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+
+    def iniciar(self):
+        self.thread.start()
+        print("✅ Servidor de comandos iniciado.")
+
+    def enviar(self, comando: Comando):
+        self.fila.put(comando)
+
+    def _loop(self):
+        while self.ativo:
+            try:
+                comando = self.fila.get(timeout=0.2)
+                print(f"⚙️ Executando [{comando.id}]: {comando.nome}")
+                try:
+                    resultado = comando.callback(*comando.args, **comando.kwargs)
+                    print(f"✅ [{comando.id}] {comando.nome} concluído.")
+                    if comando.on_success:
+                        comando.on_success(resultado)
+                except Exception as e:
+                    print(f"❌ [{comando.id}] Erro em '{comando.nome}': {e}")
+                    if comando.on_error:
+                        comando.on_error(e)
+                finally:
+                    self.fila.task_done()
+            except queue.Empty:
+                continue
+
+    def parar(self, timeout: float = 2.0):
+        self.ativo = False
+        while not self.fila.empty():
+            try:
+                self.fila.get_nowait()
+            except queue.Empty:
+                break
+        self.thread.join(timeout=timeout)
+        if self.thread.is_alive():
+            print("⚠️ Thread do servidor de comandos não encerrou a tempo.")
+        else:
+            print("🛑 Servidor de comandos parado.")
+
+================================================================================
+📄 server/initializer.py
+================================================================================
+# server/initializer.py
+"""
+Módulo para inicializar ou reinicializar a infraestrutura AWS:
+- Cria/recria a tabela DynamoDB 'GlobalArena' com PK/SK.
+- Limpa os dados no S3 nos prefixos usados.
+- Garante que o bucket S3 exista.
+
+Pode ser executado como script: python server/inicializador.py
+"""
+
+import boto3
+from botocore.exceptions import ClientError
+from typing import Dict
+from server.aws_loader import AWSLoader
+
+
+class InicializadorAWS:
+    def __init__(self, aws_loader: AWSLoader):
+        self.aws_loader = aws_loader
+        self.dynamodb = self.aws_loader.get_client('dynamodb')
+        self.s3 = self.aws_loader.get_client('s3')
+        self.bucket_name = "global-arena-tiles"
+        self.region = aws_loader.region_name
+
+    def inicializar(self, confirmar: bool = True):
+        """
+        Inicializa ou reinicializa toda a infraestrutura.
+        :param confirmar: Se True, pede confirmação antes de apagar dados.
+        """
+        if confirmar:
+            resposta = input(
+                "⚠️  Isso apagará todos os mundos e metadados no S3 e DynamoDB.\n"
+                "Deseja continuar? (s/N): "
+            )
+            if resposta.lower() not in ['s', 'sim', 'y', 'yes']:
+                print("❌ Operação cancelada.")
+                return False
+
+        print("🔄 Inicializando infraestrutura AWS...")
+
+        try:
+            # 1. Garantir que o bucket S3 existe
+            self._criar_bucket_se_nao_existir()
+
+            # 2. Limpar dados no S3
+            prefixos = ["planetas/", "saves/"]
+            for prefix in prefixos:
+                self._limpar_prefixo_s3(prefix)
+
+            # 3. Recriar tabela DynamoDB (única: GlobalArena)
+            self._recriar_tabela_globalarena()
+
+            print("✅ Infraestrutura AWS reinicializada com sucesso!")
+            return True
+
+        except Exception as e:
+            print(f"❌ Erro ao inicializar infraestrutura: {e}")
+            return False
+
+    def _criar_bucket_se_nao_existir(self):
+        """Cria o bucket S3 se ele não existir."""
+        try:
+            self.s3.head_bucket(Bucket=self.bucket_name)
+            print(f"ℹ️  Bucket S3 '{self.bucket_name}' já existe.")
+        except ClientError:
+            print(f"📦 Criando bucket S3 '{self.bucket_name}'...")
+            try:
+                if self.region == "us-east-1":
+                    self.s3.create_bucket(Bucket=self.bucket_name)
+                else:
+                    self.s3.create_bucket(
+                        Bucket=self.bucket_name,
+                        CreateBucketConfiguration={'LocationConstraint': self.region}
+                    )
+                print(f"✅ Bucket '{self.bucket_name}' criado com sucesso.")
+            except ClientError as e:
+                print(f"❌ Falha ao criar bucket: {e}")
+                raise
+
+    def _limpar_prefixo_s3(self, prefix: str):
+        """Remove todos os objetos com o prefixo dado no S3."""
+        print(f"🧹 Limpando S3: s3://{self.bucket_name}/{prefix}")
+        paginator = self.s3.get_paginator('list_objects_v2')
+        apagados = 0
+
+        try:
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            for page in pages:
+                if 'Contents' not in page:
+                    continue
+                keys = [{'Key': obj['Key']} for obj in page['Contents']]
+                if keys:
+                    self.s3.delete_objects(Bucket=self.bucket_name, Delete={'Objects': keys})
+                    apagados += len(keys)
+            print(f"✅ {apagados} objetos apagados no prefixo '{prefix}'.")
+        except ClientError as e:
+            print(f"❌ Erro ao limpar S3 no prefixo '{prefix}': {e}")
+
+    def _recriar_tabela_globalarena(self):
+        """Deleta e recria a tabela GlobalArena com PK/SK."""
+        table_name = "GlobalArena"
+        try:
+            print(f"🔍 Verificando tabela '{table_name}'...")
+            self.dynamodb.describe_table(TableName=table_name)
+            print(f"🗑️  Tabela '{table_name}' encontrada. Deletando...")
+            self.dynamodb.delete_table(TableName=table_name)
+
+            # Aguardar exclusão
+            waiter = self.dynamodb.get_waiter('table_not_exists')
+            waiter.wait(TableName=table_name, WaiterConfig={'Delay': 2, 'MaxAttempts': 30})
+            print(f"✅ Tabela '{table_name}' deletada.")
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                raise e
+            print(f"ℹ️  Tabela '{table_name}' não existe. Será criada.")
+
+        # Criar tabela com PK/SK
+        print(f"🆕 Criando tabela '{table_name}' com PK/SK...")
+        try:
+            self.dynamodb.create_table(
+                TableName=table_name,
+                AttributeDefinitions=[
+                    {'AttributeName': 'PK', 'AttributeType': 'S'},
+                    {'AttributeName': 'SK', 'AttributeType': 'S'}
+                ],
+                KeySchema=[
+                    {'AttributeName': 'PK', 'KeyType': 'HASH'},
+                    {'AttributeName': 'SK', 'KeyType': 'RANGE'}
+                ],
+                BillingMode='PAY_PER_REQUEST'
+            )
+
+            # Aguardar ativação
+            waiter = self.dynamodb.get_waiter('table_exists')
+            waiter.wait(TableName=table_name, WaiterConfig={'Delay': 2, 'MaxAttempts': 30})
+            print(f"✅ Tabela '{table_name}' criada e ativa.")
+        except ClientError as e:
+            print(f"❌ Falha ao criar tabela '{table_name}': {e}")
+            raise
+
+
+# ========================== CLI ==========================
+if __name__ == "__main__":
+    """
+    Execução direta do módulo:
+    $ python server/inicializador.py
+    """
+    print("🔧 Inicializador AWS - Reinicialização de Infraestrutura\n")
+
+    # Cria o loader AWS
+    try:
+        aws_loader = AWSLoader()
+        print(f"✅ Conectado à AWS (região: {aws_loader.region_name})")
+    except Exception as e:
+        print(f"❌ Falha ao conectar à AWS: {e}")
+        exit(1)
+
+    # Inicializa
+    inicializador = InicializadorAWS(aws_loader)
+    inicializador.inicializar(confirmar=True)
+
+================================================================================
+📄 server/extensions.py
+================================================================================
+# server/extensions.py
+from aws_loader import AWSLoader
+
+class Extensions:
+    def __init__(self):
+        self.dynamodb = None
+        # self.redis = None # Futuro
+
+    def init_app(self, app):
+        """Inicializa as extensões com base na configuração da app Flask."""
+        try:
+            aws_loader = AWSLoader(
+                profile_name=app.config['AWS_PROFILE_NAME'],
+                region_name=app.config['AWS_REGION_NAME']
+            )
+            self.dynamodb = aws_loader.get_client('dynamodb')
+            print("✅ Cliente DynamoDB conectado via Extensions.")
+        except Exception as e:
+            print(f"❌ Falha ao conectar ao DynamoDB na inicialização: {e}")
+            self.dynamodb = None # Ou lançar exceção, dependendo da política de falhas
+
+# Instância global
+ext = Extensions()
+
+================================================================================
+📄 server/sei_la_o_que.py
+================================================================================
+# sei_la_o_que.py
+
+from aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
+
+def main():
+    print("🚀 Iniciando aplicação...\n")
+
+    # --- Configuração ---
+    loader = AWSLoader(
+        region_name='us-east-2',
+        # profile_name='seu-perfil'  # opcional
+    )
+
+    # --- 1. Informações da conta ---
+    try:
+        account = loader.get_account_info()
+        print(f"✅ Logado na conta AWS: {account['account_id']}")
+        print(f"👤 Usuário/Role: {account['arn']}\n")
+    except Exception as e:
+        print(f"❌ Falha ao obter conta: {e}")
+        return
+
+    # --- 2. Listar buckets S3 ---
+    try:
+        buckets = loader.list_s3_buckets()
+        print(f"📦 Buckets S3 encontrados ({len(buckets)}):")
+        for bucket in buckets:
+            print(f"  - {bucket}")
+    except Exception as e:
+        print(f"❌ Erro ao listar buckets S3: {e}")
+
+    # --- 3. Listar tabelas DynamoDB ---
+    try:
+        tables = loader.list_dynamodb_tables()
+        print(f"\n📊 Tabelas DynamoDB encontradas ({len(tables)}):")
+        for table in tables:
+            print(f"  - {table}")
+    except Exception as e:
+        print(f"❌ Erro ao listar tabelas DynamoDB: {e}")
+
+    # --- 4. Exemplo: usar cliente S3 ---
+    try:
+        s3 = loader.get_client('s3')
+        response = s3.list_buckets()
+        print(f"\n🌍 Conexão S3 bem-sucedida. Total de buckets: {len(response['Buckets'])}")
+    except Exception as e:
+        print(f"❌ Falha ao usar cliente S3: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+📄 server/aws_loader.py
+================================================================================
+# aws_loader.py
+
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+
+
+class AWSLoader:
+    def __init__(self, profile_name=None, region_name='us-east-2'):
+        """
+        Inicializa o loader de credenciais AWS.
+
+        :param profile_name: Nome do perfil no arquivo ~/.aws/credentials (opcional)
+        :param region_name: Região AWS padrão
+        """
+        self.profile_name = profile_name
+        self.region_name = region_name
+        self.session = None
+        self._create_session()
+
+    def _create_session(self):
+        """Cria uma sessão boto3 com base no perfil ou nas credenciais padrão."""
+        try:
+            if self.profile_name:
+                self.session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
+            else:
+                self.session = boto3.Session(region_name=self.region_name)
+
+            # Testa credenciais
+            sts = self.session.client('sts')
+            sts.get_caller_identity()
+            print("✅ Credenciais AWS carregadas com sucesso.")
+
+        except NoCredentialsError:
+            raise Exception("❌ Credenciais AWS não encontradas. Configure AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except PartialCredentialsError:
+            raise Exception("❌ Credenciais incompletas. Verifique AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except Exception as e:
+            raise Exception(f"❌ Erro ao carregar credenciais: {e}")
+
+    def get_credentials(self):
+        """
+        Retorna as credenciais (access key, secret key, token).
+        """
+        credentials = self.session.get_credentials()
+        frozen_creds = credentials.get_frozen_credentials()
+        return {
+            'access_key': frozen_creds.access_key,
+            'secret_key': frozen_creds.secret_key,
+            'token': frozen_creds.token
+        }
+
+    def get_client(self, service_name):
+        """Retorna um cliente boto3 para o serviço especificado."""
+        return self.session.client(service_name)
+
+    def get_resource(self, service_name):
+        """Retorna um recurso boto3 (ex: S3 resource)."""
+        return self.session.resource(service_name)
+
+    # --- 🔧 Novos métodos adicionados ---
+    def get_account_info(self):
+        """Retorna informações da conta AWS: ID, ARN, usuário, região."""
+        sts = self.session.client('sts')
+        identity = sts.get_caller_identity()
+        return {
+            'account_id': identity['Account'],
+            'user_id': identity['UserId'],
+            'arn': identity['Arn'],
+            'region': self.region_name
+        }
+
+    def list_s3_buckets(self):
+        """Lista todos os buckets S3 da conta."""
+        s3 = self.get_client('s3')
+        response = s3.list_buckets()
+        return [bucket['Name'] for bucket in response['Buckets']]
+
+    def list_dynamodb_tables(self):
+        """Lista todas as tabelas DynamoDB da conta."""
+        dynamodb = self.get_client('dynamodb')
+        response = dynamodb.list_tables()
+        return response['TableNames']
+
+================================================================================
+📄 server/manager.py
+================================================================================
+# server/manager.py
+import json
+from pathlib import Path
+from typing import Optional, Tuple
+
+from server.serialization import Serializador
+from server.aws_loader import AWSLoader
+from shared.world import Mundo
+
+
+class Gerenciador:
+    """
+    Gerencia operações de mundo: criação, serialização, upload S3 e salvamento de metadados no DynamoDB.
+    Nada é salvo localmente.
+    """
+
+    def __init__(self, aws_loader: AWSLoader, save_dir: str = "saves"):
+        self.aws_loader = aws_loader
+        self.save_dir = Path(save_dir)
+        self.save_dir.mkdir(exist_ok=True)  # Mantido para compatibilidade futura
+
+    def upload_mundo(self, mundo: Mundo, bucket_name: str = "global-arena-tiles", s3_prefix: str = "planetas/") -> bool:
+        """
+        Separa os dados do mundo:
+        - Dados pesados (geografia, civilizacoes) → S3
+        - Metadados leves (fator, bioma_inicial, vagas) → DynamoDB (GlobalArena)
+
+        :param mundo: Instância de Mundo a ser enviada
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta virtual) no bucket
+        :return: True se sucesso, False caso contrário
+        """
+        try:
+            # --- 1. Serializar com Serializador (para garantir compatibilidade) ---
+            full_data = Serializador.to_serializable_dict(mundo)
+
+            # Extrair apenas o necessário para o S3
+            data_s3 = {
+                "id_mundo": full_data["id_mundo"],
+                "geografia": full_data["geografia"],
+                "civilizacoes": full_data["civilizacoes"]
+            }
+
+            # Upload para S3
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
+            s3_client = self.aws_loader.get_client('s3')
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=json.dumps(data_s3, ensure_ascii=False, indent=2).encode('utf-8'),
+                ContentType='application/json'
+            )
+            print(f"✅ Mundo enviado para S3: s3://{bucket_name}/{s3_key}")
+
+            # --- 2. Salvar metadados no DynamoDB (GlobalArena) ---
+            pk = f"PLANET#{mundo.id_mundo}"
+            sk = "METADATA"
+            bioma_inicial = mundo.planeta.geografia.nodes[mundo.planeta.capitais_players[0]]['bioma']
+            vagas = mundo.planeta.numero_de_jogadores
+
+            dynamodb = self.aws_loader.get_client('dynamodb')
+            dynamodb.put_item(
+                TableName="GlobalArena",
+                Item={
+                    'PK': {'S': pk},
+                    'SK': {'S': sk},
+                    'entityType': {'S': 'Planet'},
+                    'fator': {'N': str(mundo.planeta.fator)},
+                    'bioma_inicial': {'S': bioma_inicial},
+                    'vagas': {'N': str(vagas)}  # número de vagas (atualizável)
+                }
+            )
+            print(f"✅ Metadados salvos no DynamoDB: {pk}")
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Falha ao salvar/upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> bool:
+        """
+        Cria um novo mundo com fator e bioma dados, e faz upload direto para S3 + DynamoDB.
+
+        :param fator: Nível de detalhe da grade geográfica (ex: 4)
+        :param bioma: Bioma inicial para escolha de capitais (ex: "Meadow")
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta) no bucket
+        :return: True se sucesso, False caso contrário
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo_com_retorno(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> Tuple[bool, Optional[Mundo]]:
+        """
+        Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
+        e retorna sucesso e a instância do mundo.
+
+        Útil para operações que precisam do objeto Mundo após o upload (ex: salvar localmente).
+
+        :param fator: Nível de detalhe da grade geográfica.
+        :param bioma: Bioma inicial para escolha de capitais.
+        :param bucket_name: Nome do bucket S3.
+        :param s3_prefix: Prefixo (pasta) no bucket.
+        :return: (sucesso: bool, mundo: Mundo ou None)
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso, mundo
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False, None
+
+    def criar_mundo(self, fator: int, bioma: str) -> Mundo:
+        """Cria e retorna um novo mundo."""
+        return Mundo(fator=fator, bioma=bioma)
+
+================================================================================
+📄 server/app.py
+================================================================================
+# server/app.py
+from flask import Flask
+from config import config
+from extensions import ext
+from services.user_service import UserService
+# Importa o blueprint e a função de registro
+from routes.auth import auth_bp, register_routes
+
+def create_app(config_name='default'):
+    """Factory function para criar a aplicação Flask."""
+    app = Flask(__name__)
+
+    # 1. Carrega a configuração
+    app.config.from_object(config[config_name])
+
+    # 2. Inicializa as extensões
+    ext.init_app(app)
+
+    # 3. Cria instâncias de serviços, injetando dependências
+    user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
+
+    # 4. Registra os Blueprints e injeta dependências
+    # Registra as rotas do auth_bp, passando o serviço de usuário
+    register_routes(user_service)
+    app.register_blueprint(auth_bp)
+
+    # 5. Rotas principais (opcional)
+    @app.route('/')
+    def home():
+        return "🚀 Servidor Global Arena - API (Refatorado com Classes)", 200
+
+    return app
+
+# Para execução direta (ex: python server/app.py)
+if __name__ == '__main__':
+    app = create_app('development')  # Ou 'production'
+    print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
+    print("📄 Endpoints disponíveis:")
+    print("   GET  /             - Status do servidor")
+    print("   GET  /auth/teste_dynamodb - Teste de conexão com DynamoDB (via UserService)")
+    print("-" * 40)
+    app.run(host='127.0.0.1', port=5000, debug=app.config['DEBUG'])
+
+
+================================================================================
+📄 server/config.py
+================================================================================
+# server/config.py
+import os
+
+
+class Config:
+    # Flask
+    SECRET_KEY = os.environ.get(
+        'SECRET_KEY') or 'chave_secreta_dev_super_segura'  # Em produção, use variável de ambiente
+
+    # AWS
+    AWS_PROFILE_NAME = os.environ.get('AWS_PROFILE_NAME') or None
+    AWS_REGION_NAME = os.environ.get('AWS_REGION_NAME') or 'us-east-2'  # Certifique-se de usar a mesma região
+
+    # DynamoDB
+    DYNAMODB_TABLE_NAME = os.environ.get(
+        'DYNAMODB_TABLE_NAME') or 'GlobalArena'  # Ou 'UsuariosGlobalArena' se criar uma nova
+
+    # Futuras configurações (ex: Redis, Logging)
+    # REDIS_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'
+
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+
+
+class ProductionConfig(Config):
+    DEBUG = False
+    # SECRET_KEY = os.environ.get('SECRET_KEY') # Obrigatório em produção
+
+
+config = {
+    'development': DevelopmentConfig,
+    'production': ProductionConfig,
+    'default': DevelopmentConfig
+}
+
+================================================================================
+📄 server/serialization.py
+================================================================================
+# server/serialization.py
+import json
+import networkx as nx
+import numpy as np
+from pathlib import Path
+from typing import Any, Dict, Optional
+from shared.world import Mundo
+from shared.references import Referencias
+
+
+class Serializador:
+    """
+    Classe responsável por serializar e desserializar o estado completo de um Mundo.
+    Converte para dict serializável em JSON, salva em disco e recarrega.
+    """
+
+    @staticmethod
+    def _convert(value: Any) -> Any:
+        """
+        Converte valores não serializáveis em tipos compatíveis com JSON.
+        """
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, tuple):
+            return list(value)
+        if hasattr(value, '__dict__'):
+            return {k: Serializador._convert(v) for k, v in value.__dict__.items() if not k.startswith('_')}
+        return value
+
+    @classmethod
+    def to_serializable_dict(cls, mundo: Mundo) -> Dict[str, Any]:
+        """
+        Converte um objeto Mundo em um dicionário compatível com JSON.
+        Remove atributos deriváveis para reduzir tamanho.
+        """
+        if not hasattr(mundo, 'planeta') or not hasattr(mundo, 'civs'):
+            raise ValueError("Objeto mundo inválido: falta atributos 'planeta' ou 'civs'")
+
+        G = mundo.planeta.geografia.copy()
+
+        # Atributos que podem ser recalculados, então não precisam ser salvos
+        node_attrs_to_remove = {
+            'cor_placa', 'cor_bioma', 'letra_grega', 'cust_mob', 'tipo', 'altitude', 'umidade', 'temperatura',
+        }
+        for node in G.nodes:
+            for attr in node_attrs_to_remove:
+                G.nodes[node].pop(attr, None)  # Remove silenciosamente
+
+        # Remover arestas (serão recalculadas com custo de mobilidade)
+        G.remove_edges_from(list(G.edges))
+
+        # Converter atributos dos nós
+        for node in G.nodes:
+            attrs = G.nodes[node]
+            for key in list(attrs.keys()):
+                attrs[key] = cls._convert(attrs[key])
+
+        G_data = nx.node_link_data(G)
+        G_data.pop("directed", None)
+        G_data.pop("multigraph", None)
+        G_data.pop("graph", None)
+
+        # Serializar civilizações
+        civilizacoes_data = []
+        for civ in mundo.civs:
+            civ_data = {
+                'nome': civ.nome,
+                'cultura': civ.cultura,
+                'cor': cls._convert(civ.cor),
+                'modalidade_bandeira': civ.modalidade_bandeira,
+                'cores_bandeira': cls._convert(civ.cores_bandeira),
+                'player': civ.player,
+                'provincias': [
+                    {
+                        'coordenadas': cls._convert(p.coordenadas),
+                        'nome': p.nome
+                    }
+                    for p in civ.provincias
+                ]
+            }
+            civilizacoes_data.append(civ_data)
+
+        return {
+            "id_mundo": mundo.id_mundo,
+            "fator": mundo.planeta.fator,
+            "bioma_inicial": mundo.planeta.bioma_inicial,
+            "vagas": mundo.planeta.numero_de_jogadores,
+            "geografia": G_data,
+            "civilizacoes": civilizacoes_data
+        }
+
+    @classmethod
+    def from_serializable_dict(cls, data: Dict[str, Any], ref: Optional[Referencias] = None):
+        """
+        Reconstroi um objeto Mundo a partir de um dicionário.
+        Requer uma instância de Referencias para inicialização.
+        """
+        """
+        Ainda a ser implementado
+        retorna Mundo
+        """
+
+    @classmethod
+    def save_to_json(cls, mundo: Mundo, filepath: str) -> bool:
+        try:
+            data = cls.to_serializable_dict(mundo)
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"✅ Mundo salvo em JSON: {filepath}")
+            return True
+        except Exception as e:
+            print(f"❌ Falha ao salvar mundo: {e}")
+            return False
+
+    @classmethod
+    def save_mundo(cls, mundo: Mundo, filepath: str = None) -> str:
+        """
+        Salva um objeto Mundo em JSON.
+        Se filepath não for fornecido, gera um nome automático em 'saves/'.
+        :param mundo: Instância de Mundo
+        :param filepath: Caminho opcional para salvar
+        :return: Caminho final usado, ou string vazia se falhar
+        """
+        from pathlib import Path
+
+        if filepath is None:
+            # Gera caminho padrão: saves/mundo_{id}.json
+            saves_dir = Path("saves")
+            saves_dir.mkdir(exist_ok=True)
+            filepath = saves_dir / f"mundo_{mundo.id_mundo}.json"
+        else:
+            # Garante que o diretório pai exista
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+
+        sucesso = cls.save_to_json(mundo, filepath)
+        return str(filepath) if sucesso else ""
+
+================================================================================
+📄 server/interface.py
+================================================================================
+# server/interface.py
+import sys
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QPushButton,
+    QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
+    QFileDialog
+)
+from server.serialization import Serializador
+from server.manager import Gerenciador
+from server.aws_loader import AWSLoader
+from server.initializer import InicializadorAWS
+
+
+class Interface(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Gerenciador de Servidor - Global Arena")
+        self.setGeometry(100, 100, 700, 500)
+
+        # === Inicialização do Gerenciador ===
+        try:
+            self.aws_loader = AWSLoader()
+            self.gerenciador = Gerenciador(self.aws_loader)
+            print("✅ Gerenciador inicializado com AWS.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro AWS", f"Não foi possível conectar à AWS:\n{e}")
+            self.gerenciador = None
+
+        # ✅ Armazena o último mundo criado (inicialmente None)
+        self.ultimo_mundo = None
+
+        # Configuração do sistema de abas
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        # Criação das abas
+        self.backup_tab = self.create_backup_tab()
+        self.config_tab = QWidget()
+        self.tabs.addTab(self.backup_tab, "Backup & Criação")
+        self.tabs.addTab(self.config_tab, "Configurações")
+
+    def create_backup_tab(self):
+        """Cria a aba de operações de backup e criação de mundos"""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # === Grupo: Criar e Upload de Mundo ===
+        group_criar = QGroupBox("Criar e Enviar Novo Mundo")
+        form_layout = QFormLayout()
+
+        self.spin_fator = QSpinBox()
+        self.spin_fator.setMinimum(2)
+        self.spin_fator.setMaximum(8)
+        self.spin_fator.setValue(4)
+        form_layout.addRow("Fator:", self.spin_fator)
+
+        self.combo_bioma = QComboBox()
+        biomas = ["Meadow", "Forest", "Savanna", "Desert", "Hills", "Mountains"]
+        self.combo_bioma.addItems(biomas)
+        self.combo_bioma.setCurrentText("Meadow")
+        form_layout.addRow("Bioma Inicial:", self.combo_bioma)
+
+        group_criar.setLayout(form_layout)
+        layout.addWidget(group_criar)
+
+        btn_upload = QPushButton("🌍 Criar e Enviar Mundo para Nuvem")
+        btn_upload.clicked.connect(self.handle_criar_e_upload)
+        layout.addWidget(btn_upload)
+
+        layout.addSpacing(20)
+
+        # === Grupo: Salvar Localmente ===
+        group_local = QGroupBox("Salvar Estado Localmente")
+        layout_local = QVBoxLayout()
+
+        btn_save = QPushButton("💾 Salvar Estado como JSON (Local)")
+        btn_save.clicked.connect(self.handle_save_json)
+        layout_local.addWidget(btn_save)
+
+        group_local.setLayout(layout_local)
+        layout.addWidget(group_local)
+
+        layout.addSpacing(20)
+
+        # === Botão: Reinicializar Infraestrutura AWS ===
+        btn_reiniciar = QPushButton("⚠️ Reinicializar Infraestrutura AWS")
+        btn_reiniciar.setStyleSheet("""
+            QPushButton {
+                background-color: #a83232;
+                color: white;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #c03939;
+            }
+        """)
+        btn_reiniciar.clicked.connect(self.handle_reinicializar_servidor)
+        layout.addWidget(btn_reiniciar)
+        layout.addSpacing(10)
+
+        layout.addStretch()
+        tab.setLayout(layout)
+        return tab
+
+    def handle_save_json(self):
+        """Cria um mundo com os parâmetros da UI e salva localmente."""
+        if not self.gerenciador:
+            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+            return
+
+        fator = self.spin_fator.value()
+        bioma = self.combo_bioma.currentText()
+
+        try:
+            # 1. Criar mundo usando o Gerenciador
+            mundo = self.gerenciador.criar_mundo(fator, bioma)
+
+            # 2. Escolher caminho com diálogo
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Salvar Mundo como JSON",
+                f"saves/mundo_{mundo.id_mundo}.json",
+                "JSON Files (*.json)"
+            )
+            if not filepath:
+                return  # Cancelado pelo usuário
+
+            # 3. Salvar usando Serializador.save_mundo (já trata diretórios)
+            caminho_salvo = Serializador.save_mundo(mundo, filepath)
+
+            if caminho_salvo:
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    f"Mundo salvo com sucesso!\nArquivo: {caminho_salvo}",
+                    QMessageBox.StandardButton.Ok
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Falha",
+                    "Erro ao salvar o arquivo JSON.",
+                    QMessageBox.StandardButton.Ok
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Falha ao salvar: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def handle_criar_e_upload(self):
+        """Manipula a criação e upload de um novo mundo"""
+        if not self.gerenciador:
+            QMessageBox.critical(self, "Erro", "Gerenciador não está disponível.")
+            return
+
+        fator = self.spin_fator.value()
+        bioma = self.combo_bioma.currentText()
+
+        reply = QMessageBox.question(
+            self,
+            "Confirmar",
+            f"Criar e enviar um novo mundo?\nFator: {fator}\nBioma: {bioma}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            print(f"🔄 Criando e enviando mundo com fator={fator}, bioma='{bioma}'...")
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(fator=fator, bioma=bioma)
+
+            if sucesso:
+                self.ultimo_mundo = mundo  # Armazena para possível salvamento local
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    f"Mundo criado e enviado com sucesso!\nID: {mundo.id_mundo}",
+                    QMessageBox.StandardButton.Ok
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Falha",
+                    "O upload falhou. Veja o log para detalhes.",
+                    QMessageBox.StandardButton.Ok
+                )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Erro ao criar/upload do mundo:\n{str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+            print(f"❌ Erro em handle_criar_e_upload: {e}")
+
+    def handle_reinicializar_servidor(self):
+        """
+        Abre um diálogo de confirmação e, se confirmado,
+        reinicializa a infraestrutura AWS (S3 + DynamoDB).
+        """
+        reply = QMessageBox.question(
+            self,
+            "⚠️ Reinicializar Servidor",
+            "Isso apagará TODOS os mundos e metadados no S3 e DynamoDB.\n"
+            "Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            # Reutiliza o aws_loader já inicializado (não cria um novo)
+            if not hasattr(self, 'aws_loader') or self.aws_loader is None:
+                QMessageBox.critical(self, "Erro", "Falha ao acessar AWS Loader.")
+                return
+
+            # Cria o inicializador e executa
+            inicializador = InicializadorAWS(self.aws_loader)
+            sucesso = inicializador.inicializar(confirmar=False)
+
+            if sucesso:
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    "Servidor reinicializado com sucesso!\n"
+                    "Todas as tabelas e arquivos foram limpos e recriados."
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Atenção",
+                    "A reinicialização foi executada, mas pode ter falhado em algum ponto."
+                )
+        except ModuleNotFoundError:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                "Módulo 'inicializador' não encontrado.\n"
+                "Certifique-se de que 'server/inicializador.py' existe."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro",
+                f"Falha ao reinicializar o servidor:\n{str(e)}"
+            )
+
+
+# Execução da aplicação
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = Interface()
+    window.show()
+    sys.exit(app.exec())
+
+================================================================================
+📄 server/services/user_service.py
+================================================================================
+# server/services/user_service.py
+import boto3
+from botocore.exceptions import ClientError
+
+
+class UserService:
+    def __init__(self, dynamodb_client, table_name):
+        self.dynamodb = dynamodb_client
+        self.table_name = table_name
+
+    def _format_user_key(self, username: str) -> dict:
+        """Formata a chave primária do usuário no DynamoDB."""
+        return {
+            'PK': {'S': f'USER#{username}'},
+            'SK': {'S': 'PROFILE'}
+        }
+
+    def get_user(self, username: str) -> dict:
+        """Busca um usuário pelo username."""
+        if not self.dynamodb:
+            print("⚠️ Cliente DynamoDB não disponível no UserService.")
+            return None
+        try:
+            response = self.dynamodb.get_item(
+                TableName=self.table_name,
+                Key=self._format_user_key(username)
+            )
+            return response.get('Item')
+        except ClientError as e:
+            print(f"❌ Erro do DynamoDB ao buscar usuário '{username}': {e.response['Error']['Message']}")
+            return None
+        except Exception as e:
+            print(f"❌ Erro inesperado ao buscar usuário '{username}': {e}")
+            return None
+
+    def create_user_item(self, username: str, **attributes) -> bool:
+        """
+        Cria um novo item de usuário no DynamoDB.
+        `attributes` pode conter {'password_hash': bytes, 'outro_attr': valor, ...}
+        """
+        if not self.dynamodb:
+            print("⚠️ Cliente DynamoDB não disponível no UserService.")
+            return False
+        try:
+            # Inicia o item com a chave primária
+            item = self._format_user_key(username)
+
+            # Adiciona outros atributos fornecidos
+            for attr_name, attr_value in attributes.items():
+                # Trata tipos específicos
+                if isinstance(attr_value, bytes):
+                    # Para password_hash, salva como tipo binário 'B'
+                    item[attr_name] = {'B': attr_value}
+                elif isinstance(attr_value, str):
+                    # Para strings, salva como tipo string 'S'
+                    item[attr_name] = {'S': attr_value}
+                elif isinstance(attr_value, (int, float)):
+                    # Para números, salva como tipo número 'N' (convertido para string)
+                    item[attr_name] = {'N': str(attr_value)}
+                else:
+                    # Para outros tipos, converte para string e salva como 'S'
+                    # (você pode querer ser mais específico aqui dependendo das suas necessidades)
+                    print(
+                        f"⚠️ Atributo '{attr_name}' tem tipo inesperado ({type(attr_value)}). Convertendo para string.")
+                    item[attr_name] = {'S': str(attr_value)}
+
+            self.dynamodb.put_item(
+                TableName=self.table_name,
+                Item=item
+            )
+            print(f"✅ Item de usuário '{username}' criado/Atualizado no DynamoDB.")
+            return True
+        except ClientError as e:
+            print(f"❌ Erro do DynamoDB ao criar usuário '{username}': {e.response['Error']['Message']}")
+            return False
+        except Exception as e:
+            print(f"❌ Erro inesperado ao criar usuário '{username}': {e}")
+            return False
+
+    # Métodos para verificar senha, gerar token, etc., virão aqui depois.
+
+
+================================================================================
+📄 server/routes/auth.py
+================================================================================
+# server/routes/auth.py
+import bcrypt
+from flask import Blueprint, request, jsonify, current_app
+
+# Cria um Blueprint para as rotas de autenticação
+auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+
+# Esta função será chamada em app.py para registrar as rotas e passar dependências
+def register_routes(user_service_instance):
+    """Registra as rotas do Blueprint com as dependências injetadas."""
+
+    # --- Endpoint de Teste (já existente) ---
+    @auth_bp.route('/teste_dynamodb')
+    def teste_dynamodb():
+        """Endpoint de teste para verificar a conexão com o DynamoDB."""
+        if not user_service_instance.dynamodb:
+            return jsonify({"status": "erro", "message": "Cliente DynamoDB não disponível no serviço."}), 500
+
+        try:
+            response = user_service_instance.dynamodb.list_tables()
+            tabelas = response.get('TableNames', [])
+            return jsonify({
+                "status": "sucesso",
+                "message": "Conexão com DynamoDB bem-sucedida via UserService.",
+                "tabelas": tabelas
+            }), 200
+        except Exception as e:
+            return jsonify({"status": "erro", "message": f"Falha ao testar DynamoDB: {str(e)}"}), 500
+
+    # --- Novo Endpoint: Registro de Usuário ---
+    @auth_bp.route('/registrar', methods=['POST'])
+    def registrar():
+        """
+        Endpoint para registro de novo usuário.
+        Espera um JSON: {"username": "nome", "password": "senha"}
+        Retorna um JSON: {"success": true/false, "message": "..."}
+        """
+        # 1. Validar requisição
+        if not request.is_json:
+            return jsonify({"success": False, "message": "Content-Type deve ser application/json"}), 400
+
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        # 2. Validar dados de entrada
+        if not username or not password:
+            return jsonify({"success": False, "message": "Username e password são obrigatórios."}), 400
+
+        if len(username) < 3:
+            return jsonify({"success": False, "message": "Username deve ter pelo menos 3 caracteres."}), 400
+        if len(password) < 6:
+            return jsonify({"success": False, "message": "Password deve ter pelo menos 6 caracteres."}), 400
+
+        # 3. Verificar se o usuário já existe
+        usuario_existente = user_service_instance.get_user(username)
+        if usuario_existente:
+            # É comum retornar 409 Conflict para recursos que já existem
+            return jsonify({"success": False, "message": "Nome de usuário já está em uso."}), 409
+
+        # 4. Hashear a senha
+        try:
+            salt = bcrypt.gensalt()
+            # bcrypt.hashpw retorna bytes
+            password_hash_bytes = bcrypt.hashpw(password.encode('utf-8'), salt)
+        except Exception as e:
+            print(f"❌ Erro ao hashear senha para usuário '{username}': {e}")
+            return jsonify({"success": False, "message": "Erro interno ao processar a senha."}), 500
+
+        # 5. Preparar atributos para salvar no DynamoDB
+        # O username e PK/SK são definidos dentro do user_service
+        atributos_usuario = {
+            # Armazenar o hash como binário ('B')
+            'password_hash': password_hash_bytes,
+            # Você pode adicionar outros atributos aqui, como data de criação
+            # 'data_criacao': datetime.utcnow().isoformat() + 'Z' # Se quiser salvar como string
+        }
+
+        # 6. Salvar o usuário no DynamoDB
+        sucesso_criacao = user_service_instance.create_user_item(username, **atributos_usuario)
+
+        if sucesso_criacao:
+            print(f"✅ Usuário '{username}' registrado com sucesso.")
+            # 201 Created é o código apropriado para criação bem-sucedida
+            return jsonify({"success": True, "message": "Usuário registrado com sucesso."}), 201
+        else:
+            # A mensagem de erro já foi impressa pelo user_service
+            return jsonify({"success": False, "message": "Falha ao registrar usuário no banco de dados."}), 500
+
+    # --- Novo Endpoint: Login de Usuário (placeholder por enquanto) ---
+    @auth_bp.route('/login', methods=['POST'])
+    def login():
+        """
+        Endpoint para login de usuário.
+        Espera um JSON: {"username": "nome", "password": "senha"}
+        Retorna um JSON: {"success": true, "token": "..."} ou {"success": false, "message": "..."}
+        """
+        # TODO: Implementar lógica de login
+        return jsonify(
+            {"success": False, "message": "Endpoint de login ainda não implementado."}), 501  # 501 Not Implemented
+
 
 ================================================================================
 📄 client/main.py
@@ -62,13 +1343,6 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self.VBO = None
         # Permitir que o widget receba foco de teclado
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # Estado de login (exemplo simples)
-        self.usuario_logado = self._verificar_login()
-
-    def _verificar_login(self):
-        """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
-        # Esta é uma lógica de placeholder. Substitua pela sua lógica real.
-        return os.path.exists("session.txt")  # True se existir, False caso contrário
 
     def initializeGL(self):
         """
@@ -203,31 +1477,6 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # Limpa o buffer com a cor definida em initializeGL
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-        # --- Desenhar o Triângulo ---
-        # Verifica se tudo foi inicializado corretamente
-        if self.shader_program and self.VAO:
-            try:
-                gl.glUseProgram(self.shader_program)
-                gl.glBindVertexArray(self.VAO)
-                gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)  # Desenha 3 vértices
-                gl.glBindVertexArray(0)
-                gl.glUseProgram(0)
-            except Exception as e:
-                print(f"❌ Erro durante a renderização: {e}")
-        # else:
-        #     # Opcional: Desenhar algo simples se shaders/VAO falharem
-        #     # Por exemplo, um fundo ligeiramente diferente ou uma mensagem de erro
-        #     pass
-
-        # TODO: Usar shaders, vincular VAOs, desenhar geometria (texto)
-        # Exemplo:
-        # if self.shader_program_texto and self.VAO_texto:
-        #     gl.glUseProgram(self.shader_program_texto)
-        #     gl.glBindVertexArray(self.VAO_texto)
-        #     # ... comandos de desenho para texto ...
-        #     gl.glBindVertexArray(0)
-        #     gl.glUseProgram(0)
-
 
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
@@ -241,6 +1490,9 @@ class JanelaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Global Arena - Cliente PyQt6")
+
+        # --- Verificar estado de login ANTES de criar os ícones ---
+        self.usuario_logado = self._verificar_login()
 
         # --- Obter dimensões da tela para cálculos ---
         screen_geometry = self.screen().availableGeometry()
@@ -268,7 +1520,6 @@ class JanelaPrincipal(QMainWindow):
         label_status = QLabel("Status: Aguardando...")
         layout_barra_superior.addWidget(label_status)
         layout_barra_superior.addStretch()
-        # --- BOTÃO SAIR REMOVIDO DA BARRA SUPERIOR ---
 
         # --- Conteúdo Principal ---
         conteudo_principal_widget = QWidget()
@@ -278,8 +1529,18 @@ class JanelaPrincipal(QMainWindow):
 
         # --- Barra Esquerda com Ícones Interativos ---
         self.barra_esquerda = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraEsquerda")
+
+        # Criar gerenciador de ícones
         self.gerenciador_icones = GerenciadorIconesEsquerda(caminho_recursos="client/resources")
+
+        # Atualizar ícone de login com base no estado
+        if self.usuario_logado:
+            self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")  # ou "logged.png"
+
+        # Conectar sinal de clique
         self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
+
+        # Layout da barra esquerda
         layout_esquerda = QVBoxLayout(self.barra_esquerda)
         layout_esquerda.setContentsMargins(0, 0, 0, 0)
         layout_esquerda.addWidget(self.gerenciador_icones)
@@ -306,50 +1567,79 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.overlay_widget.setStyleSheet("background: transparent; border: none;")
-        # Conectar o resize para manter o overlay cobrindo o container
-        self.opengl_container.resizeEvent = self._on_opengl_container_resized
 
         # --- Layout do Overlay para o Título e Subtítulo ---
         overlay_layout = QVBoxLayout(self.overlay_widget)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.setSpacing(20) # Espaço entre título e subtítulo
+        overlay_layout.setSpacing(10)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Criar e Configurar o Label do Título ---
-        self.label_titulo = QLabel("Welcome to Global Arena")
+        # --- Label: "Welcome to" ---
+        self.label_welcome = QLabel("Welcome to")
+        font_welcome = QFont()
+        font_welcome.setPointSize(14)
+        font_welcome.setItalic(True)
+        font_welcome.setWeight(500)
+        self.label_welcome.setFont(font_welcome)
+        self.label_welcome.setStyleSheet("color: #aaaaaa; background: transparent; border: none;")
+        self.label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # --- Label: "Global Arena" ---
+        self.label_titulo = QLabel("Global Arena")
         font_titulo = QFont()
-        font_titulo.setPointSize(28)
+        font_titulo.setPointSize(48)
         font_titulo.setBold(True)
+        font_titulo.setWeight(700)
         self.label_titulo.setFont(font_titulo)
         self.label_titulo.setStyleSheet("""
             color: white;
             background-color: transparent;
             border: none;
-            qproperty-alignment: AlignCenter;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
         """)
         self.label_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Criar e Configurar o Label do Subtítulo ---
-        self.label_subtitulo = QLabel("The Only One for non-flat-earthers")
+        # --- Label: Subtítulo ---
+        self.label_subtitulo = QLabel("the only one for non-flat-earthers")
         font_subtitulo = QFont()
         font_subtitulo.setPointSize(16)
-        # font_subtitulo.setItalic(True) # Opcional
+        font_subtitulo.setItalic(True)
         self.label_subtitulo.setFont(font_subtitulo)
         self.label_subtitulo.setStyleSheet("""
-            color: #cccccc; /* Cinza claro */
+            color: #cccccc;
             background-color: transparent;
             border: none;
-            qproperty-alignment: AlignCenter;
+            font-style: italic;
         """)
         self.label_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Adicionar os Labels ao Layout do Overlay ---
+        # --- Adicionar ao layout na ordem correta ---
+        overlay_layout.addWidget(self.label_welcome)
         overlay_layout.addWidget(self.label_titulo)
         overlay_layout.addWidget(self.label_subtitulo)
 
         # --- Adicionar Widgets ao Container OpenGL ---
-        container_layout.addWidget(self.opengl_widget) # OpenGL no fundo
-        # self.overlay_widget é posicionado absolutamente
+        container_layout.addWidget(self.opengl_widget)
+
+        # --- Correção robusta do resizeEvent ---
+        def _safe_resize_event(event):
+            self.overlay_widget.setGeometry(self.opengl_container.rect())
+            self.overlay_widget.raise_()
+            QWidget.resizeEvent(self.opengl_container, event)
+
+        self.opengl_container.resizeEvent = _safe_resize_event
+
+        # --- FORÇAR O OVERLAY A APARECER IMEDIATAMENTE ---
+        self.overlay_widget.setGeometry(self.opengl_container.rect())
+        self.overlay_widget.raise_()
+        self.overlay_widget.show()
+
+        # --- Fallback pós-show: Garante posicionamento após renderização inicial ---
+        QTimer.singleShot(50, lambda: [
+            self.overlay_widget.setGeometry(self.opengl_container.rect()),
+            self.overlay_widget.raise_(),
+            self.overlay_widget.show()
+        ])
 
         # --- Barra Direita ---
         self.barra_direita = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraDireita")
@@ -363,7 +1653,7 @@ class JanelaPrincipal(QMainWindow):
         layout_direita.addStretch()
 
         # --- Adicionar widgets à área central ---
-        area_central_layout.addWidget(self.opengl_container) # Adiciona o CONTAINER
+        area_central_layout.addWidget(self.opengl_container)
         area_central_layout.addWidget(self.barra_direita)
 
         # --- Adicionar widgets ao conteúdo principal ---
@@ -383,17 +1673,21 @@ class JanelaPrincipal(QMainWindow):
         # --- Timer para o Loop Principal ---
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.atualizar_logica)
-        self.timer.start(16)  # Aproximadamente 60 FPS
+        self.timer.start(16)  # ~60 FPS
 
         # --- Mostrar e aplicar fullscreen ---
         self.show()
         self.setWindowState(Qt.WindowState.WindowFullScreen)
 
-    def _on_opengl_container_resized(self, event):
-        """Ajusta o tamanho do overlay para cobrir o container."""
-        self.overlay_widget.setGeometry(self.opengl_container.rect())
-        if event:
-            QWidget.resizeEvent(self.opengl_container, event)
+        # --- Debug final ---
+        print("✅ Janela exibida. Overlay forçado a aparecer.")
+        print("🔍 Geometria do container:", self.opengl_container.geometry())
+        print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
+        print("🔍 Overlay visível?", self.overlay_widget.isVisible())
+
+    def _verificar_login(self):
+        """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
+        return os.path.exists("session.txt")
 
     def _criar_barra(self, tamanho, is_horizontal, object_name="Barra"):
         """Cria um widget para representar uma barra, com estilo básico."""
@@ -428,8 +1722,26 @@ class JanelaPrincipal(QMainWindow):
             self.on_icone_sair()
 
     def on_icone_login(self):
-        """Ação acionada pelo ícone de login."""
-        print("Ação: Ícone 'Login' clicado.")
+        """Ação acionada pelo ícone de login: faz login ou logout."""
+        if self.usuario_logado:
+            # Já logado → oferece logout
+            reply = QMessageBox.question(
+                self,
+                "Logout",
+                "Você está logado. Deseja sair?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    os.remove("session.txt")
+                    self.usuario_logado = False
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/log-in.png")
+                    QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
+        else:
+            # Não logado → abre tela de login
+            self._abrir_tela_login()
 
     def on_icone_play(self):
         """Ação acionada pelo ícone de play."""
@@ -439,6 +1751,115 @@ class JanelaPrincipal(QMainWindow):
         """Ação acionada pelo ícone de sair."""
         print("Ação: Ícone 'Sair' clicado. Fechando aplicação...")
         self.close()
+
+    def _abrir_dialogo_login(self):
+        """Abre um diálogo simples para login (usuário e senha)."""
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Login")
+        dialog.setModal(True)
+        dialog.resize(300, 120)
+
+        layout = QFormLayout()
+
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", username_input)
+        layout.addRow("Senha:", password_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addRow(buttons)
+
+        dialog.setLayout(layout)
+
+        def tentar_login():
+            username = username_input.text().strip()
+            password = password_input.text()
+
+            if not username:
+                QMessageBox.warning(dialog, "Erro", "Usuário é obrigatório.")
+                return
+
+            # Aqui você pode integrar com uma API real depois
+            # Por enquanto, simula login bem-sucedido
+            try:
+                # Exemplo: salvar sessão
+                with open("session.txt", "w") as f:
+                    f.write(username)
+                self.usuario_logado = True
+                # Atualiza o ícone para "logado"
+                self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
+                dialog.accept()
+            except Exception as e:
+                QMessageBox.critical(dialog, "Erro", f"Falha ao salvar sessão: {e}")
+
+        buttons.accepted.connect(tentar_login)
+        buttons.rejected.connect(dialog.reject)
+
+        dialog.exec()
+
+    def _abrir_tela_login(self):
+        """Abre um diálogo de login com campos de usuário e senha."""
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QMessageBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Entrar")
+        dialog.setModal(True)
+        dialog.resize(300, 120)
+
+        layout = QFormLayout()
+
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", username_input)
+        layout.addRow("Senha:", password_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addRow(buttons)
+
+        dialog.setLayout(layout)
+
+        def tentar_login():
+            username = username_input.text().strip()
+            password = password_input.text()
+
+            if not username or not password:
+                QMessageBox.warning(dialog, "Erro", "Usuário e senha são obrigatórios.")
+                return
+
+            # Enviar requisição ao backend Flask
+            try:
+                response = requests.post(
+                    "http://localhost:5000/auth/login",
+                    json={"username": username, "password": password}
+                )
+                data = response.json()
+
+                if response.status_code == 200 and data.get("success"):
+                    # Login bem-sucedido
+                    with open("session.txt", "w") as f:
+                        f.write(username)
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                    QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
+                    dialog.accept()
+                else:
+                    QMessageBox.critical(dialog, "Erro", data.get("message", "Login falhou."))
+            except requests.exceptions.ConnectionError:
+                QMessageBox.critical(dialog, "Erro", "Não foi possível conectar ao servidor.")
+            except Exception as e:
+                QMessageBox.critical(dialog, "Erro", f"Erro inesperado: {e}")
+
+        buttons.accepted.connect(tentar_login)
+        buttons.rejected.connect(dialog.reject)
+
+        dialog.exec()
 
 
 # --- Ponto de Entrada da Aplicação ---
@@ -666,5 +2087,1079 @@ class GerenciadorIconesEsquerda(QWidget):
 
 
 ================================================================================
-✅ Total de 4 arquivos incluídos.
+📄 shared/polygons.py
+================================================================================
+import math
+import numpy
+
+def dicionario_poligonos(fator):
+
+    def icosaedro():
+        
+        def triangulo_original():
+            
+            def primeira_definicao_pontos():
+                lista_pontos = []
+                for x in range(fator ** 2):
+                    if x % 2 == 0:
+                        coord_x = x / 2 + 0.5
+                        coord_y = math.sin(math.pi / 6)
+                    else:
+                        coord_x = x / 2 + 0.5
+                        coord_y = math.sqrt(3) / 3
+                    lista_pontos.append((round(coord_x, 15), round(coord_y, 15)))
+                return lista_pontos
+            
+            def ponto_por_linha():
+                lista_pontos = [0]
+                ppf = fator * 2 - 1
+                una = fator * 2 - 1
+                while una != 1:
+                    lista_pontos.append(ppf)
+                    ppf += una - 2
+                    una -= 2
+                return lista_pontos
+
+            def processar_coordenadas(coordenadas, indices):
+                r = math.sqrt(3) / 3
+                h = math.sqrt(0.75) * fator
+                coords = []
+                for i in range(len(indices)):
+                    if i == len(indices) - 1:
+                        segmento = [coordenadas[-1]]
+                    else:
+                        inicio, fim = indices[i], indices[i + 1]
+                        segmento = coordenadas[inicio:fim]
+                    for x in range(len(segmento)):
+                        coefy = math.sin(math.pi / 6) * r
+                        cx = (0.5 * i + 0.5 * x) + 0.5 - fator / 2
+                        if x % 2 == 0:
+                            cy = 0 + math.sqrt(0.75) * i + coefy - h / 2
+                        else:
+                            cy = r - coefy + math.sqrt(0.75) * i + coefy - h / 2
+                        coords.append((cx, cy))
+                return coords
+            return processar_coordenadas(primeira_definicao_pontos(), ponto_por_linha())
+
+        to = triangulo_original()
+
+        def triangulos_equatoriais_em_pe():
+            raio = fator / (2 * math.sin(math.pi / 5))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            h = fator * math.sqrt(0.75)
+            t1 = [(x, math.cos(theta) * y, math.sin(theta) * y) for x, y in to]
+            t1 = [(x, y, z + apotema + math.sin(theta) * h / 2) for x, y, z in t1]
+            return t1
+
+        t1 = triangulos_equatoriais_em_pe()
+
+        def rotacionar_em_torno_do_eixo_y(coordenadas, angulo_graus):
+            angulo_radianos = math.radians(angulo_graus)
+            cos_theta = math.cos(angulo_radianos)
+            sin_theta = math.sin(angulo_radianos)
+            coordenadas_rotacionadas = []
+            for x, y, z in coordenadas:
+                x_novo = cos_theta * x + sin_theta * z
+                y_novo = y
+                z_novo = -sin_theta * x + cos_theta * z
+                coordenadas_rotacionadas.append((x_novo, y_novo, z_novo))
+            return coordenadas_rotacionadas
+
+        t2 = rotacionar_em_torno_do_eixo_y(t1, 72)
+        t3 = rotacionar_em_torno_do_eixo_y(t1, 144)
+        t4 = rotacionar_em_torno_do_eixo_y(t1, 216)
+        t5 = rotacionar_em_torno_do_eixo_y(t1, 288)
+
+        def triangulos_equatoriais_invertidos():
+            raio = fator / (2 * math.sin(math.pi / 5))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            h = fator * math.sqrt(0.75)
+            t6 = [(x, -y) for x, y in to]
+            t6 = [(x, math.cos(theta) * y, math.sin(theta) * -y) for x, y in t6]
+            t6 = [(x, y, z + apotema + math.sin(theta) * h / 2) for x, y, z in t6]
+            return t6
+
+        tr = triangulos_equatoriais_invertidos()
+        t6 = rotacionar_em_torno_do_eixo_y(tr, 36)
+        t7 = rotacionar_em_torno_do_eixo_y(tr, 108)
+        t8 = rotacionar_em_torno_do_eixo_y(tr, 180)
+        t9 = rotacionar_em_torno_do_eixo_y(tr, 252)
+        t10 = rotacionar_em_torno_do_eixo_y(tr, 324)
+
+        def triangulos_polares_norte():
+            alpha = math.acos(1 / (2 * math.tan(math.pi / 5) * math.sqrt(0.75)))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            h = fator * math.sqrt(0.75)
+            deslocamento = apotema - math.cos(alpha) * h / 2
+            raio = fator / (2 * math.sin(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            deslocamento_vertical = (math.cos(theta) * h / 2) + (math.sin(alpha) * h / 2)
+            tr = [(x, 0, -y) for x, y in to]
+            tr = [(x, math.sin(alpha) * -z + deslocamento_vertical,
+                z * math.cos(alpha) + deslocamento) for x, y, z in tr]
+            return tr
+
+        tr = triangulos_polares_norte()
+
+        t11 = rotacionar_em_torno_do_eixo_y(tr, 36)
+        t12 = rotacionar_em_torno_do_eixo_y(tr, 108)
+        t13 = rotacionar_em_torno_do_eixo_y(tr, 180)
+        t14 = rotacionar_em_torno_do_eixo_y(tr, 252)
+        t15 = rotacionar_em_torno_do_eixo_y(tr, 324)
+
+        def triangulos_polares_sul():
+            alpha = math.acos(1 / (2 * math.tan(math.pi / 5) * math.sqrt(0.75)))
+            apotema = fator / (2 * math.tan(math.pi / 5))
+            h = fator * math.sqrt(0.75)
+            deslocamento = apotema - math.cos(alpha) * h / 2
+            raio = fator / (2 * math.sin(math.pi / 5))
+            theta = math.asin((raio - apotema) / fator)
+            deslocamento_vertical = (math.cos(theta) * h / 2) + (math.sin(alpha) * h / 2)
+            t16 = [(x, 0, -y) for x, y in to]
+            t16 = [(x, math.sin(alpha) * z - deslocamento_vertical,
+                    z * math.cos(alpha) + deslocamento) for x, y, z in t16]
+            return t16
+
+        t16 = triangulos_polares_sul()
+        t17 = rotacionar_em_torno_do_eixo_y(t16, 72)
+        t18 = rotacionar_em_torno_do_eixo_y(t16, 144)
+        t19 = rotacionar_em_torno_do_eixo_y(t16, 216)
+        t20 = rotacionar_em_torno_do_eixo_y(t16, 288)
+        return [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20]
+
+    def esfera(pontos, raio):
+
+        def projetar_ponto_na_esfera(ponto, raio):
+            x, y, z = ponto
+            magnitude = math.sqrt(x**2 + y**2 + z**2)
+            return (
+                raio * x / magnitude,
+                raio * y / magnitude,
+                raio * z / magnitude
+            )
+
+        return [[projetar_ponto_na_esfera(ponto, raio) for ponto in lista] for lista in pontos]
+
+    esfera = esfera(icosaedro(), fator)
+
+    def poligonos():
+        poligonos = []
+        
+        def ponto_por_linha():
+            lista_pontos = [0]
+            ppf = fator * 2 - 1
+            una = fator * 2 - 1
+            while una != 1:
+                lista_pontos.append(ppf)
+                ppf += una - 2
+                una -= 2
+            return lista_pontos
+
+        p = ponto_por_linha()
+
+        def hexagonos_centrais():
+            hexagonos = []
+            for t in esfera:
+                i = 0
+                for x in range(fator - 2, 0, -1):
+                    for y in range(x):
+                        hexagonos.append(numpy.array([
+                            t[p[y] + i * 2 + 1],
+                            t[p[y] + i * 2 + 2],
+                            t[p[y] + i * 2 + 3],
+                            t[p[y + 1] + i * 2 + 2],
+                            t[p[y + 1] + i * 2 + 1],
+                            t[p[y + 1] + i * 2]
+                        ]))
+                    i += 1
+            return hexagonos
+
+        poligonos.append(hexagonos_centrais())
+
+        def hexagonos_tropicais_sul():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][y * 2],
+                        esfera[x][y * 2 + 1],
+                        esfera[x][y * 2 + 2],
+                        esfera[x + 15][y * 2 + 2],
+                        esfera[x + 15][y * 2 + 1],
+                        esfera[x + 15][y * 2]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_tropicais_sul())
+
+        def hexagonos_tropicais_norte():
+            hexagonos = []
+            for x in range(5, 10, 1):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][y * 2],
+                        esfera[x][y * 2 + 1],
+                        esfera[x][y * 2 + 2],
+                        esfera[x + 5][y * 2 + 2],
+                        esfera[x + 5][y * 2 + 1],
+                        esfera[x + 5][y * 2]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_tropicais_norte())
+
+        def hexagonos_equatoriais_ascendentes():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    if x == 0:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 9][p[fator - y - 1] - 1],
+                            esfera[x + 9][p[fator - y - 1] - 2],
+                            esfera[x + 9][p[fator - y - 1] + 2 * y]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[fator - y - 1] - 1],
+                            esfera[x + 4][p[fator - y - 1] - 2],
+                            esfera[x + 4][p[fator - y - 1] + 2 * y]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_equatoriais_ascendentes())
+
+        def hexagonos_equatoriais_descendentes():
+            hexagonos = []
+            for x in range(5):
+                for y in range(fator - 1):
+                    hexagonos.append(numpy.array([
+                        esfera[x][p[fator - 1 - y] + 2 * y],
+                        esfera[x][p[fator - 1 - y] - 2],
+                        esfera[x][p[fator - 1 - y] - 1],
+                        esfera[x + 5][p[y + 1]],
+                        esfera[x + 5][p[y] + 1],
+                        esfera[x + 5][p[y]]
+                    ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_equatoriais_descendentes())
+
+        def hexagonos_polares_norte():
+            hexagonos = []
+            for x in range(10, 15, 1):
+                for y in range(fator - 1):
+                    if x == 10:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x + 4][p[y + 1] - 2],
+                            esfera[x + 4][p[y + 1] - 1]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x - 1][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x - 1][p[y + 1] - 2],
+                            esfera[x - 1][p[y + 1] - 1]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_polares_norte())
+
+        def hexagonos_polares_sul():
+            hexagonos = []
+            for x in range(15, 20):
+                for y in range(fator - 1):
+                    if x == 15:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x + 4][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x + 4][p[y + 1] - 2],
+                            esfera[x + 4][p[y + 1] - 1]
+                        ]))
+                    else:
+                        hexagonos.append(numpy.array([
+                            esfera[x][p[y]],
+                            esfera[x][p[y] + 1],
+                            esfera[x][p[y + 1]],
+                            esfera[x - 1][p[y + 1] + (fator - y - 2) * 2],
+                            esfera[x - 1][p[y + 1] - 2],
+                            esfera[x - 1][p[y + 1] - 1]
+                        ]))
+            return hexagonos
+
+        poligonos.append(hexagonos_polares_sul())
+
+        def pentagonos():
+
+            pentagonos = []
+
+            def pentagonos_tropicais_sul():
+                pentagonos = []
+                for x in range(5):
+                    if x == 0:
+                        pentagonos.append(numpy.array([
+                            esfera[0][0],
+                            esfera[9][p[fator - 1]],
+                            esfera[4][p[1] - 1],
+                            esfera[19][p[1] - 1],
+                            esfera[15][0]
+                        ]))
+                    else:
+                        pentagonos.append(numpy.array([
+                            esfera[x][0],
+                            esfera[x + 4][p[fator - 1]],
+                            esfera[x - 1][p[1] - 1],
+                            esfera[x + 14][p[1] - 1],
+                            esfera[x + 15][0]
+                        ]))
+                return pentagonos
+
+            pentagonos.extend(pentagonos_tropicais_sul())
+
+            def pentagonos_tropicais_norte():
+                pentagonos = []
+                for x in range(5):
+                    if x == 0:
+                        pentagonos.append(numpy.array([
+                            esfera[0][p[fator - 1]],
+                            esfera[5][0],
+                            esfera[10][0],
+                            esfera[14][p[1] - 1],
+                            esfera[9][p[1] - 1]
+                        ]))
+                    else:
+                        pentagonos.append(numpy.array([
+                            esfera[x][p[fator - 1]],
+                            esfera[x + 5][0],
+                            esfera[x + 10][0],
+                            esfera[x + 9][p[1] - 1],
+                            esfera[x + 4][p[1] - 1]
+                        ]))
+                return pentagonos
+
+            pentagonos.extend(pentagonos_tropicais_norte())
+
+            def pentagono_polo_norte():
+                return numpy.array([
+                    esfera[10][p[fator - 1]],
+                    esfera[11][p[fator - 1]],
+                    esfera[12][p[fator - 1]],
+                    esfera[13][p[fator - 1]],
+                    esfera[14][p[fator - 1]]
+                ])
+
+            pentagonos.append(pentagono_polo_norte())
+
+            def pentagono_polo_sul():
+                return numpy.array([
+                    esfera[15][p[fator - 1]],
+                    esfera[16][p[fator - 1]],
+                    esfera[17][p[fator - 1]],
+                    esfera[18][p[fator - 1]],
+                    esfera[19][p[fator - 1]]
+                ])
+
+            pentagonos.append(pentagono_polo_sul())
+            
+            return pentagonos
+
+        poligonos.append(pentagonos())
+
+        return poligonos
+
+    poligonos = poligonos()
+
+    def dic_pol():
+        coord_vert = {}
+        h = 0
+        for x in range(5):        
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator * 2 - 1
+                for a in range(z):
+                    coord_vert[(n - a, fator * x + i + 1)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator + 1
+                for a in range(z):
+                    coord_vert[(n + a, fator * x + 2 + i + a)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator - 1
+                for a in range(z):
+                    coord_vert[(n - a, fator * x + 1 - x * (a + 1) + i)] = poligonos[0][h]
+                    h += 1
+
+        for x in range(5):
+            b = fator * x + 1 - x
+            for i, z in enumerate(range(fator - 2, 0, -1)):
+                n = fator * 2 + 1
+                for a in range(z):
+                    coord_vert[(n + a, b + i - a * x)] = poligonos[0][h]
+                    h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator * 2, fator * x + z + 1)] = poligonos[1][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator, fator * x + z + 1)] = poligonos[2][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator * 2 - z - 1, fator * x)] = poligonos[3][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator + z + 1, fator * x + z + 1)] = poligonos[4][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for z in range(fator - 1):
+                coord_vert[(fator - z - 1, (fator - z - 1) * x)] = poligonos[5][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            for i, z in enumerate(range(fator - 1, 0, -1)):
+                coord_vert[(fator * 2 + i + 1, z * x)] = poligonos[6][h]
+                h += 1
+        h = 0
+        for x in range(5):
+            coord_vert[(fator * 2, fator * x)] = poligonos[7][h]
+            h += 1
+        for x in range(5):
+            coord_vert[(fator, fator * x)] = poligonos[7][h]
+            h += 1
+        coord_vert[(0, 0)] = poligonos[7][h]
+        h += 1
+        coord_vert[(fator * 3, 0)] = poligonos[7][h]
+
+        return coord_vert
+    
+    return dic_pol()
+
+================================================================================
+📄 shared/planet.py
+================================================================================
+import random
+from shared.polygons import dicionario_poligonos
+from shared.geography import definir_geografia
+
+class Planeta:
+    def __init__(self, fator, bioma):
+        self.fator = fator
+        self.bioma_inicial = bioma
+        self.geografia, self.capitais_players = definir_geografia(dicionario_poligonos(fator), fator, bioma) # capitais = [(int, int), ...]
+        random.shuffle(self.capitais_players)
+        self.numero_de_jogadores = len(self.capitais_players)
+        biomas_invalidos = {"Ice", "Sea", "Ocean", "Coast", bioma}
+        capitais_player_set = set(self.capitais_players)
+        nodos_validos = [
+            n for n in self.geografia.nodes()
+            if self.geografia.nodes[n]["bioma"] not in biomas_invalidos and n not in capitais_player_set
+        ]
+        npn = 27 - len(self.capitais_players)  # Lembrar de evitar npn (países neutros) negativo
+        self.capitais_neutros = random.sample(nodos_validos, npn)
+        random.shuffle(self.capitais_neutros)
+        self.civilizacoes = []
+
+
+================================================================================
+📄 shared/geography.py
+================================================================================
+import networkx
+import random
+import math
+from statistics import mean
+from random import choice
+
+# CUSTOS BASE
+CUSTOS_BASE = {
+    'Ice': 20.0,
+    'Mountains': 12.0,
+    'Hills': 6.0,
+    'Forest': 4.0,
+    'Meadow': 3.0,
+    'Savanna': 4.0,
+    'Desert': 5.0,
+    'Coast': 0.8,
+    'Sea': 0.6,
+    'Ocean': 0.4
+}
+
+PENALIDADE_TRANSICAO = 15.0
+
+def letra_grega(placa):
+    letras_gregas_dict = {
+        "Alpha": "Α", "Beta": "Β", "Gamma": "Γ", "Delta": "Δ",
+        "Epsilon": "Ε", "Zeta": "Ζ", "Eta": "Η", "Theta": "Θ",
+        "Iota": "Ι", "Kappa": "Κ", "Lambda": "Λ", "Mu": "Μ",
+        "Nu": "Ν", "Xi": "Ξ", "Omicron": "Ο", "Pi": "Π",
+        "Rho": "Ρ", "Sigma": "Σ", "Tau": "Τ", "Upsilon": "Υ",
+        "Phi": "Φ", "Chi": "Χ", "Psi": "Ψ", "Omega": "Ω"
+    }
+    return letras_gregas_dict.get(placa)
+
+def definir_geografia(poligonos, fator, bioma):
+
+    geografia = networkx.DiGraph()
+
+    for coordenadas in poligonos:
+        geografia.add_node(coordenadas)
+
+    def tipo_de_poligono(c):
+        if c == (0, 0):
+            geografia.nodes[c]['tipo'] = 'pn'
+            return "pn"
+        elif 0 < c[0] < fator and c[1] % c[0] == 0:
+            geografia.nodes[c]['tipo'] = 'ipn'
+            return "ipn"
+        elif 0 < c[0] < fator and c[1] % c[0] != 0:
+            geografia.nodes[c]['tipo'] = 'cpn'
+            return "cpn"
+        elif c[0] == fator and c[1] % c[0] == 0:
+            geografia.nodes[c]['tipo'] = 'ntn'
+            return "ntn"
+        elif c[0] == fator and c[1] % c[0] != 0:
+            geografia.nodes[c]['tipo'] = 'itn'
+            return "itn"
+        elif fator < c[0] < fator * 2:
+            geografia.nodes[c]['tipo'] = 'e'
+            return "e"
+        elif c[0] == fator * 2 and c[1] % fator != 0:
+            geografia.nodes[c]['tipo'] = 'its'
+            return "its"
+        elif c[0] == fator * 2 and c[1] % fator == 0:
+            geografia.nodes[c]['tipo'] = 'nts'
+            return "nts"
+        elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) != 0:
+            geografia.nodes[c]['tipo'] = 'cps'
+            return "cps"
+        elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) == 0:
+            geografia.nodes[c]['tipo'] = 'ips'
+            return "ips"
+        elif c[0] == fator * 3:
+            geografia.nodes[c]['tipo'] = 'ps'
+            return "ps"
+
+    for n in list(geografia.nodes):
+        no = tipo_de_poligono(n)
+        if no == "pn":
+            for y in range(5):
+                geografia.add_edge(n, (1, y), direcao=f'S{y+1}')
+            continue
+        if no == "ps":
+            for y in range(5):
+                geografia.add_edge(n, (fator * 3 - 1, y), direcao=f'N{y+1}')
+            continue
+        x = n[1] // n[0]
+        y = n[1] // (fator * 3 - n[0])
+        if no == "ipn":
+            if n[1] != n[0] * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='S')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W') if n[1] != 0 else geografia.add_edge(n, (n[0], n[0] * 5 - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x - 1), direcao='SW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0] + 1, (n[0] + 1) * 5 - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='S')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x - 1), direcao='SW')
+        elif no == "cpn":
+            if n[1] != n[0] * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] + x + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] + x), direcao='SW')
+        elif no == "ntn":
+            geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+            geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='SE')
+            geografia.add_edge(n, (n[0], n[1] + 1), direcao='NE')
+            geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='N')
+            geografia.add_edge(n, (n[0], n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0], n[0] * 5 - 1), direcao='NW')
+        elif no == "itn":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='NE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, 0), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - x - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+        elif no == "e":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, n[1] + 1), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0] - 1, fator * 5 - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W') if n[1] != 0 else geografia.add_edge(n, (n[0], fator * 5 - 1), direcao='W')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1]), direcao='SW')
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+        elif no == "its":
+            if n[1] != fator * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+        elif no == "nts":
+            geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+            geografia.add_edge(n, (n[0], n[1] + 1), direcao='SE')
+            geografia.add_edge(n, (n[0] - 1, n[1]), direcao='NE')
+            geografia.add_edge(n, (n[0] - 1, n[1] - 1), direcao='NW') if n[1] != 0 else geografia.add_edge(n, (n[0] - 1, fator * 5 - 1), direcao='NW')
+            geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW') if n[1] != 0 else geografia.add_edge(n, (n[0], fator * 5 - 1), direcao='SW')
+        elif no == "cps":
+            if n[1] != (fator * 3 - n[0]) * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='SE')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, 0), direcao='SE')
+                geografia.add_edge(n, (n[0], 0), direcao='E')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='W')
+                geografia.add_edge(n, (n[0] + 1, n[1] - y - 1), direcao='SW')
+        elif no == "ips":
+            if n[1] != (fator * 3 - n[0]) * 5 - 1:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+                geografia.add_edge(n, (n[0], n[1] + 1), direcao='SE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='N')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y - 1), direcao='NW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0] - 1, (fator * 3 - n[0] + 1) * 5 - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW') if n[1] != 0 else \
+                                        geografia.add_edge(n, (n[0], (fator * 3 - n[0]) * 5 - 1), direcao='SW')
+            else:
+                geografia.add_edge(n, (n[0] + 1, n[1] - y), direcao='S')
+                geografia.add_edge(n, (n[0], 0), direcao='SE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y + 1), direcao='NE')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y), direcao='N')
+                geografia.add_edge(n, (n[0] - 1, n[1] + y - 1), direcao='NW')
+                geografia.add_edge(n, (n[0], n[1] - 1), direcao='SW')
+
+    areas = list(poligonos.keys())
+    areas_sem_definicao = {}
+    areas_definidas = {}
+    referencias_relevo = random.sample(areas, fator * 20)
+
+    for area in areas:
+        areas_sem_definicao[area] = []
+        areas_definidas[area] = []
+
+    for n in range(fator * 3 // 2):
+        if not areas_sem_definicao:
+            break
+        for node in referencias_relevo:
+            altitude = random.randint(0, 12)
+            areas_definidas[node].append(altitude)
+            if node in areas_sem_definicao:
+                del areas_sem_definicao[node]
+            distancias = networkx.single_source_shortest_path_length(geografia, node)
+            nos_a_n_arestas = [node for node, distance in distancias.items() if distance == n + 1]
+            for neighbor in nos_a_n_arestas:
+                if neighbor in areas_sem_definicao and neighbor not in referencias_relevo:
+                    areas_sem_definicao[neighbor].append(altitude)
+        for chave in list(areas_sem_definicao.keys()):
+            if areas_sem_definicao[chave]:
+                areas_definidas[chave].append(round(mean(areas_sem_definicao[chave]), 3))
+                del areas_sem_definicao[chave]
+
+    chaves = list(areas_definidas.keys())
+    random.shuffle(chaves)
+    chaves_ordenadas = sorted(chaves, key=lambda chave: areas_definidas[chave])
+    percentual_terra = random.randint(35, 45)
+    limite_abissal = (100 - percentual_terra) // 2
+    limite_barreira = limite_abissal + (100 - percentual_terra) // 3
+    nivel_do_mar = 100 - percentual_terra
+    limite_planicie = nivel_do_mar + (100 - nivel_do_mar) * 4 // 6
+    limite_planalto = limite_planicie + (100 - limite_planicie) // 2
+
+    for i, chave in enumerate(chaves_ordenadas):
+        if i <= len(chaves_ordenadas) * limite_abissal // 100:
+            geografia.nodes[chave]['altitude'] = 'abissal'
+        elif i <= len(chaves_ordenadas) * limite_barreira // 100:
+            geografia.nodes[chave]['altitude'] = 'barreira'
+        elif i <= len(chaves_ordenadas) * nivel_do_mar // 100:
+            geografia.nodes[chave]['altitude'] = 'plataforma'
+        elif i <= len(chaves_ordenadas) * limite_planicie // 100:
+            geografia.nodes[chave]['altitude'] = 'planicie'
+        elif i <= len(chaves_ordenadas) * limite_planalto // 100:
+            geografia.nodes[chave]['altitude'] = 'planalto'
+        else:
+            geografia.nodes[chave]['altitude'] = 'cordilheira'
+
+    areas_sem_definicao = {}
+    areas_definidas = {}
+    referencias_umidade = random.sample(areas, 60)
+
+    for area in areas:
+        areas_sem_definicao[area] = []
+        areas_definidas[area] = []
+
+    for n in range(fator * 3 // 2):
+        if not areas_sem_definicao:
+            break
+        for node in referencias_umidade:
+            altitude = random.randint(0, 12)
+            areas_definidas[node].append(altitude)
+            if node in areas_sem_definicao:
+                del areas_sem_definicao[node]
+            distancias = networkx.single_source_shortest_path_length(geografia, node)
+            nos_a_n_arestas = [node for node, distance in distancias.items() if distance == n + 1]
+            for neighbor in nos_a_n_arestas:
+                if neighbor in areas_sem_definicao and neighbor not in referencias_umidade:
+                    areas_sem_definicao[neighbor].append(altitude)
+        for chave in list(areas_sem_definicao.keys()):
+            if areas_sem_definicao[chave]:
+                areas_definidas[chave].append(round(mean(areas_sem_definicao[chave]), 3))
+                del areas_sem_definicao[chave]
+
+    chaves = list(areas_definidas.keys())
+    random.shuffle(chaves)
+    chaves_ordenadas = sorted(chaves, key=lambda chave: areas_definidas[chave])
+
+    for i, chave in enumerate(chaves_ordenadas):
+        if i <= len(chaves_ordenadas) * 25 // 100:
+            geografia.nodes[chave]['umidade'] = 'arido'
+        elif i <= len(chaves_ordenadas) * 50 // 100:
+            geografia.nodes[chave]['umidade'] = 'semi-arido'
+        elif i <= len(chaves_ordenadas) * 75 // 100:
+            geografia.nodes[chave]['umidade'] = 'fertil'
+        else:
+            geografia.nodes[chave]['umidade'] = 'umido'
+
+    # Definição das placas com dois pontos de referência cada
+    placas = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta',
+            'Eta', 'Theta', 'Iota', 'Kappa', 'Lambda', 'Mu',
+            'Nu', 'Xi', 'Omicron', 'Pi', 'Rho', 'Sigma',
+            'Tau', 'Upsilon', 'Phi', 'Chi', 'Psi', 'Omega']
+    
+    # Gerar duas referências para cada placa (total 48)
+    placas_duplicadas = placas * 2
+    random.shuffle(placas_duplicadas)
+    referencias_geologia = random.sample(areas, 48)
+
+    # Atribuir cada referência a uma placa
+    areas_definidas = {area: None for area in areas}
+    for i, node in enumerate(referencias_geologia):
+        areas_definidas[node] = placas_duplicadas[i]
+
+    # Calcular a placa para cada nó baseado na proximidade
+    for node in areas_definidas:
+        if areas_definidas[node] is not None:
+            continue  # Pula pontos de referência já definidos
+        
+        # Encontrar todas as distâncias para pontos de referência
+        distancias = []
+        for ref in referencias_geologia:
+            try:
+                dist = networkx.shortest_path_length(geografia, ref, node)
+                distancias.append( (ref, dist) )
+            except networkx.exception.NetworkXNoPath:
+                continue
+        
+        if not distancias:
+            areas_definidas[node] = random.choice(placas)
+            continue
+        
+        # Encontrar a distância mínima
+        min_dist = min(d[1] for d in distancias)
+        candidatos = [d[0] for d in distancias if d[1] == min_dist]
+        
+        # Escolher aleatoriamente entre candidatos equidistantes
+        ref_escolhida = random.choice(candidatos)
+        areas_definidas[node] = areas_definidas[ref_escolhida]
+    
+    coeficiente_movimento = 300
+
+    # Gerar cores para as placas
+    cores_placas = []
+    for _ in range(24):
+        while True:
+            r = random.randint(0, 255)
+            g = random.randint(0, 255)
+            b = random.randint(0, 255)
+            if (r + g + b) > 127.5:
+                cores_placas.append((r, g, b))
+                break
+
+    latitude_equador = fator * 3 / 2
+
+    for chave, valor in areas_definidas.items():
+        geografia.nodes[chave]['placa'] = valor
+        geografia.nodes[chave]['cor_placa'] = cores_placas[placas.index(valor)]
+        geografia.nodes[chave]['letra_grega'] = letra_grega(geografia.nodes[chave]['placa'])
+        if chave[0] < latitude_equador:
+            distancia_para_equador = latitude_equador - chave[0]
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        elif chave[0] == latitude_equador:
+            distancia_para_equador = 0
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        else:
+            distancia_para_equador = chave[0] - latitude_equador
+            angulo = distancia_para_equador * 90 / latitude_equador
+            incidencia_solar = math.cos(math.radians(angulo))
+        if geografia.nodes[chave]['altitude'] == 'abissal' \
+        or geografia.nodes[chave]['altitude'] == 'barreira' \
+        or geografia.nodes[chave]['altitude'] == 'plataforma':
+            fator_altitude = 3
+        elif geografia.nodes[chave]['altitude'] == 'planicie':
+            fator_altitude = 1
+        elif geografia.nodes[chave]['altitude'] == 'planalto':
+            fator_altitude = -1
+        elif geografia.nodes[chave]['altitude'] == 'cordilheira':
+            fator_altitude = -3
+        if geografia.nodes[chave]['umidade'] == 'umido':
+            fator_umidade = 1.5
+        elif geografia.nodes[chave]['umidade'] == 'fertil':
+            fator_umidade = 0.5
+        elif geografia.nodes[chave]['umidade'] == 'semi-arido':
+            fator_umidade = -0.5
+        elif geografia.nodes[chave]['umidade'] == 'arido':
+            fator_umidade = -1.5
+        geografia.nodes[chave]['temperatura'] = round(40 * incidencia_solar - 8 + fator_altitude + fator_umidade, 1) - 4
+
+    for node, atributos in geografia.nodes(data=True):
+        temperatura = atributos.get('temperatura')
+        altitude = atributos.get('altitude')
+        umidade = atributos.get('umidade')
+        
+        if temperatura < 0:
+            atributos['bioma'] = 'Ice'
+        else:
+            if altitude == 'cordilheira':
+                atributos['bioma'] = 'Mountains'
+            elif altitude == 'planalto':
+                atributos['bioma'] = 'Hills'
+            elif altitude == 'planicie':
+                if umidade == 'umido':
+                    atributos['bioma'] = 'Forest'
+                elif umidade == 'fertil':
+                    atributos['bioma'] = 'Meadow'
+                elif umidade == 'semi-arido':
+                    atributos['bioma'] = 'Savanna'
+                else:
+                    atributos['bioma'] = 'Desert'
+            elif altitude == 'plataforma':
+                atributos['bioma'] = 'Coast'
+            elif altitude == 'barreira':
+                atributos['bioma'] = 'Sea'
+            else:
+                atributos['bioma'] = 'Ocean'
+        
+        # Aplica custo base diretamente do dicionário
+        atributos['cust_mob'] = CUSTOS_BASE[atributos['bioma']] * coeficiente_movimento
+
+    for u, v in geografia.edges():
+        mob_u = geografia.nodes[u]['cust_mob']
+        mob_v = geografia.nodes[v]['cust_mob']
+        
+        u_maritimo = geografia.nodes[u]['bioma'] in ['Coast', 'Sea', 'Ocean']
+        v_maritimo = geografia.nodes[v]['bioma'] in ['Coast', 'Sea', 'Ocean']
+        
+        if u_maritimo != v_maritimo:  # Transição terra-mar
+            geografia[u][v]['cust_mob'] = max(mob_u, mob_v) * 2 + PENALIDADE_TRANSICAO * coeficiente_movimento
+        else:
+            geografia[u][v]['cust_mob'] = (mob_u + mob_v) / 2
+
+        # Bônus para rotas oceânicas longas
+        if u_maritimo and v_maritimo:
+            geografia[u][v]['cust_mob'] *= 0.7
+
+    cores_biomas = {
+        'Ocean': (0, 23, 98), 'Sea': (8, 33, 113), 'Coast': (12, 71, 108), 'Meadow': (91, 174, 70), 'Savanna': (231, 190, 141),
+        'Forest': (75, 129, 66), 'Desert': (242, 242, 166), 'Hills': (201, 147, 121), 'Mountains': (158, 86, 86), 'Ice': (245, 255, 245)
+    }
+
+    bioma_escolhido = []
+
+    for node in geografia.nodes:
+        geografia.nodes[node]['cor_bioma'] = cores_biomas[geografia.nodes[node]['bioma']]
+        if geografia.nodes[node]['bioma'] == f'{bioma}':
+            bioma_escolhido.append(node)
+
+    bioma_escolhido = [n for n, attr in geografia.nodes(data=True) if attr['bioma'] == f'{bioma}']
+    lista_capitais = [choice(bioma_escolhido)]
+    while len(lista_capitais) < len(bioma_escolhido) // 2:
+        d2 = {}
+        for candidato in bioma_escolhido:
+            if candidato in lista_capitais:
+                continue
+            d = {}
+            for capital in lista_capitais:
+                d[capital] = networkx.shortest_path_length(geografia, source=candidato, target=capital, weight='custo_mobilidade')
+            d2[candidato] = min(d.values())
+        if not d2:  # Se não houver candidatos possíveis, o planeta não comporta a quantidade desejada
+            print("d2 vazio")
+            raise ValueError("O planeta não comporta essa quantidade de civilizações!")
+        maior_valor = max(d2.values())
+        chaves_maior_valor = [chave for chave, valor in d2.items() if valor == maior_valor]
+        lista_capitais.append(choice(chaves_maior_valor))
+
+    print(f"número de {bioma}:", len(bioma_escolhido))
+    return geografia, lista_capitais
+
+
+================================================================================
+📄 shared/civilization.py
+================================================================================
+import random
+from shared.flags import bandeira
+
+class Civilizacao:
+    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None):
+        self.player = player
+        self.nome = nome
+        self.cultura = ref.culturas[indice % len(ref.culturas)]
+        self.cor = ref.civs_cores[self.nome]
+        self.modalidade_bandeira = random.randint(0, 82)
+        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira)
+        self.ponto_inicial = ponto_inicial
+        self.provincias = []
+        self.unidades = []
+
+================================================================================
+📄 shared/province.py
+================================================================================
+from shared.naming import formar_nome
+
+class Provincia:
+    def __init__(self, civilizacao, coordenadas):
+        self.civilizacao = civilizacao
+        self.coordenadas = coordenadas
+        self.nome = formar_nome(civilizacao.cultura)
+
+================================================================================
+📄 shared/world.py
+================================================================================
+# shared/world.py
+import random
+from uuid import uuid4
+from shared.references import Referencias
+from shared.planet import Planeta
+from shared.civilization import Civilizacao
+from shared.province import Provincia
+
+
+class Mundo:
+    def __init__(self, fator=4, bioma='Meadow'):
+        self.id_mundo = str(uuid4())
+        ref = Referencias()
+        random.shuffle(ref.culturas)
+        lista_de_cores = list(ref.civs_cores.keys())
+        random.shuffle(lista_de_cores)
+        self.planeta = Planeta(fator=fator, bioma=bioma)
+        self.civs = []
+
+        # Criar civilizações com capitais corretas
+        for i, capital in enumerate(self.planeta.capitais_players):
+            nome = lista_de_cores[i % len(lista_de_cores)]
+            civ = Civilizacao(ref, i, nome, True, capital)
+            self.civs.append(civ)
+
+        for i, capital in enumerate(self.planeta.capitais_neutros):
+            indice = i + len(self.planeta.capitais_players)
+            nome = lista_de_cores[indice % len(lista_de_cores)]
+            civ = Civilizacao(ref, indice, nome, False, capital)
+            self.civs.append(civ)
+
+        # Atribuir província inicial usando o ponto_inicial de cada civ
+        for civ in self.civs:
+            provincia = Provincia(civ, civ.ponto_inicial)
+            civ.provincias.append(provincia)
+
+================================================================================
+📄 shared/references.py
+================================================================================
+class Referencias:
+    def __init__(self):
+        self.culturas = [
+            'English', 'Chinese', 'Spanish',
+            'French', 'Indian', 'Russian',
+            'Vietnamese', 'Turkish', 'Arabic',
+            'Indonesian', 'Persian', 'Hausa',
+            'Swahili', 'Portuguese', 'Telugu',
+            'Bengali', 'Japanese', 'Marathi',
+            'Wu', 'Yue', 'Min',
+            'Korean', 'Italian', 'German'
+        ]
+        self.civs_cores = {
+            'Black': (16, 16, 16), 'Midnight Blue': (0, 0, 127), 'Blue': (0, 0, 255),
+            'Dark Green': (0, 127, 0), 'Teal': (0, 127, 127), 'Sky Blue': (32, 127, 223),
+            'Green': (0, 255, 0), 'Spring Green': (0, 255, 127), 'Cyan': (0, 223, 223),
+            'Maroon': (127, 0, 0), 'Purple': (127, 0, 127), 'Violet': (127, 0, 255),
+            'Olive': (127, 127, 0), 'Gray': (127, 127, 127), 'Lavender': (127, 127, 255),
+            'Chartreuse': (127, 255, 0), 'Light Green': (127, 223, 127), 'Pale Cyan': (127, 255, 255),
+            'Red': (234, 33, 37), 'Rose': (255, 0, 127), 'Magenta': (255, 0, 255),
+            'Orange': (223, 127, 32), 'Salmon': (255, 127, 127), 'Orchid': (255, 127, 255),
+            'Yellow': (255, 255, 0), 'Light Yellow': (255, 255, 127), 'White': (250, 255, 253)
+        }
+
+        self.tons_de_pele = [(245, 212, 205), (212, 160, 147), (163, 106, 95), (101, 61, 53)]
+        self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
+
+================================================================================
+✅ Total de 23 arquivos incluídos.
 ================================================================================

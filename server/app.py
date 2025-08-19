@@ -1,10 +1,10 @@
 # server/app.py
 from flask import Flask
-from server.config import config
-from server.extensions import ext
-from server.services.user_service import UserService
+from config import config
+from extensions import ext
+from services.user_service import UserService
 # Importa o blueprint e a função de registro
-from server.routes.auth import auth_bp, register_routes
+from routes.auth import auth_bp, register_routes
 
 def create_app(config_name='default'):
     """Factory function para criar a aplicação Flask."""

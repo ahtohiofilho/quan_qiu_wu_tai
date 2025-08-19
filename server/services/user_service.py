@@ -77,4 +77,41 @@ class UserService:
             print(f"❌ Erro inesperado ao criar usuário '{username}': {e}")
             return False
 
-    # Métodos para verificar senha, gerar token, etc., virão aqui depois.
+    def authenticate_user(self, username: str, password: str) -> tuple[bool, str]:
+        """
+        Autentica um usuário verificando a senha com bcrypt.
+
+        :param username: Nome de usuário.
+        :param password: Senha em texto plano.
+        :return: (sucesso: bool, mensagem: str)
+        """
+        if not username or not password:
+            return False, "Usuário ou senha ausentes."
+
+        # 1. Buscar usuário
+        user = self.get_user(username)
+        if not user:
+            return False, "Usuário não encontrado."
+
+        # 2. Extrair o hash da senha
+        password_hash_attr = user.get('password_hash')
+        if not password_hash_attr:
+            return False, "Usuário sem senha cadastrada."
+
+        # 3. O hash pode vir como {'B': bytes} do DynamoDB
+        if isinstance(password_hash_attr, dict) and 'B' in password_hash_attr:
+            stored_hash = password_hash_attr['B']
+        elif isinstance(password_hash_attr, bytes):
+            stored_hash = password_hash_attr
+        else:
+            return False, "Formato de hash de senha inválido."
+
+        # 4. Verificar com bcrypt
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                return True, "Login bem-sucedido."
+            else:
+                return False, "Senha incorreta."
+        except Exception as e:
+            print(f"❌ Erro ao verificar senha com bcrypt: {e}")
+            return False, "Erro interno ao processar autenticação."

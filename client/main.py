@@ -4,8 +4,11 @@ import sys
 import os  # Para verificar o arquivo de sessão
 import OpenGL.GL as gl
 import ctypes
+
+import requests
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QSizePolicy, QFrame
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
+    QSizePolicy, QFrame, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox
 )
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
@@ -30,13 +33,6 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self.VBO = None
         # Permitir que o widget receba foco de teclado
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # Estado de login (exemplo simples)
-        self.usuario_logado = self._verificar_login()
-
-    def _verificar_login(self):
-        """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
-        # Esta é uma lógica de placeholder. Substitua pela sua lógica real.
-        return os.path.exists("session.txt")  # True se existir, False caso contrário
 
     def initializeGL(self):
         """
@@ -185,6 +181,9 @@ class JanelaPrincipal(QMainWindow):
         super().__init__()
         self.setWindowTitle("Global Arena - Cliente PyQt6")
 
+        # --- Verificar estado de login ANTES de criar os ícones ---
+        self.usuario_logado = self._verificar_login()
+
         # --- Obter dimensões da tela para cálculos ---
         screen_geometry = self.screen().availableGeometry()
         screen_width = screen_geometry.width()
@@ -220,8 +219,18 @@ class JanelaPrincipal(QMainWindow):
 
         # --- Barra Esquerda com Ícones Interativos ---
         self.barra_esquerda = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraEsquerda")
+
+        # Criar gerenciador de ícones
         self.gerenciador_icones = GerenciadorIconesEsquerda(caminho_recursos="client/resources")
+
+        # Atualizar ícone de login com base no estado
+        if self.usuario_logado:
+            self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")
+
+        # Conectar sinal de clique
         self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
+
+        # Layout da barra esquerda
         layout_esquerda = QVBoxLayout(self.barra_esquerda)
         layout_esquerda.setContentsMargins(0, 0, 0, 0)
         layout_esquerda.addWidget(self.gerenciador_icones)
@@ -252,10 +261,10 @@ class JanelaPrincipal(QMainWindow):
         # --- Layout do Overlay para o Título e Subtítulo ---
         overlay_layout = QVBoxLayout(self.overlay_widget)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.setSpacing(10)  # Espaçamento ajustado para hierarquia
+        overlay_layout.setSpacing(10)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: "Welcome to" (pequeno, acima) ---
+        # --- Label: "Welcome to" ---
         self.label_welcome = QLabel("Welcome to")
         font_welcome = QFont()
         font_welcome.setPointSize(14)
@@ -265,7 +274,7 @@ class JanelaPrincipal(QMainWindow):
         self.label_welcome.setStyleSheet("color: #aaaaaa; background: transparent; border: none;")
         self.label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: "Global Arena" (grande, destaque) ---
+        # --- Label: "Global Arena" ---
         self.label_titulo = QLabel("Global Arena")
         font_titulo = QFont()
         font_titulo.setPointSize(48)
@@ -280,7 +289,7 @@ class JanelaPrincipal(QMainWindow):
         """)
         self.label_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: Subtítulo (teaser provocativo) ---
+        # --- Label: Subtítulo ---
         self.label_subtitulo = QLabel("the only one for non-flat-earthers")
         font_subtitulo = QFont()
         font_subtitulo.setPointSize(16)
@@ -316,7 +325,6 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_widget.show()
 
         # --- Fallback pós-show: Garante posicionamento após renderização inicial ---
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(50, lambda: [
             self.overlay_widget.setGeometry(self.opengl_container.rect()),
             self.overlay_widget.raise_(),
@@ -355,7 +363,7 @@ class JanelaPrincipal(QMainWindow):
         # --- Timer para o Loop Principal ---
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.atualizar_logica)
-        self.timer.start(16)  # Aproximadamente 60 FPS
+        self.timer.start(16)  # ~60 FPS
 
         # --- Mostrar e aplicar fullscreen ---
         self.show()
@@ -366,6 +374,10 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do container:", self.opengl_container.geometry())
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
+
+    def _verificar_login(self):
+        """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
+        return os.path.exists("session.txt")
 
     def _criar_barra(self, tamanho, is_horizontal, object_name="Barra"):
         """Cria um widget para representar uma barra, com estilo básico."""
@@ -400,8 +412,26 @@ class JanelaPrincipal(QMainWindow):
             self.on_icone_sair()
 
     def on_icone_login(self):
-        """Ação acionada pelo ícone de login."""
-        print("Ação: Ícone 'Login' clicado.")
+        """Ação acionada pelo ícone de login: faz login ou logout."""
+        if self.usuario_logado:
+            # Já logado → oferece logout
+            reply = QMessageBox.question(
+                self,
+                "Logout",
+                "Você está logado. Deseja sair?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    os.remove("session.txt")
+                    self.usuario_logado = False
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/log-in.png")
+                    QMessageBox.information(self, "Logout", "Você saiu com sucesso.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Erro", f"Falha ao remover sessão: {e}")
+        else:
+            # Não logado → abre tela de login
+            self._abrir_tela_login()
 
     def on_icone_play(self):
         """Ação acionada pelo ícone de play."""
@@ -411,6 +441,129 @@ class JanelaPrincipal(QMainWindow):
         """Ação acionada pelo ícone de sair."""
         print("Ação: Ícone 'Sair' clicado. Fechando aplicação...")
         self.close()
+
+    def _abrir_dialogo_login(self):
+        """Abre um diálogo de login com campos de usuário e senha, conectado ao backend."""
+        import requests
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Entrar")
+        dialog.setModal(True)
+        dialog.resize(300, 120)
+
+        layout = QFormLayout()
+
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", username_input)
+        layout.addRow("Senha:", password_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addRow(buttons)
+
+        dialog.setLayout(layout)
+
+        def tentar_login():
+            username = username_input.text().strip()
+            password = password_input.text()
+
+            if not username:
+                QMessageBox.warning(dialog, "Erro", "Usuário é obrigatório.")
+                return
+            if not password:
+                QMessageBox.warning(dialog, "Erro", "Senha é obrigatória.")
+                return
+
+            try:
+                response = requests.post(
+                    "http://localhost:5000/auth/login",
+                    json={"username": username, "password": password}
+                )
+                data = response.json()
+
+                if response.status_code == 200 and data.get("success"):
+                    # Login bem-sucedido
+                    with open("session.txt", "w") as f:
+                        f.write(username)
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/logged.png")
+                    QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
+                    dialog.accept()
+                else:
+                    msg = data.get("message", "Login falhou.")
+                    QMessageBox.critical(dialog, "Erro", msg)
+            except requests.exceptions.ConnectionError:
+                QMessageBox.critical(dialog, "Erro",
+                                     "Não foi possível conectar ao servidor. Certifique-se de que o backend está rodando.")
+            except requests.exceptions.Timeout:
+                QMessageBox.critical(dialog, "Erro", "Tempo de resposta esgotado.")
+            except Exception as e:
+                QMessageBox.critical(dialog, "Erro", f"Erro inesperado: {str(e)}")
+
+        buttons.accepted.connect(tentar_login)
+        buttons.rejected.connect(dialog.reject)
+
+        dialog.exec()
+
+    def _abrir_tela_login(self):
+        """Abre um diálogo de login com campos de usuário e senha."""
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Entrar")
+        dialog.setModal(True)
+        dialog.resize(300, 120)
+
+        layout = QFormLayout()
+
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+
+        layout.addRow("Usuário:", username_input)
+        layout.addRow("Senha:", password_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        layout.addRow(buttons)
+
+        dialog.setLayout(layout)
+
+        def tentar_login():
+            username = username_input.text().strip()
+            password = password_input.text()
+
+            if not username or not password:
+                QMessageBox.warning(dialog, "Erro", "Usuário e senha são obrigatórios.")
+                return
+
+            # Enviar requisição ao backend Flask
+            try:
+                response = requests.post(
+                    "http://localhost:5000/auth/login",
+                    json={"username": username, "password": password}
+                )
+                data = response.json()
+
+                if response.status_code == 200 and data.get("success"):
+                    # Login bem-sucedido
+                    with open("session.txt", "w") as f:
+                        f.write(username)
+                    self.usuario_logado = True
+                    self.gerenciador_icones.atualizar_icone("login", "client/resources/smile.png")
+                    QMessageBox.information(dialog, "Sucesso", f"Bem-vindo, {username}!")
+                    dialog.accept()
+                else:
+                    QMessageBox.critical(dialog, "Erro", data.get("message", "Login falhou."))
+            except requests.exceptions.ConnectionError:
+                QMessageBox.critical(dialog, "Erro", "Não foi possível conectar ao servidor.")
+            except Exception as e:
+                QMessageBox.critical(dialog, "Erro", f"Erro inesperado: {e}")
+
+        buttons.accepted.connect(tentar_login)
+        buttons.rejected.connect(dialog.reject)
+
+        dialog.exec()
 
 
 # --- Ponto de Entrada da Aplicação ---
