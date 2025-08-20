@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat, QFont
-from components.icon_manager import GerenciadorIconesEsquerda
-from dialogs.auth_dialog import DialogoAutenticacao
+from client.components.icon_manager import GerenciadorIconesEsquerda
+from client.dialogs.auth_dialog import DialogoAutenticacao
 
 
 # --- Componente OpenGL ---

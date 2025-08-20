@@ -21,6 +21,7 @@ import signal
 # Adiciona o diretório raiz ao caminho de imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+
 def main():
     parser = argparse.ArgumentParser(description="🌍 Global Arena - Sistema de inicialização central")
     parser.add_argument(
@@ -38,8 +39,15 @@ def main():
             print("🚀 Iniciando servidor Flask...")
             from server.app import create_app
             app = create_app('development')
+
+            # DEBUG: Listar todas as rotas registradas
+            print("\n📋 Rotas registradas no app (debug real):")
+            for rule in app.url_map.iter_rules():
+                print(f"  {rule.rule} -> {rule.endpoint}")
+            print("\n")
+
             print("✅ Servidor configurado. Acesse em http://127.0.0.1:5000")
-            app.run(host='127.0.0.1', port=5000, debug=True)
+            app.run(host='127.0.0.1', port=5000, debug=False)
 
         elif args.command == 'client':
             print("🎮 Iniciando cliente gráfico (jogador)...")
@@ -73,14 +81,19 @@ def main():
             print(f"🌍 Criando novo mundo com fator={args.fator}, bioma='{args.bioma}'...")
             from server.commander import Comandante
             from server.aws_loader import AWSLoader
+            from server.manager import Gerenciador
+
             loader = AWSLoader(region_name='us-east-2')
-            comandante = Comandante(loader)
-            sucesso = comandante.criar_e_upload_mundo(
+            gerenciador = Gerenciador(loader)  # ✅ Correto: Comandante precisa do Gerenciador
+            comandante = Comandante(gerenciador, loader)  # ✅ Agora está correto
+
+            # Usar o método correto com retorno
+            sucesso, mundo = comandante.criar_e_upload_mundo_com_retorno(
                 fator=args.fator,
                 bioma=args.bioma
             )
             if sucesso:
-                print("✅ Mundo criado e enviado para AWS com sucesso.")
+                print(f"✅ Mundo {mundo.id_mundo} criado e enviado para AWS com sucesso.")
             else:
                 print("❌ Falha ao criar ou enviar o mundo.")
                 sys.exit(1)
@@ -129,6 +142,7 @@ def main():
 def signal_handler(signum, frame):
     print("\n🛑 Sinal recebido. Encerrando...")
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)

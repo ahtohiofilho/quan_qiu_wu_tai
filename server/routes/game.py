@@ -1,15 +1,18 @@
 # server/routes/game.py
 from flask import Blueprint, jsonify, request
 from server.services.user_service import UserService
+from server.services.queue_service import FilaService
 jogo_bp = Blueprint('jogo', __name__, url_prefix='/jogo')
 
 # Variável para injeção de dependência
 _user_service = None
+_fila_service = None
 
-def register_jogo_routes(user_service: UserService):
+def register_jogo_routes(user_service: UserService, fila_service: FilaService):
     """Função para injetar dependências no blueprint jogo."""
-    global _user_service
+    global _user_service, _fila_service
     _user_service = user_service
+    _fila_service = fila_service
 
 @jogo_bp.route('/entrar', methods=['POST'])
 def entrar_na_fila():

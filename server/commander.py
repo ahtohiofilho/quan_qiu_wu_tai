@@ -234,20 +234,22 @@ class Comandante:
                     if response.status_code == 200:
                         token = response.json().get("token")
                         headers = {"Authorization": f"Bearer {token}"} if token else {}
+                        # ✅ Corrigido: agora envia o username
                         requests.post(
                             "http://localhost:5000/jogo/entrar",
-                            json={"modo": "online"},
+                            json={"modo": "online", "username": usuario["username"]},
                             headers=headers
                         )
                         contador += 1
                         if signals:
                             signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
-                except:
-                    pass
+                except Exception as e:
+                    # ✅ Adicione log para depurar erros
+                    print(f"❌ Erro ao processar {usuario['username']}: {e}")
+                    if signals:
+                        signals.error.emit(f"❌ Falha com {usuario['username']}")
 
-            USUARIOS_SIMULADOS = [
-                {"username": f"player{i}", "password": "senha123"} for i in range(1, 51)
-            ]
+            USUARIOS_SIMULADOS = [{"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)]
 
             while self.simulacao_ativa:
                 usuario = random.choice(USUARIOS_SIMULADOS)
