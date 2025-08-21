@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-19 22:03:39
+Gerado em: 2025-08-21 16:38:14
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -17,8 +17,10 @@ Conteúdo dos scripts principais reunidos.
 │   ├── saves
 │   │   └── mundo_5e946bdf-961d-43dd-8b5b-6284733ef02b.json
 │   ├── services
+│   │   ├── matchmaking_service.py
 │   │   ├── queue_service.py
-│   │   └── user_service.py
+│   │   ├── user_service.py
+│   │   └── world_pool.py
 │   ├── __init__.py
 │   ├── app.py
 │   ├── aws_loader.py
@@ -295,24 +297,39 @@ class Comandante:
                 nonlocal contador
                 try:
                     import requests
+                    print(f"🔄 [Comandante] Tentando login com: {usuario['username']}")  # ← Novo log
                     response = requests.post("http://localhost:5000/auth/login", json=usuario)
                     if response.status_code == 200:
                         token = response.json().get("token")
                         headers = {"Authorization": f"Bearer {token}"} if token else {}
-                        requests.post(
+                        print(f"🔄 [Comandante] {usuario['username']} logado. Tentando entrar na fila...")  # ← Novo log
+
+                        # Chamada para /jogo/entrar
+                        response_entrar = requests.post(
                             "http://localhost:5000/jogo/entrar",
-                            json={"modo": "online"},
+                            json={"modo": "online", "username": usuario["username"]},
                             headers=headers
                         )
-                        contador += 1
-                        if signals:
-                            signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
-                except:
-                    pass
 
-            USUARIOS_SIMULADOS = [
-                {"username": f"player{i}", "password": "senha123"} for i in range(1, 51)
-            ]
+                        # ✅ Log da resposta
+                        print(
+                            f"📨 Resposta de /jogo/entrar para {usuario['username']}: {response_entrar.status_code} - {response_entrar.text}")
+
+                        if response_entrar.status_code == 200:
+                            contador += 1
+                            if signals:
+                                signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
+                        else:
+                            print(f"❌ Falha ao entrar na fila: {response_entrar.text}")
+                    else:
+                        print(f"❌ Login falhou para {usuario['username']}: {response.text}")
+
+                except Exception as e:
+                    print(f"❌ Erro ao processar {usuario['username']}: {e}")
+                    if signals:
+                        signals.error.emit(f"❌ Falha com {usuario['username']}")
+
+            USUARIOS_SIMULADOS = [{"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)]
 
             while self.simulacao_ativa:
                 usuario = random.choice(USUARIOS_SIMULADOS)
@@ -595,9 +612,8 @@ URL_BASE = "http://localhost:5000"
 NUM_PLAYERS = 50  # Quantidade de players simulados: player001 até player050
 
 # Gera usuários dinamicamente
-USUARIOS_SIMULADOS = [
-    {"username": f"player{i:03d}", "password": "senha123"} for i in range(1, NUM_PLAYERS + 1)
-]
+USUARIOS_SIMULADOS = [{"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)]
+print("🎯 Simulador carregado com formatos: player001, player002, ...")
 
 def registrar_usuario(usuario):
     """Tenta registrar o usuário no servidor."""
@@ -995,13 +1011,17 @@ class WorkerSignals(QObject):
 📄 server/app.py
 ================================================================================
 # server/app.py
-from flask import Flask
+from flask import Flask, jsonify
 from server.config import config
 from server.extensions import ext
 from server.services.user_service import UserService
 from server.routes.auth import auth_bp, register_routes
 from server.routes.game import jogo_bp, register_jogo_routes
-from server.services.queue_service import FilaService
+from server.services.matchmaking_service import MatchmakingService
+from server.services.world_pool import MundoPoolService  # ✅ Importe o novo serviço
+from server.aws_loader import AWSLoader
+from server.manager import Gerenciador
+
 
 def create_app(config_name='default'):
     """Factory function para criar a aplicação Flask."""
@@ -1015,30 +1035,73 @@ def create_app(config_name='default'):
 
     # 3. Cria instâncias de serviços, injetando dependências
     user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
+    print(f"✅ DEBUG: UserService criado: {user_service}")
 
-    # --- 🔹 Matchmaking: Fila de espera ---
-    fila_service = FilaService()  # ✅ Cria a instância do serviço de fila
+    # --- 🔹 AWS Loader e Gerenciador de Mundos ---
+    aws_loader = AWSLoader(
+        profile_name=app.config.get('AWS_PROFILE_NAME'),
+        region_name=app.config.get('AWS_REGION_NAME')
+    )
+    gerenciador = Gerenciador(aws_loader)
+
+    # --- 🔹 World Pool: Gerencia mundos pré-criados ---
+    world_pool = MundoPoolService(
+        gerenciador=gerenciador,
+        fator=4,
+        bioma="Meadow",
+        tamanho_inicial=3,
+        max_mundos=10
+    )
+
+    # --- 🔹 Matchmaking: Sistema Avançado de Salas ---
+    # MatchmakingService agora recebe o world_pool, não o gerenciador diretamente
+    matchmaking_service = MatchmakingService(world_pool=world_pool)
+
+    # Callback para quando uma partida for formada
+    def partida_formada(jogadores):
+        print(f"\n🎉🎉🎉 PARTIDA INICIADA COM: {jogadores}")
+        print(f"🎮 Os jogadores estão prontos para o combate!\n")
+        # Aqui você pode:
+        # - Notificar jogadores via WebSocket
+        # - Registrar a partida no DynamoDB
+        # - Iniciar a lógica do jogo
+
+    # ✅ Registra o callback no novo serviço
+    matchmaking_service.partida_iniciada_callback = partida_formada
 
     app.config['USER_SERVICE'] = user_service
 
     # 4. Registra os Blueprints e injeta dependências
+    print("📋 DEBUG: Iniciando injeção de dependências e registro de blueprints...")
 
     # --- 🔹 Auth ---
-    # Primeiro: injeta dependência no blueprint
+    print("🔧 DEBUG: Injetando UserService em auth_bp...")
     register_routes(user_service)
-    # Depois: registra o blueprint
+    print(f"✅ DEBUG: register_routes(user_service) chamado com sucesso.")
     app.register_blueprint(auth_bp)
+    print("✅ DEBUG: auth_bp registrado no app.")
 
     # --- 🔹 Jogo Online (NOVO) ---
-    register_jogo_routes(user_service, fila_service)  # ✅ Injeta ambos os serviços
-    app.register_blueprint(jogo_bp)  # Registra o blueprint
+    register_jogo_routes(user_service, matchmaking_service)
+    app.register_blueprint(jogo_bp)
+    print("✅ DEBUG: jogo_bp registrado no app.")
 
     # 5. Rotas principais (opcional)
     @app.route('/')
     def home():
         return "🚀 Servidor Global Arena - API (Refatorado com Classes)", 200
 
+    # 🔍 Rota de status do matchmaking (monitoramento)
+    @app.route('/status')
+    def status():
+        return jsonify({
+            "mundos_no_pool": world_pool.quantidade_total(),
+            "vagas_disponiveis": world_pool.quantidade_vagas(),
+            "partidas_ativas": len(matchmaking_service.salas)
+        })
+
     return app
+
 
 # Para execução direta (ex: python server/app.py)
 if __name__ == '__main__':
@@ -1046,6 +1109,7 @@ if __name__ == '__main__':
     print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
     print("📄 Endpoints disponíveis:")
     print("   GET  /                        - Status do servidor")
+    print("   GET  /status                  - Status do matchmaking e pool de mundos")
     print("   GET  /auth/teste_dynamodb     - Teste de conexão com DynamoDB")
     print("   POST /jogo/entrar             - Entrar na fila de jogo online (novo)")
     print("-" * 40)
@@ -1519,20 +1583,119 @@ if __name__ == "__main__":
     sys.exit(app.exec())
 
 ================================================================================
+📄 server/services/matchmaking_service.py
+================================================================================
+# server/services/matchmaking_service.py
+from typing import List, Optional, Callable
+import threading
+from shared.world import Mundo
+from server.services.world_pool import MundoPoolService  # ✅ Injeção de dependência
+
+class SalaDeEspera:
+    def __init__(self, mundo: Mundo, callback: Callable[[List[str]], None]):
+        self.mundo = mundo
+        self.vagas = len(mundo.planeta.capitais_players)  # ✅ Vagas definidas pelo mundo
+        self.jogadores = []
+        self.lock = threading.Lock()
+        self.callback = callback
+
+    def adicionar_jogador(self, username: str) -> str:
+        with self.lock:
+            if username in self.jogadores:
+                return f"Erro ao entrar na fila: {username} já está na sala."
+            if len(self.jogadores) >= self.vagas:
+                return "Erro ao entrar na fila: sala cheia."
+
+            self.jogadores.append(username)
+
+            if len(self.jogadores) == self.vagas:
+                self.callback(self.jogadores.copy())
+
+            return f"{username} entrou na sala {self.mundo.id_mundo} ({len(self.jogadores)}/{self.vagas})"
+
+    def esta_cheia(self) -> bool:
+        with self.lock:
+            return len(self.jogadores) >= self.vagas
+
+    def tamanho(self) -> int:
+        with self.lock:
+            return len(self.jogadores)
+
+
+class MatchmakingService:
+    """
+    Matchmaking baseado em MUNDOS PRÉ-CRIADOS fornecidos pelo WorldPoolService.
+    O MatchmakingService não cria mundos — apenas aloca jogadores.
+    """
+    def __init__(self, world_pool: MundoPoolService):
+        self.world_pool = world_pool
+        self.salas: List[SalaDeEspera] = []  # Salas ativas com vagas
+        self.lock = threading.Lock()
+        self.partida_iniciada_callback: Optional[Callable[[List[str]], None]] = None
+
+    def _on_partida_cheia(self, jogadores: List[str]):
+        """Callback interno chamado quando uma sala enche."""
+        if self.partida_iniciada_callback:
+            self.partida_iniciada_callback(jogadores)
+
+    def entrar_na_fila(self, username: str) -> str:
+        """
+        1. Obtém um mundo com vaga do WorldPoolService.
+        2. Associa o jogador a esse mundo (cria ou entra em sala).
+        3. Registra ocupação no pool.
+        """
+        with self.lock:
+            # 1. Obter um mundo com vaga disponível
+            mundo = self.world_pool.obter_mundo_com_vaga()
+            if not mundo:
+                return f"Erro ao entrar na fila: nenhum mundo disponível para {username}."
+
+            # 2. Verificar se já existe uma sala para esse mundo
+            sala_existente = next((s for s in self.salas if s.mundo.id_mundo == mundo.id_mundo), None)
+
+            if sala_existente:
+                mensagem = sala_existente.adicionar_jogador(username)
+            else:
+                # Criar nova sala para esse mundo
+                nova_sala = SalaDeEspera(mundo=mundo, callback=self._on_partida_cheia)
+                self.salas.append(nova_sala)
+                mensagem = nova_sala.adicionar_jogador(username)
+
+            # 3. Registrar no pool que o jogador ocupou uma vaga
+            if "Erro" not in mensagem:
+                self.world_pool.registrar_jogador_no_mundo(username, mundo)
+
+            print(mensagem)
+            return mensagem
+
+================================================================================
 📄 server/services/queue_service.py
 ================================================================================
 # server/services/queue_service.py
+"""
+Serviço de fila de espera para matchmaking online.
+Gerencia a entrada de jogadores e formação de partidas quando há 4+ jogadores.
+"""
+
 import threading
+from typing import Optional, Callable
+
 
 class FilaService:
+    """
+    Serviço responsável por gerenciar a fila de jogadores online.
+    Forma partidas automaticamente quando 4 jogadores estão na fila.
+    """
+
     def __init__(self):
         self.fila = []
         self.lock = threading.Lock()
-        self.partida_iniciada_callback = None  # Para notificar quando uma partida é formada
+        self.partida_iniciada_callback: Optional[Callable[[list], None]] = None
 
     def adicionar_jogador(self, username: str) -> bool:
         with self.lock:
             if username in self.fila:
+                print(f"⚠️ '{username}' já está na fila. Bloqueado.")
                 return False
             self.fila.append(username)
             print(f"📥 Jogador '{username}' adicionado à fila. Total: {len(self.fila)}")
@@ -1540,18 +1703,27 @@ class FilaService:
             return True
 
     def remover_jogador(self, username: str):
+        """
+        Remove um jogador da fila, se estiver presente.
+        """
         with self.lock:
             if username in self.fila:
                 self.fila.remove(username)
                 print(f"📤 Jogador '{username}' removido da fila.")
 
     def _tentar_formar_partida(self):
-        """Quando tiver 4+ jogadores, inicia uma partida."""
-        if len(self.fila) >= 4:
-            partida = [self.fila.pop(0) for _ in range(4)]
-            print(f"🎉 Partida iniciada com: {partida}")
-            if self.partida_iniciada_callback:
-                self.partida_iniciada_callback(partida)
+        with self.lock:
+            print(f"🔍 Verificando formação de partida. Fila atual: {self.fila} (total: {len(self.fila)})")  # ← Novo log
+            if len(self.fila) >= 4:
+                partida = [self.fila.pop(0) for _ in range(4)]
+                print(f"🎉 Partida formada com: {partida}")
+                if self.partida_iniciada_callback:
+                    try:
+                        self.partida_iniciada_callback(partida)
+                    except Exception as e:
+                        print(f"❌ Erro ao executar partida_iniciada_callback: {e}")
+                else:
+                    print("ℹ️ Nenhum callback configurado.")
 
 ================================================================================
 📄 server/services/user_service.py
@@ -1676,23 +1848,144 @@ class UserService:
 
 
 ================================================================================
+📄 server/services/world_pool.py
+================================================================================
+# server/services/world_pool.py
+from typing import List, Optional, Dict
+import threading
+from shared.world import Mundo
+from server.manager import Gerenciador
+
+
+class MundoPoolService:
+    """
+    Gerencia um pool de mundos pré-criados com vagas disponíveis.
+    Evita que o MatchmakingService crie mundos diretamente.
+    """
+    def __init__(
+        self,
+        gerenciador: Gerenciador,
+        fator: int = 4,
+        bioma: str = "Meadow",
+        tamanho_inicial: int = 3,
+        max_mundos: int = 10
+    ):
+        self.gerenciador = gerenciador
+        self.fator = fator
+        self.bioma = bioma
+        self.tamanho_inicial = tamanho_inicial
+        self.max_mundos = max_mundos
+        self.mundos_com_vaga: List[Mundo] = []  # Mundos com pelo menos uma vaga
+        self.jogadores_por_mundo: Dict[str, List[str]] = {}  # id_mundo → [user1, user2, ...]
+        self.lock = threading.Lock()
+        self._inicializar_pool()
+
+    def _inicializar_pool(self):
+        """Cria mundos iniciais no pool."""
+        for _ in range(self.tamanho_inicial):
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                fator=self.fator,
+                bioma=self.bioma,
+                bucket_name="global-arena-tiles",
+                s3_prefix="planetas/"
+            )
+            if sucesso and mundo:
+                self.mundos_com_vaga.append(mundo)
+                self.jogadores_por_mundo[mundo.id_mundo] = []
+
+    def obter_mundo_com_vaga(self) -> Optional[Mundo]:
+        """
+        Retorna um mundo com vaga disponível.
+        Se não houver, tenta criar um novo (se abaixo do limite).
+        """
+        with self.lock:
+            # Procurar mundo com vaga
+            for mundo in self.mundos_com_vaga:
+                ocupadas = len(self.jogadores_por_mundo[mundo.id_mundo])
+                vagas = len(mundo.planeta.capitais_players) - ocupadas
+                if vagas > 0:
+                    return mundo
+
+            # Nenhum com vaga → criar novo, se possível
+            if len(self.mundos_com_vaga) < self.max_mundos:
+                sucesso, novo_mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                    fator=self.fator,
+                    bioma=self.bioma,
+                    bucket_name="global-arena-tiles",
+                    s3_prefix="planetas/"
+                )
+                if sucesso and novo_mundo:
+                    self.mundos_com_vaga.append(novo_mundo)
+                    self.jogadores_por_mundo[novo_mundo.id_mundo] = []
+                    return novo_mundo
+
+            return None  # Sem mundos disponíveis
+
+    def registrar_jogador_no_mundo(self, username: str, mundo: Mundo):
+        """
+        Marca que um jogador está ocupando uma vaga nesse mundo.
+        Quando todas as vagas forem preenchidas, o mundo é removido do pool.
+        """
+        with self.lock:
+            lista = self.jogadores_por_mundo[mundo.id_mundo]
+            if username not in lista:
+                lista.append(username)
+
+            # Se não houver mais vagas, remover do pool
+            vagas_restantes = len(mundo.planeta.capitais_players) - len(lista)
+            if vagas_restantes <= 0:
+                if mundo in self.mundos_com_vaga:
+                    self.mundos_com_vaga.remove(mundo)
+
+    def quantidade_total(self) -> int:
+        """Retorna número total de mundos no pool (com ou sem vaga)."""
+        with self.lock:
+            return len(self.mundos_com_vaga)
+
+    def quantidade_vagas(self) -> int:
+        """Retorna número total de vagas disponíveis no pool."""
+        total = 0
+        with self.lock:
+            for mundo in self.mundos_com_vaga:
+                ocupadas = len(self.jogadores_por_mundo[mundo.id_mundo])
+                total += len(mundo.planeta.capitais_players) - ocupadas
+        return total
+
+    def reabastecer(self):
+        """Reabastece o pool até o tamanho inicial (útil para manutenção)."""
+        with self.lock:
+            while len(self.mundos_com_vaga) < self.tamanho_inicial and len(self.mundos_com_vaga) < self.max_mundos:
+                sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                    fator=self.fator,
+                    bioma=self.bioma,
+                    bucket_name="global-arena-tiles",
+                    s3_prefix="planetas/"
+                )
+                if sucesso and mundo:
+                    self.mundos_com_vaga.append(mundo)
+                    self.jogadores_por_mundo[mundo.id_mundo] = []
+
+================================================================================
 📄 server/routes/game.py
 ================================================================================
 # server/routes/game.py
 from flask import Blueprint, jsonify, request
 from server.services.user_service import UserService
-from server.services.queue_service import FilaService
+from server.services.matchmaking_service import MatchmakingService  # ✅ Substituído: agora usa MatchmakingService
+
 jogo_bp = Blueprint('jogo', __name__, url_prefix='/jogo')
 
 # Variável para injeção de dependência
 _user_service = None
-_fila_service = None
+_matchmaking_service = None  # ✅ Renomeado: _fila_service → _matchmaking_service
 
-def register_jogo_routes(user_service: UserService, fila_service: FilaService):
+
+def register_jogo_routes(user_service: UserService, matchmaking_service: MatchmakingService):
     """Função para injetar dependências no blueprint jogo."""
-    global _user_service, _fila_service
+    global _user_service, _matchmaking_service
     _user_service = user_service
-    _fila_service = fila_service
+    _matchmaking_service = matchmaking_service  # ✅ Injeta o novo serviço
+
 
 @jogo_bp.route('/entrar', methods=['POST'])
 def entrar_na_fila():
@@ -1701,25 +1994,37 @@ def entrar_na_fila():
 
     data = request.get_json()
     modo = data.get("modo")
+    username = data.get("username")
 
     if modo != "online":
         return jsonify({"success": False, "message": "Modo inválido. Use 'online'."}), 400
 
-    # Aqui você pode validar o usuário via token depois
-    username = data.get("username")
     if not username:
         return jsonify({"success": False, "message": "Username necessário."}), 400
 
-    # Simples validação de existência (opcional)
+    # ✅ Validar se o usuário existe
     usuario = _user_service.get_user(username)
     if not usuario:
         return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
 
-    # 🔮 Futuramente: adicionar à fila de matchmaking
+    # ✅ ADICIONAR À FILA DE MATCHMAKING
+    mensagem = _matchmaking_service.entrar_na_fila(username)
+
+    # O método retorna uma mensagem; sucesso se não contiver erro
+    if "Erro ao entrar na fila" in mensagem:
+        return jsonify({
+            "success": False,
+            "message": mensagem
+        }), 409
+
+    # ✅ Contagem total de jogadores em todas as salas ativas
+    total_na_fila = sum(len(sala.jogadores) for sala in _matchmaking_service.salas if sala.jogadores)
+
     return jsonify({
         "success": True,
-        "message": f"{username} entrou na fila de jogo online.",
-        "modo": modo
+        "message": mensagem,
+        "modo": modo,
+        "total_na_fila": total_na_fila
     }), 200
 
 ================================================================================
@@ -1769,11 +2074,15 @@ def register_routes(user_service):
     Deve ser chamada ANTES de registrar o blueprint no app.
     """
     global _user_service
+    print(f"📥 DEBUG: Injetando user_service: {user_service}")
     _user_service = user_service
 
     # Valida se o serviço foi injetado
     if not _user_service:
+        print("❌ ERRO GRAVE: user_service é None em register_routes!")
         raise RuntimeError("UserService não injetado em auth_bp.")
+    else:
+        print(f"✅ DEBUG: _user_service atribuído com sucesso: {_user_service}")
 
 
 # --- ENDPOINT: Teste de Conexão ---
@@ -1856,47 +2165,104 @@ def login():
     """
     Autentica um usuário.
     Expects: {"username": "str", "password": "str"}
-    Returns: {"success": bool, "message": str}
+    Returns: {"success": bool, "message": str, "token": str (opcional)}
     """
-    user_service = current_app.config.get('USER_SERVICE')
-    print(f"DEBUG: _user_service = {_user_service}")
-    if not request.is_json:
-        return jsonify({"success": False, "message": "JSON esperado."}), 400
+    print("🔍 DEBUG: Rota /auth/login foi chamada!")
 
-    data = request.get_json()
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
+    # Garantir acesso ao serviço injetado via register_routes
+    global _user_service
+    if not _user_service:
+        print("💥 ERRO: _user_service não foi injetado!")
+        return jsonify({
+            "success": False,
+            "message": "Erro interno do servidor."
+        }), 500
 
-    if not username:
-        return jsonify({"success": False, "message": "Username é obrigatório."}), 400
-    if not password:
-        return jsonify({"success": False, "message": "Senha é obrigatória."}), 400
-
-    # Buscar usuário
-    usuario = _user_service.get_user(username)
-    if not usuario:
-        return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
-
-    # Extrair hash da senha
-    password_hash_attr = usuario.get('password_hash')
-    if not password_hash_attr:
-        return jsonify({"success": False, "message": "Usuário sem senha."}), 500
-
-    # Suporta {'B': bytes} (DynamoDB) ou bytes direto
-    stored_hash = password_hash_attr.get('B') if isinstance(password_hash_attr, dict) else password_hash_attr
-    if not isinstance(stored_hash, bytes):
-        print(f"⚠️ Hash inesperado para '{username}': {type(stored_hash)}")
-        return jsonify({"success": False, "message": "Erro interno."}), 500
-
-    # Verificar senha
     try:
+        # 1. Validar formato da requisição
+        if not request.is_json:
+            print("❌ Requisição não é JSON")
+            return jsonify({
+                "success": False,
+                "message": "JSON esperado."
+            }), 400
+
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        print(f"🔐 Tentativa de login - username: {username}")
+
+        # 2. Validar campos obrigatórios
+        if not username:
+            print("⚠️ Username ausente")
+            return jsonify({
+                "success": False,
+                "message": "Username é obrigatório."
+            }), 400
+        if not password:
+            print("⚠️ Senha ausente")
+            return jsonify({
+                "success": False,
+                "message": "Senha é obrigatória."
+            }), 400
+
+        # 3. Buscar usuário no DynamoDB
+        usuario = _user_service.get_user(username)
+        if not usuario:
+            print(f"❌ Credenciais inválidas para '{username}'.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # 4. Extrair e validar hash da senha
+        password_hash_attr = usuario.get('password_hash')
+        if not password_hash_attr:
+            print(f"❌ Usuário '{username}' sem password_hash.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # Suporta formato DynamoDB {'B': bytes} ou bytes direto
+        stored_hash = password_hash_attr.get('B') if isinstance(password_hash_attr, dict) else password_hash_attr
+
+        if not isinstance(stored_hash, bytes):
+            print(f"⚠️ Hash inválido para '{username}': {type(stored_hash)}")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # 5. Verificar senha com bcrypt
         if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
-            return jsonify({"success": True, "message": "Login bem-sucedido."}), 200
+            print(f"✅ Login bem-sucedido para '{username}'.")
+
+            # 🔐 Gera um token fake para compatibilidade com o simulador
+            # (Futuro: substituir por JWT real)
+            fake_token = f"fake-jwt-{username}-{hash(username) % 10000}"
+
+            return jsonify({
+                "success": True,
+                "message": "Login bem-sucedido.",
+                "token": fake_token  # ← Adicionado para o simulador usar
+            }), 200
         else:
-            return jsonify({"success": False, "message": "Senha incorreta."}), 401
+            print(f"❌ Senha incorreta para '{username}'.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
     except Exception as e:
-        print(f"❌ Erro ao verificar senha: {e}")
-        return jsonify({"success": False, "message": "Erro ao processar autenticação."}), 500
+        print(f"💥 ERRO NÃO TRATADO em /auth/login: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": "Erro interno no servidor."
+        }), 500
 
 ================================================================================
 📄 client/main.py
@@ -4070,5 +4436,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 30 arquivos incluídos.
+✅ Total de 32 arquivos incluídos.
 ================================================================================

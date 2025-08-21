@@ -230,21 +230,34 @@ class Comandante:
                 nonlocal contador
                 try:
                     import requests
+                    print(f"🔄 [Comandante] Tentando login com: {usuario['username']}")  # ← Novo log
                     response = requests.post("http://localhost:5000/auth/login", json=usuario)
                     if response.status_code == 200:
                         token = response.json().get("token")
                         headers = {"Authorization": f"Bearer {token}"} if token else {}
-                        # ✅ Corrigido: agora envia o username
-                        requests.post(
+                        print(f"🔄 [Comandante] {usuario['username']} logado. Tentando entrar na fila...")  # ← Novo log
+
+                        # Chamada para /jogo/entrar
+                        response_entrar = requests.post(
                             "http://localhost:5000/jogo/entrar",
                             json={"modo": "online", "username": usuario["username"]},
                             headers=headers
                         )
-                        contador += 1
-                        if signals:
-                            signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
+
+                        # ✅ Log da resposta
+                        print(
+                            f"📨 Resposta de /jogo/entrar para {usuario['username']}: {response_entrar.status_code} - {response_entrar.text}")
+
+                        if response_entrar.status_code == 200:
+                            contador += 1
+                            if signals:
+                                signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
+                        else:
+                            print(f"❌ Falha ao entrar na fila: {response_entrar.text}")
+                    else:
+                        print(f"❌ Login falhou para {usuario['username']}: {response.text}")
+
                 except Exception as e:
-                    # ✅ Adicione log para depurar erros
                     print(f"❌ Erro ao processar {usuario['username']}: {e}")
                     if signals:
                         signals.error.emit(f"❌ Falha com {usuario['username']}")
