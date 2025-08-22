@@ -15,6 +15,7 @@ from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat, QFont
 from client.components.icon_manager import GerenciadorIconesEsquerda
 from client.dialogs.auth_dialog import DialogoAutenticacao
+from client.states.waiting_room import TelaSalaEspera
 
 
 # --- Componente OpenGL ---
@@ -179,6 +180,9 @@ class JanelaPrincipal(QMainWindow):
 
         # --- Verificar estado de login ANTES de criar os ícones ---
         self.usuario_logado = self._verificar_login()
+
+        # --- Controle do loop de renderização ---
+        self.loop_ativo = True  # Flag para evitar update() em widget deletado
 
         # --- Obter dimensões da tela para cálculos ---
         screen_geometry = self.screen().availableGeometry()
@@ -377,6 +381,30 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
+    def atualizar_logica(self):
+        """Atualiza a lógica do jogo e solicita redesenho do OpenGL."""
+        if not self.loop_ativo:
+            return  # Evita update() se o loop foi desativado
+
+        try:
+            if hasattr(self, 'opengl_widget') and self.opengl_widget:
+                self.opengl_widget.update()
+        except RuntimeError:
+            # Widget foi deletado — apenas pare o loop
+            self.parar_loop()
+
+    def parar_loop(self):
+        """Para o loop de atualização gráfica."""
+        self.loop_ativo = False
+        if self.timer:
+            self.timer.stop()
+
+    def reiniciar_loop(self):
+        """Reinicia o loop de atualização gráfica (útil ao voltar ao menu)."""
+        if not self.loop_ativo:
+            self.loop_ativo = True
+            self.timer.start(18)
+
     def _verificar_login(self):
         """Verifica se o usuário está logado (exemplo: arquivo session.txt existe)."""
         return os.path.exists("session.txt")
@@ -448,6 +476,9 @@ class JanelaPrincipal(QMainWindow):
         """Ação acionada pelo ícone de play: oferece modo offline ou online."""
         print("Ação: Ícone 'Play' clicado. Oferecendo modos de jogo...")
 
+        # ✅ PARAR O LOOP DE RENDERIZAÇÃO ANTES DE QUALQUER MUDANÇA DE TELA
+        self.parar_loop()
+
         modo_dialog = QDialog(self)
         modo_dialog.setWindowTitle("Modo de Jogo")
         modo_dialog.setModal(True)
@@ -468,17 +499,19 @@ class JanelaPrincipal(QMainWindow):
         modo_dialog.accepted.connect(lambda: None)  # Desativar aceitação automática
 
         def escolher_offline():
-            modo_dialog.reject()  # Fecha sem aceitar (para não disparar lógica de online)
+            modo_dialog.reject()  # Fecha sem aceitar
+            # Aqui você pode implementar modo offline depois
             self._ir_para_tela_pre_jogo(offline=True)
 
         def escolher_online():
-            modo_dialog.reject()  # Fecha o diálogo de modo, mas mantém o controle
+            modo_dialog.reject()  # Fecha o diálogo de modo
             if self.usuario_logado:
-                self._ir_para_tela_pre_jogo(offline=False)
+                self._entrar_na_fila()  # ✅ Chama /jogo/entrar e mostra sala de espera
             else:
                 # Abre o diálogo completo (login + registro)
                 self._abrir_dialogo_autenticacao_completo(
-                    success_callback=lambda u: self._ir_para_tela_pre_jogo(offline=False))
+                    success_callback=lambda u: self._entrar_na_fila()  # ✅ Aqui também
+                )
 
         btn_offline.clicked.connect(escolher_offline)
         btn_online.clicked.connect(escolher_online)
@@ -506,12 +539,10 @@ class JanelaPrincipal(QMainWindow):
         self._ir_para_tela_pre_jogo(offline=False)
 
     def _ir_para_tela_pre_jogo(self, offline: bool):
-        """Redireciona para a tela de pré-jogo (futura implementação)."""
-        modo = "Offline" if offline else "Online"
-        QMessageBox.information(self, "Pré-Jogo",
-                                f"Iniciando modo {modo}...\n(Tela de pré-jogo será implementada em breve.)")
-        # Futuro: Trocar para widget de pré-jogo
-        # Ex: self.setCentralWidget(TelaPreJogo(offline=offline, parent=self))
+        if offline:
+            QMessageBox.information(self, "Pré-Jogo", "Modo offline será implementado em breve.")
+        else:
+            self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
 
     def on_icone_sair(self):
         """Ação acionada pelo ícone de sair."""
@@ -652,6 +683,43 @@ class JanelaPrincipal(QMainWindow):
         buttons.rejected.connect(dialog.reject)
 
         dialog.exec()
+
+    def _entrar_na_fila(self):
+        """Tenta entrar na fila de matchmaking e mostra a tela de espera."""
+        print("📞 Chamando /jogo/entrar...")
+        try:
+            # Ler username da sessão
+            with open("session.txt", "r") as f:
+                username = f.read().strip()
+
+            # Chamar /jogo/entrar
+            response = requests.post(
+                "http://localhost:5000/jogo/entrar",
+                json={"modo": "online", "username": username}
+            )
+            data = response.json()
+
+            if data.get("success"):
+                # ✅ Sucesso: extrair max_jogadores da resposta
+                max_jogadores = data.get("max_jogadores", 4)  # Usa o valor do servidor, ou 4 como fallback
+
+                # Criar a tela de sala de espera com o número correto de jogadores
+                tela = TelaSalaEspera(username=username, max_jogadores=max_jogadores, parent=self)
+                self.setCentralWidget(tela)
+            else:
+                QMessageBox.critical(self, "Erro", data.get("message", "Falha ao entrar na fila."))
+        except FileNotFoundError:
+            QMessageBox.critical(self, "Erro", "Você não está logado.")
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
+
+    def on_partida_iniciada(self):
+        """Chamado pela TelaSalaEspera quando a partida começar."""
+        # Futuro: carregar o mundo, iniciar OpenGL, etc.
+        QMessageBox.information(self, "Jogo Iniciado", "A partida começou! O mundo será carregado em breve.")
+        # Aqui você vai chamar a tela do jogo ou iniciar a renderização
 
 
 # --- Ponto de Entrada da Aplicação ---

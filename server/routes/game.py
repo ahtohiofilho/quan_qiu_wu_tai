@@ -47,6 +47,19 @@ def entrar_na_fila():
             "message": mensagem
         }), 409
 
+    # ✅ Encontrar a sala onde o jogador foi alocado
+    sala_atual = None
+    for sala in _matchmaking_service.salas:
+        if username in sala.jogadores:
+            sala_atual = sala
+            break
+
+    if not sala_atual:
+        return jsonify({
+            "success": False,
+            "message": "Erro interno: jogador não encontrado em nenhuma sala."
+        }), 500
+
     # ✅ Contagem total de jogadores em todas as salas ativas
     total_na_fila = sum(len(sala.jogadores) for sala in _matchmaking_service.salas if sala.jogadores)
 
@@ -54,5 +67,6 @@ def entrar_na_fila():
         "success": True,
         "message": mensagem,
         "modo": modo,
-        "total_na_fila": total_na_fila
+        "total_na_fila": total_na_fila,
+        "max_jogadores": sala_atual.vagas  # ✅ Envia o limite da sala
     }), 200

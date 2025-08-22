@@ -1,6 +1,6 @@
 # sei_la_o_que.py
 
-from aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
+from server.integrations.aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
 
 def main():
     print("🚀 Iniciando aplicação...\n")

@@ -13,7 +13,6 @@ Comandos disponíveis:
 """
 
 import sys
-import os
 from pathlib import Path
 import argparse
 import signal
@@ -56,7 +55,7 @@ def main():
 
         elif args.command == 'interface':
             print("🔧 Abrindo interface de administração do servidor...")
-            from server.interface import Interface
+            from server.core.interface import Interface
             from PyQt6.QtWidgets import QApplication
             app = QApplication(sys.argv)
             window = Interface()
@@ -66,8 +65,8 @@ def main():
 
         elif args.command == 'init':
             print("🔧 Reinicializando infraestrutura AWS...")
-            from server.initializer import InicializadorAWS
-            from server.aws_loader import AWSLoader
+            from server.config.initializer import InicializadorAWS
+            from server.integrations.aws_loader import AWSLoader
             loader = AWSLoader(region_name='us-east-2')
             inicializador = InicializadorAWS(loader)
             sucesso = inicializador.inicializar(confirmar=True)
@@ -79,9 +78,9 @@ def main():
 
         elif args.command == 'create-world':
             print(f"🌍 Criando novo mundo com fator={args.fator}, bioma='{args.bioma}'...")
-            from server.commander import Comandante
-            from server.aws_loader import AWSLoader
-            from server.manager import Gerenciador
+            from server.core.commander import Comandante
+            from server.integrations.aws_loader import AWSLoader
+            from server.core.manager import Gerenciador
 
             loader = AWSLoader(region_name='us-east-2')
             gerenciador = Gerenciador(loader)  # ✅ Correto: Comandante precisa do Gerenciador
@@ -100,7 +99,7 @@ def main():
 
         elif args.command == 'test':
             print("🧪 Testando conexão com AWS...")
-            from server.aws_loader import AWSLoader
+            from server.integrations.aws_loader import AWSLoader
             loader = AWSLoader(region_name='us-east-2')
             try:
                 account = loader.get_account_info()
@@ -116,7 +115,7 @@ def main():
         elif args.command == 'simulador':
             print("🎮 Iniciando simulador de players online...")
             print("💡 Pressione Ctrl+C para encerrar a simulação.")
-            from server.simulador_players import simular_entrada_periodica
+            from server.core.simulador_players import simular_entrada_periodica
             try:
                 # Captura Ctrl+C de forma limpa
                 simular_entrada_periodica(intervalo_min=2, intervalo_max=8)

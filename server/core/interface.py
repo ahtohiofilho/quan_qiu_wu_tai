@@ -5,11 +5,11 @@ from PyQt6.QtWidgets import (
     QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
     QFileDialog, QTextEdit, QPushButton
 )
-from server.signals import WorkerSignals
+from server.config.signals import WorkerSignals
 from server.serialization import Serializador
-from server.manager import Gerenciador
-from server.aws_loader import AWSLoader
-from server.commander import Comandante
+from server.core.manager import Gerenciador
+from server.integrations.aws_loader import AWSLoader
+from server.core.commander import Comandante
 
 
 class Interface(QMainWindow):

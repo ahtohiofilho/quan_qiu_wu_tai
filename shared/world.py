@@ -8,8 +8,8 @@ from shared.province import Provincia
 
 
 class Mundo:
-    def __init__(self, fator=4, bioma='Meadow'):
-        self.id_mundo = str(uuid4())
+    def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
+        self.id_mundo = id_mundo or str(uuid4())
         ref = Referencias()
         random.shuffle(ref.culturas)
         lista_de_cores = list(ref.civs_cores.keys())

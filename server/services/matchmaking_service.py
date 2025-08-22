@@ -37,7 +37,7 @@ class SalaDeEspera:
 
 class MatchmakingService:
     """
-    Matchmaking baseado em MUNDOS PRÉ-CRIADOS fornecidos pelo WorldPoolService.
+    Matchmaking baseado em MUNDOS PRÉ-CRIADOS fornecidos pelo MundoPoolService.
     O MatchmakingService não cria mundos — apenas aloca jogadores.
     """
     def __init__(self, world_pool: MundoPoolService):
@@ -53,7 +53,7 @@ class MatchmakingService:
 
     def entrar_na_fila(self, username: str) -> str:
         """
-        1. Obtém um mundo com vaga do WorldPoolService.
+        1. Obtém um mundo com vaga do MundoPoolService.
         2. Associa o jogador a esse mundo (cria ou entra em sala).
         3. Registra ocupação no pool.
         """

@@ -1,14 +1,14 @@
 # server/app.py
 from flask import Flask, jsonify
-from server.config import config
-from server.extensions import ext
+from server.config.config import config
+from server.config.extensions import ext
 from server.services.user_service import UserService
 from server.routes.auth import auth_bp, register_routes
 from server.routes.game import jogo_bp, register_jogo_routes
 from server.services.matchmaking_service import MatchmakingService
 from server.services.world_pool import MundoPoolService  # ✅ Importe o novo serviço
-from server.aws_loader import AWSLoader
-from server.manager import Gerenciador
+from server.integrations.aws_loader import AWSLoader
+from server.core.manager import Gerenciador
 
 
 def create_app(config_name='default'):
@@ -30,7 +30,13 @@ def create_app(config_name='default'):
         profile_name=app.config.get('AWS_PROFILE_NAME'),
         region_name=app.config.get('AWS_REGION_NAME')
     )
-    gerenciador = Gerenciador(aws_loader)
+
+    # ✅ Passando o nome da tabela DynamoDB para o Gerenciador
+    gerenciador = Gerenciador(
+        aws_loader=aws_loader,
+        save_dir="saves",
+        dynamodb_table_name=app.config['DYNAMODB_TABLE_NAME']  # ← Correção essencial
+    )
 
     # --- 🔹 World Pool: Gerencia mundos pré-criados ---
     world_pool = MundoPoolService(
@@ -58,7 +64,9 @@ def create_app(config_name='default'):
     # ✅ Registra o callback no novo serviço
     matchmaking_service.partida_iniciada_callback = partida_formada
 
+    # Armazena serviços no app.config para acesso futuro, se necessário
     app.config['USER_SERVICE'] = user_service
+    app.config['MATCHMAKING_SERVICE'] = matchmaking_service
 
     # 4. Registra os Blueprints e injeta dependências
     print("📋 DEBUG: Iniciando injeção de dependências e registro de blueprints...")
@@ -84,6 +92,8 @@ def create_app(config_name='default'):
     @app.route('/status')
     def status():
         return jsonify({
+            "success": True,
+            "total_na_fila": world_pool.total_jogadores_na_fila(),  # ✅ Agora existe
             "mundos_no_pool": world_pool.quantidade_total(),
             "vagas_disponiveis": world_pool.quantidade_vagas(),
             "partidas_ativas": len(matchmaking_service.salas)

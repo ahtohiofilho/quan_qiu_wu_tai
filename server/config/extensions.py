@@ -1,5 +1,5 @@
 # server/extensions.py
-from server.aws_loader import AWSLoader
+from server.integrations.aws_loader import AWSLoader
 
 class Extensions:
     def __init__(self):

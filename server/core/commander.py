@@ -5,9 +5,9 @@ import time
 import uuid
 import random
 from typing import Callable, Optional
-from server.signals import WorkerSignals
-from server.manager import Gerenciador
-from server.initializer import InicializadorAWS
+from server.config.signals import WorkerSignals
+from server.core.manager import Gerenciador
+from server.config.initializer import InicializadorAWS
 
 
 class Comando:

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from server.serialization import Serializador
-from server.aws_loader import AWSLoader
+from server.integrations.aws_loader import AWSLoader
 from shared.world import Mundo
 
 
@@ -15,10 +15,14 @@ class Gerenciador:
     Nada é salvo localmente.
     """
 
-    def __init__(self, aws_loader: AWSLoader, save_dir: str = "saves"):
+    def __init__(self,
+                 aws_loader: AWSLoader,
+                 save_dir: str = "saves",
+                 dynamodb_table_name: str = "GlobalArena"):  # ✅ Adicione o parâmetro
         self.aws_loader = aws_loader
         self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(exist_ok=True)  # Mantido para compatibilidade futura
+        self.save_dir.mkdir(exist_ok=True)
+        self.dynamodb_table_name = dynamodb_table_name  # ✅ Armazena o nome da tabela
 
     # server/manager.py
 

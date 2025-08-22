@@ -8,10 +8,8 @@ Módulo para inicializar ou reinicializar a infraestrutura AWS:
 Pode ser executado como script: python server/inicializador.py
 """
 
-import boto3
 from botocore.exceptions import ClientError
-from typing import Dict
-from server.aws_loader import AWSLoader
+from server.integrations.aws_loader import AWSLoader
 
 
 class InicializadorAWS:
