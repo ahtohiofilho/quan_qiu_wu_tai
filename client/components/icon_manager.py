@@ -254,3 +254,13 @@ class GerenciadorIconesEsquerda(QWidget):
             self.icones[identificador].carregar_icone(novo_caminho)
         else:
             print(f"⚠️ GerenciadorIconesEsquerda: Ícone '{identificador}' não encontrado para atualizar.")
+
+    def remover_status_sala(self):
+        """Remove o widget de status da sala da barra lateral, se existir."""
+        if hasattr(self, 'widget_status_sala') and self.widget_status_sala is not None:
+            layout = self.container.layout()
+            if layout is not None and self.widget_status_sala in layout:
+                layout.removeWidget(self.widget_status_sala)
+            self.widget_status_sala.deleteLater()
+            self.widget_status_sala = None
+            print("🗑️ Widget de status da sala removido da barra lateral.")

@@ -5,19 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/client/widgets/status_room.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/client/widgets/waiting_room_overlay.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/client/widgets/game_placeholder.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/components/icon_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/components/icon_manager.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/states/waiting_room.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/states/waiting_room.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/consolidar.py" beforeDir="false" afterPath="$PROJECT_DIR$/consolidar.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/routes/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/routes/game.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/services/matchmaking_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/services/matchmaking_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/services/user_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/services/user_service.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/session.txt" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -34,18 +28,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "ahtohiofilho"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;ahtohiofilho&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "git@github.com:ahtohiofilho/quan_qiu_wu_tai.git",
-    "accountId": "91690007-74cb-425b-a72c-a4e56e881f77"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;git@github.com:ahtohiofilho/quan_qiu_wu_tai.git&quot;,
+    &quot;accountId&quot;: &quot;91690007-74cb-425b-a72c-a4e56e881f77&quot;
   }
-}]]></component>
+}</component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
   </component>

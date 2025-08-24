@@ -4,12 +4,12 @@ from pathlib import Path
 
 # ⚙️ CONFIGURAÇÕES
 PROJECT_ROOT = "."                   # Diretório raiz do projeto
-OUTPUT_FILE = "scripts.txt" # Nome do arquivo de saída
+OUTPUT_FILE = "scripts.txt"          # Nome do arquivo de saída
 FILE_EXTENSIONS = {".py"}            # Extensões incluídas no conteúdo
 INCLUDE_DIRS = [
     "server",
     "client",
-    #"shared"
+    "shared"
 ]  # Diretórios principais a varrer
 EXCLUDE_FILES = {
     "consolidar.py",
@@ -25,7 +25,9 @@ EXCLUDE_FILES = {
     "build",
     "flags",
     "naming",
-    "__init__"
+    "__init__",
+    ".png",
+    ".json"
 }  # Nomes ou substrings para ignorar
 
 # Cabeçalho do arquivo gerado

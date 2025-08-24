@@ -95,3 +95,43 @@ def sair_da_fila():
             "success": False,
             "message": "Você não estava na fila."
         }), 400
+
+@jogo_bp.route('/limpar_usuario', methods=['POST'])
+def limpar_usuario():
+    """Remove o jogador de qualquer fila ou sala, mesmo que não esteja na fila."""
+    if not request.is_json:
+        return jsonify({"success": False, "message": "JSON esperado"}), 400
+    data = request.get_json()
+    username = data.get("username")
+    if not username:
+        return jsonify({"success": False, "message": "Username necessário"}), 400
+
+    # Tenta remover da fila (não importa se já saiu, só garante o cleanup)
+    _matchmaking_service.sair_da_fila(username)
+
+    return jsonify({"success": True, "message": f"Estado de {username} limpo."}), 200
+
+
+@jogo_bp.route('/status', methods=['GET'])
+def status():
+    """Retorna o status do jogador: se está na fila ou em partida."""
+    username = request.args.get("username")
+    if not username:
+        return jsonify({"error": "Username necessário"}), 400
+
+    # Verificar se está na fila
+    em_fila = any(username in sala.jogadores for sala in _matchmaking_service.salas)
+
+    # Verificar se está em partida (você pode ter um serviço de "partidas ativas")
+    # Por enquanto, assumimos que se está na fila e a partida iniciou, está em partida
+    em_partida = False
+    for sala in _matchmaking_service.salas:
+        if username in sala.jogadores and len(sala.jogadores) >= 4:
+            em_partida = True
+            break
+
+    return jsonify({
+        "em_fila": em_fila,
+        "em_partida": em_partida,
+        "total_na_fila": sum(len(s.jogadores) for s in _matchmaking_service.salas)
+    })

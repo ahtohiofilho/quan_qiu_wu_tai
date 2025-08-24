@@ -16,6 +16,7 @@ from PyQt6.QtGui import QSurfaceFormat, QFont
 from client.components.icon_manager import GerenciadorIconesEsquerda
 from client.dialogs.auth_dialog import DialogoAutenticacao
 from client.widgets.waiting_room_overlay import WaitingRoomOverlay
+from client.widgets.game_placeholder import GamePlaceholder
 
 # --- Componente OpenGL ---
 class MeuOpenGLWidget(QOpenGLWidget):
@@ -388,6 +389,7 @@ class JanelaPrincipal(QMainWindow):
         # --- Inicializar variáveis de estado ---
         self.overlay_sala = None
         self.polling_timer = None
+        self.game_placeholder = None
 
         # --- Debug final ---
         print("✅ Janela exibida. Overlay forçado a aparecer.")
@@ -396,41 +398,82 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
     def _mostrar_dialogo_modos(self):
-        """Shows the dialog to choose between Offline and Online mode."""
+        """Exibe um diálogo para escolher entre modo Offline e Online."""
+        # Evita múltiplas aberturas do diálogo
+        if hasattr(self, '_modo_dialog_aberto') and self._modo_dialog_aberto:
+            return
+        self._modo_dialog_aberto = True
+
         modo_dialog = QDialog(self)
-        modo_dialog.setWindowTitle("Game Mode")
+        modo_dialog.setWindowTitle("Modo de Jogo")
         modo_dialog.setModal(True)
         modo_dialog.resize(300, 150)
+        modo_dialog.setStyleSheet("""
+            QDialog {
+                background-color: #2c3e50;
+                font-family: Arial;
+            }
+            QLabel {
+                color: #ecf0f1;
+                font-size: 14px;
+                margin-bottom: 15px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
 
         layout = QVBoxLayout()
-        layout.addWidget(QLabel("Choose game mode:"))
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        btn_offline = QPushButton("Offline")
-        btn_online = QPushButton("Online")
+        # Título
+        label = QLabel("Selecione o modo de jogo:")
+        layout.addWidget(label)
+
+        # Botões
+        btn_offline = QPushButton("🎮 Offline")
+        btn_online = QPushButton("🌐 Online")
 
         layout.addWidget(btn_offline)
         layout.addWidget(btn_online)
+
         modo_dialog.setLayout(layout)
 
-        # Prevent automatic acceptance
+        # Prevenir aceitação automática
         modo_dialog.accepted.connect(lambda: None)
 
         def escolher_offline():
             modo_dialog.reject()
+            self._modo_dialog_aberto = False
             self._ir_para_tela_pre_jogo(offline=True)
 
         def escolher_online():
             modo_dialog.reject()
+            self._modo_dialog_aberto = False
             if self.usuario_logado:
                 self._entrar_na_fila()
             else:
-                # ✅ Open login with callback to enter queue after login
+                # Abre o diálogo de login e entra na fila após sucesso
                 self._abrir_dialogo_autenticacao_completo(
-                    success_callback=lambda u: self._entrar_na_fila()
+                    success_callback=lambda username: self._entrar_na_fila()
                 )
 
+        # Conectar botões
         btn_offline.clicked.connect(escolher_offline)
         btn_online.clicked.connect(escolher_online)
+
+        # Limpar flag se o diálogo for fechado de outra forma (ex: ESC)
+        modo_dialog.finished.connect(lambda: setattr(self, '_modo_dialog_aberto', False))
 
         modo_dialog.exec()
 
@@ -544,34 +587,59 @@ class JanelaPrincipal(QMainWindow):
         """Action triggered by the 'Play' icon: checks state and offers offline or online mode."""
         print("Action: 'Play' icon clicked. Checking state...")
 
-        # ✅ Stop render loop before any UI change
+        # ✅ Stop render loop before any UI changes
         self.parar_loop()
 
         try:
-            # ✅ 1. Check if user is already in the queue
-            response = requests.get("http://localhost:5000/status", timeout=3)
+            # ✅ 1. Verificar se o usuário está em uma partida ativa ou na fila
+            username = self._ler_username()
+            if not username:
+                # Se não está logado, vai direto para o diálogo de escolha + login
+                self._mostrar_dialogo_modos()
+                return
+
+            response = requests.get("http://localhost:5000/jogo/status",
+                                    json={"username": username},
+                                    timeout=3)
+
             if response.status_code == 200:
                 data = response.json()
-                username = ""
-                try:
-                    with open("session.txt", "r") as f:
-                        username = f.read().strip()
-                except:
-                    pass  # Not logged in
+                em_partida = data.get("em_partida", False)
+                em_fila = data.get("em_fila", False)
 
-                # If user is logged in and already in queue
-                if username and data.get("fila", {}).get(username):
-                    max_jogadores = data.get("max_jogadores", 4)
-                    print(f"🔄 {username} is already in the queue. Showing overlay directly.")
-                    self._mostrar_overlay_sala_espera(username, max_jogadores)
-                    return  # Skip dialog — already in queue
+                if em_partida or em_fila:
+                    # ✅ Perguntar se quer retomar
+                    msg = (
+                        "Você foi encontrado em uma partida ativa ou na fila.\n\n"
+                        "Deseja:\n"
+                        " • 'Sim' para retomar a partida atual\n"
+                        " • 'Não' para sair e escolher um novo modo"
+                    )
+                    reply = QMessageBox.question(
+                        self,
+                        "Partida Detectada",
+                        msg,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
 
-            # ✅ 2. If not in queue, show mode selection dialog
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.mostrar_tela_jogo()
+                        return
+                    else:
+                        # Forçar saída
+                        requests.post("http://localhost:5000/jogo/sair",
+                                      json={"username": username})
+
+            # ✅ 2. Mostrar diálogo de escolha (offline/online)
             self._mostrar_dialogo_modos()
 
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
+            # Mesmo com erro, mostre o diálogo de modos
+            self._mostrar_dialogo_modos()
         except Exception as e:
-            print(f"❌ Failed to check status: {e}")
-            # If server is down or error, show dialog anyway
+            QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
+            print(f"❌ Erro em on_icone_play: {e}")
             self._mostrar_dialogo_modos()
 
     def _iniciar_offline(self, escolha, dialog):
@@ -596,7 +664,7 @@ class JanelaPrincipal(QMainWindow):
 
     def _ir_para_tela_pre_jogo(self, offline: bool):
         if offline:
-            QMessageBox.information(self, "Pré-Jogo", "Modo offline será implementado em breve.")
+            QMessageBox.information(self, "Pre-Game Lobby", "Offline Mode Coming Soon.")
         else:
             self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
 
@@ -774,17 +842,49 @@ class JanelaPrincipal(QMainWindow):
         dialog.exec()
 
     def _entrar_na_fila(self):
-        """Tenta entrar na fila de matchmaking e mostra a tela de espera como overlay."""
+        """Tenta entrar na fila de matchmaking e mostra a tela de espera como overlay.
+        Garante limpeza proativa de estado anterior (servidor e cliente).
+        """
         print("📞 Chamando /jogo/entrar...")
 
+        # ✅ Evita múltiplas execuções simultâneas
         if hasattr(self, 'entrando_na_fila') and self.entrando_na_fila:
+            print("⚠️ Já está entrando na fila. Operação ignorada.")
             return
         self.entrando_na_fila = True
 
+        username = None
         try:
+            # 1. Ler o username
             with open("session.txt", "r") as f:
                 username = f.read().strip()
+            if not username:
+                raise FileNotFoundError("Arquivo de sessão vazio.")
 
+            # 2. ✅ Limpeza proativa no servidor: força saída e limpa estado
+            try:
+                requests.post(
+                    "http://localhost:5000/jogo/limpar_usuario",
+                    json={"username": username},
+                    timeout=3
+                )
+                print(f"🧹 Estado do usuário '{username}' limpo no servidor.")
+            except Exception as e:
+                print(f"⚠️ Falha ao limpar estado no servidor (servidor offline?): {e}")
+                # Continua mesmo assim — pode ser um teste local
+
+            # 3. ✅ Limpeza local: parar polling e remover overlays
+            if hasattr(self, 'polling_timer') and self.polling_timer:
+                self.polling_timer.stop()
+                self.polling_timer.deleteLater()
+                self.polling_timer = None
+
+            # 4. ✅ Forçar remoção do overlay existente
+            if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                self._esconder_overlay_sala_espera()
+            self.overlay_sala = None  # Garante que será recriado
+
+            # 5. ✅ Entrar na fila
             response = requests.post(
                 "http://localhost:5000/jogo/entrar",
                 json={"modo": "online", "username": username},
@@ -795,20 +895,13 @@ class JanelaPrincipal(QMainWindow):
             if data.get("success"):
                 max_jogadores = data.get("max_jogadores", 4)
 
-                # Remover overlay anterior, se existir
-                if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-                    layout = self.opengl_container.layout()
-                    if layout is not None and self.overlay_sala in layout:
-                        layout.removeWidget(self.overlay_sala)
-                    self.overlay_sala.deleteLater()
-                    self.overlay_sala = None
-
-                # ✅ Mostrar overlay central
+                # 6. ✅ Mostrar overlay da sala de espera
                 self._mostrar_overlay_sala_espera(username, max_jogadores)
 
-                # ✅ Iniciar polling para atualizar o status
+                # 7. ✅ Iniciar polling para atualizar status
                 self._iniciar_polling_sala()
 
+                print(f"✅ {username} entrou na fila. Overlay exibido.")
             else:
                 QMessageBox.critical(self, "Erro", data.get("message", "Falha ao entrar na fila."))
 
@@ -825,19 +918,68 @@ class JanelaPrincipal(QMainWindow):
             self.entrando_na_fila = False
 
     def on_partida_iniciada(self):
-        """Chamado quando a partida começa."""
-        # ✅ Remove o widget da barra esquerda
-        self.gerenciador_icones.remover_status_sala()
+        """Chamado quando a partida começa.
+        Realiza limpeza completa de UI e prepara a transição para o modo de jogo.
+        """
+        print("🎮 Partida iniciada: removendo overlays, status e parando polling...")
 
-        # ✅ Aqui você pode carregar o mundo OpenGL, iniciar o jogo, etc.
-        QMessageBox.information(self, "Game Started", "Loading Planet...")
+        # 1. Remover o widget de status da barra lateral (se existir)
+        try:
+            if hasattr(self, 'gerenciador_icones') and self.gerenciador_icones:
+                self.gerenciador_icones.remover_status_sala()
+                print("🗑️ Widget de status da sala removido da barra esquerda.")
+        except Exception as e:
+            print(f"⚠️ Falha ao remover status da sala: {e}")
+
+        # 2. Esconder e remover o overlay da sala de espera (se existir)
+        try:
+            if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                # Usa o mecanismo de fade_out do overlay, se disponível
+                if hasattr(self.overlay_sala, 'fade_out'):
+                    self.overlay_sala.fade_out()
+                    # Após a animação, esconde e remove
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(300, self._esconder_overlay_sala_espera)
+                else:
+                    self._esconder_overlay_sala_espera()
+                print("🎨 Overlay da sala de espera removido com sucesso.")
+        except Exception as e:
+            print(f"⚠️ Falha ao esconder overlay da sala: {e}")
+
+        # 3. Parar o polling de status (evita chamadas desnecessárias)
+        try:
+            if hasattr(self, 'polling_timer') and self.polling_timer:
+                self.polling_timer.stop()
+                self.polling_timer.deleteLater()
+                self.polling_timer = None
+                print("⏸️ Polling de status da sala interrompido.")
+        except Exception as e:
+            print(f"⚠️ Falha ao parar o polling: {e}")
+
+        # 4. Placeholder: exibir mensagem de partida iniciada
+        try:
+            # ✅ Compatível com o código atual
+            QMessageBox.information(self, "Game Started", "Loading Planet...")
+            print("🟢 Placeholder de partida exibido: 'Loading Planet...'")
+
+            # ✅ Opcional: ativar modo de jogo no OpenGL (se implementado futuramente)
+            if hasattr(self, 'opengl_widget') and self.opengl_widget:
+                # Se no futuro você adicionar o método:
+                # self.opengl_widget.ativar_modo_jogo()
+                # Por enquanto, forçar atualização
+                self.opengl_widget.update()
+        except Exception as e:
+            print(f"⚠️ Falha ao exibir tela de jogo: {e}")
+
+        # 5. Mensagem final de sucesso
+        print("✅ Transição para partida concluída com sucesso.")
 
     def _mostrar_overlay_sala_espera(self, username: str, max_jogadores: int):
         """
         Mostra o overlay da sala de espera como sobreposição flutuante sobre o OpenGL,
         substituindo o 'Welcome to Global Arena', sem afetar o layout do OpenGL.
         """
-        # 1. Se já existe um overlay da sala, remova-o
+        # 1. Se já existe um overlay da sala, remova-o corretamente
         if self.overlay_sala is not None:
             self._esconder_overlay_sala_espera()
 
@@ -845,17 +987,25 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_widget.hide()
 
         # 3. Criar o novo overlay da sala de espera
-        self.overlay_sala = WaitingRoomOverlay(username, max_jogadores, parent=self.opengl_container)
+        try:
+            self.overlay_sala = WaitingRoomOverlay(username, max_jogadores, parent=self.opengl_container)
+        except Exception as e:
+            print(f"❌ Falha ao criar WaitingRoomOverlay: {e}")
+            self.overlay_widget.show()  # Restaura se falhar
+            return
 
-        # 4. Ajustar posição e tamanho com base no container
+        # 4. Adicionar como widget filho direto (sem usar layout) → evita interferência no OpenGL
+        self.overlay_sala.setParent(self.opengl_container)
+        self.overlay_sala.hide()  # Inicialmente oculto para ajustar posição primeiro
+
+        # 5. Ajustar posição e tamanho com base no container (será refinado após renderização)
         self._ajustar_overlay_sala()
 
-        # 5. Adicionar como widget filho direto (sem layout) → EVITA redimensionar o OpenGL
-        self.overlay_sala.setParent(self.opengl_container)
+        # 6. Exibir o overlay
         self.overlay_sala.show()
         self.overlay_sala.raise_()  # Garante que fique na frente
 
-        # 6. Conectar o botão Cancelar com a lógica de saída
+        # 7. Conectar o botão Cancelar com a lógica de saída
         def on_cancel():
             try:
                 import requests
@@ -871,33 +1021,60 @@ class JanelaPrincipal(QMainWindow):
                 # Sempre esconder o overlay após tentar sair
                 self._esconder_overlay_sala_espera()
 
-        # Conectar o callback ao botão
+        # Conectar o callback ao botão Cancelar
         self.overlay_sala.connect_cancel(on_cancel)
 
-    def _esconder_overlay_sala_espera(self):
-        """Remove o overlay da sala e restaura o 'Welcome to'."""
-        if self.overlay_sala is not None:
-            self.overlay_sala.deleteLater()
-            self.overlay_sala = None
+        # 8. 👉 Garantir posicionamento pós-renderização (evita geometria 0x0)
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(30, self._ajustar_overlay_sala)
+        QTimer.singleShot(60, lambda: self.overlay_sala.raise_() if self.overlay_sala else None)
 
-        # ✅ Restaurar o overlay de boas-vindas
-        if self.overlay_widget:
-            self.overlay_widget.show()
-            self.overlay_widget.raise_()
+    def _esconder_overlay_sala_espera(self):
+        """Remove o overlay da sala de espera e limpa a referência."""
+        if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+            # Parar timer do overlay
+            if hasattr(self.overlay_sala, 'timer') and self.overlay_sala.timer:
+                self.overlay_sala.timer.stop()
+
+            # Remover do layout e deletar
+            self.overlay_sala.setParent(None)
+            self.overlay_sala.deleteLater()
+            self.overlay_sala = None  # 👈 Muito importante!
+            print("🎨 Overlay da sala de espera removido e referência limpa.")
 
     def _ajustar_overlay_sala(self):
-        """Ajusta posição e tamanho do overlay da sala de espera."""
+        """Ajusta posição e tamanho do overlay da sala de espera, garantindo centralização e responsividade.
+        Protegido contra chamadas prematuras (ex: geometria 0x0)."""
         if not self.overlay_sala or not self.opengl_container:
             return
 
         container_rect = self.opengl_container.rect()
-        width = min(500, container_rect.width() - 60)  # Largura responsiva
-        height = 300  # Altura fixa suficiente
 
+        # ✅ Proteção contra chamadas prematuras (tamanho inválido)
+        if container_rect.width() < 10 or container_rect.height() < 10:
+            print("⚠️ _ajustar_overlay_sala adiado: container ainda não tem dimensões válidas.")
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(20, self._ajustar_overlay_sala)  # Tenta novamente em breve
+            return
+
+        # ✅ Calcular dimensões responsivas
+        max_width = 500
+        min_width = 300
+        padding_horizontal = 60
+        target_width = min(max_width, container_rect.width() - padding_horizontal)
+        width = max(min_width, target_width)  # Garante largura mínima
+
+        height = 300  # Altura fixa suficiente para o conteúdo
+
+        # ✅ Centralizar
         x = (container_rect.width() - width) // 2
         y = (container_rect.height() - height) // 2
 
+        # ✅ Aplicar geometria
         self.overlay_sala.setGeometry(x, y, width, height)
+        self.overlay_sala.raise_()  # Garante que fique na frente
+
+        print(f"🎨 Overlay ajustado: ({x}, {y}, {width}x{height}) dentro de {container_rect.size()}")
 
     def _iniciar_polling_sala(self):
         """Inicia o polling para atualizar o status da sala de espera a cada 1 segundo."""
@@ -935,6 +1112,61 @@ class JanelaPrincipal(QMainWindow):
         except Exception as e:
             print(f"❌ Erro ao atualizar status da sala: {e}")
             pass
+
+    def mostrar_tela_jogo(self):
+        """Mostra a tela placeholder do jogo."""
+        # Esconder overlays
+        if self.overlay_widget:
+            self.overlay_widget.hide()
+        if self.overlay_sala:
+            self._esconder_overlay_sala_espera()
+
+        # Remover status da barra
+        if hasattr(self, 'gerenciador_icones'):
+            self.gerenciador_icones.remover_status_sala()
+
+        # Parar polling
+        if hasattr(self, 'polling_timer') and self.polling_timer:
+            self.polling_timer.stop()
+
+        # Criar e mostrar placeholder
+        username = self._ler_username()
+        self.game_placeholder = GamePlaceholder(username, parent=self.opengl_container)
+        self.game_placeholder.setParent(self.opengl_container)
+        self.game_placeholder.setGeometry(self.opengl_container.rect())
+        self.game_placeholder.show()
+        self.game_placeholder.raise_()
+
+    def sair_da_partida(self):
+        """Sai da partida e volta para o menu principal."""
+        if self.game_placeholder:
+            self.game_placeholder.setParent(None)
+            self.game_placeholder.deleteLater()
+            self.game_placeholder = None
+
+        # Restaurar overlay de boas-vindas
+        if self.overlay_widget:
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+
+        print("✅ Retornou ao menu principal.")
+
+    def _ler_username(self) -> str:
+        """Lê o username do arquivo session.txt. Retorna string vazia se não encontrado."""
+        try:
+            with open("session.txt", "r", encoding="utf-8") as f:
+                username = f.read().strip()
+            if username:
+                return username
+            else:
+                print("⚠️ Arquivo session.txt encontrado, mas vazio.")
+                return ""
+        except FileNotFoundError:
+            print("⚠️ Arquivo session.txt não encontrado.")
+            return ""
+        except Exception as e:
+            print(f"❌ Erro ao ler session.txt: {e}")
+            return ""
 
 
 # --- Ponto de Entrada da Aplicação ---
