@@ -5,7 +5,8 @@ import os
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
-import traceback
+import requests
+from client.widgets.status_room import WidgetStatusSalaEspera
 
 
 class IconeInterativo(QLabel):
@@ -226,17 +227,19 @@ class GerenciadorIconesEsquerda(QWidget):
         self.icones["sair"] = self.icone_sair
 
     def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
-        """
-        Atualiza o ícone e mostra/esconde o nome do usuário.
-        """
+        """Atualiza o ícone de login e mostra/esconde o nome do usuário."""
         if esta_logado and nome_usuario:
+            # Trocar ícone para o de usuário logado
             caminho = os.path.join(self.caminho_recursos, "smile.png")
             self.icone_login.carregar_icone(caminho)
+            # Mostrar e atualizar nome do usuário
             self.label_nome_usuario.setText(nome_usuario)
-            self.label_nome_usuario.show()
+            self.label_nome_usuario.show()  # ✅ Garante que o label apareça
         else:
+            # Voltar para ícone de login
             caminho = os.path.join(self.caminho_recursos, "log-in.png")
             self.icone_login.carregar_icone(caminho)
+            # Esconder nome do usuário
             self.label_nome_usuario.hide()
 
     def _ao_clicar_icone(self, identificador):

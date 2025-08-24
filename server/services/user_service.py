@@ -1,5 +1,5 @@
 # server/services/user_service.py
-import boto3
+import bcrypt
 from botocore.exceptions import ClientError
 
 

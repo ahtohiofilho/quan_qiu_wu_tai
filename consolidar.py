@@ -9,7 +9,7 @@ FILE_EXTENSIONS = {".py"}            # Extensões incluídas no conteúdo
 INCLUDE_DIRS = [
     "server",
     "client",
-    "shared"
+    #"shared"
 ]  # Diretórios principais a varrer
 EXCLUDE_FILES = {
     "consolidar.py",
@@ -24,7 +24,8 @@ EXCLUDE_FILES = {
     "dist",
     "build",
     "flags",
-    "naming"
+    "naming",
+    "__init__"
 }  # Nomes ou substrings para ignorar
 
 # Cabeçalho do arquivo gerado

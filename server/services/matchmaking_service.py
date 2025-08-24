@@ -34,6 +34,14 @@ class SalaDeEspera:
         with self.lock:
             return len(self.jogadores)
 
+    def remover_jogador(self, username: str) -> bool:
+        """Remove um jogador da sala. Retorna True se encontrado."""
+        if username in self.jogadores:
+            self.jogadores.remove(username)
+            print(f"🗑️ Jogador '{username}' removido da sala de espera.")
+            return True
+        return False
+
 
 class MatchmakingService:
     """
@@ -80,3 +88,12 @@ class MatchmakingService:
 
             print(mensagem)
             return mensagem
+
+    def sair_da_fila(self, username: str) -> bool:
+        """Remove o jogador da fila de qualquer sala."""
+        with self.lock:
+            for sala in self.salas:
+                if sala.remover_jogador(username):
+                    print(f"📤 {username} removido da sala {sala.mundo.id_mundo}")
+                    return True
+            return False

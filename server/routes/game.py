@@ -1,24 +1,26 @@
 # server/routes/game.py
 from flask import Blueprint, jsonify, request
 from server.services.user_service import UserService
-from server.services.matchmaking_service import MatchmakingService  # ✅ Substituído: agora usa MatchmakingService
+from server.services.matchmaking_service import MatchmakingService  # ✅ Usa o serviço de matchmaking
+
 
 jogo_bp = Blueprint('jogo', __name__, url_prefix='/jogo')
 
-# Variável para injeção de dependência
+# Variáveis para injeção de dependência
 _user_service = None
-_matchmaking_service = None  # ✅ Renomeado: _fila_service → _matchmaking_service
+_matchmaking_service = None
 
 
 def register_jogo_routes(user_service: UserService, matchmaking_service: MatchmakingService):
     """Função para injetar dependências no blueprint jogo."""
     global _user_service, _matchmaking_service
     _user_service = user_service
-    _matchmaking_service = matchmaking_service  # ✅ Injeta o novo serviço
+    _matchmaking_service = matchmaking_service
 
 
 @jogo_bp.route('/entrar', methods=['POST'])
 def entrar_na_fila():
+    """Adiciona o jogador à fila de matchmaking online."""
     if not request.is_json:
         return jsonify({"success": False, "message": "JSON esperado"}), 400
 
@@ -37,17 +39,12 @@ def entrar_na_fila():
     if not usuario:
         return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
 
-    # ✅ ADICIONAR À FILA DE MATCHMAKING
+    # ✅ Tenta entrar na fila
     mensagem = _matchmaking_service.entrar_na_fila(username)
-
-    # O método retorna uma mensagem; sucesso se não contiver erro
     if "Erro ao entrar na fila" in mensagem:
-        return jsonify({
-            "success": False,
-            "message": mensagem
-        }), 409
+        return jsonify({"success": False, "message": mensagem}), 409
 
-    # ✅ Encontrar a sala onde o jogador foi alocado
+    # ✅ Encontra a sala onde o jogador foi alocado
     sala_atual = None
     for sala in _matchmaking_service.salas:
         if username in sala.jogadores:
@@ -60,13 +57,41 @@ def entrar_na_fila():
             "message": "Erro interno: jogador não encontrado em nenhuma sala."
         }), 500
 
-    # ✅ Contagem total de jogadores em todas as salas ativas
-    total_na_fila = sum(len(sala.jogadores) for sala in _matchmaking_service.salas if sala.jogadores)
+    # ✅ Total de jogadores em todas as salas ativas
+    total_na_fila = sum(len(sala.jogadores) for sala in _matchmaking_service.salas)
 
     return jsonify({
         "success": True,
         "message": mensagem,
         "modo": modo,
         "total_na_fila": total_na_fila,
-        "max_jogadores": sala_atual.vagas  # ✅ Envia o limite da sala
+        "max_jogadores": sala_atual.vagas  # Limite da sala
     }), 200
+
+
+@jogo_bp.route('/sair', methods=['POST'])
+def sair_da_fila():
+    """
+    Permite que um jogador saia da fila de matchmaking.
+    Útil quando clica em 'Cancelar' na UI.
+    """
+    if not request.is_json:
+        return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+    data = request.get_json()
+    username = data.get("username")
+
+    if not username:
+        return jsonify({"success": False, "message": "Username necessário."}), 400
+
+    # ✅ Tenta remover o jogador da fila
+    if _matchmaking_service.sair_da_fila(username):
+        return jsonify({
+            "success": True,
+            "message": f"{username} saiu da fila com sucesso."
+        }), 200
+    else:
+        return jsonify({
+            "success": False,
+            "message": "Você não estava na fila."
+        }), 400

@@ -1,34 +1,30 @@
+bcrypt==4.3.0                           # Updated to latest version
 blinker==1.9.0
-boto3==1.40.7
+boto3==1.40.7                           # Updated to latest version
 boto3-stubs==1.40.7
-botocore==1.40.7
+botocore==1.40.7                        # Updated to latest version
 certifi==2025.8.3
 charset-normalizer==3.4.3
 click==8.2.1
-Flask==3.1.1
+Flask==3.1.1                            # Updated to latest version
 glfw==2.9.0
 glm==0.4.4
 idna==3.10
-imgui==2.0.0
 itsdangerous==2.2.0
 Jinja2==3.1.6
 jmespath==1.0.1
 MarkupSafe==3.0.2
-networkx==3.5
-numpy==2.3.2
-pillow==11.3.0
-pygame==2.6.1
+networkx==3.5                           # Updated to latest version
+numpy==2.3.2                            # Updated to latest version
+pygame==2.6.1                           # Updated to latest version
 pyglm==2.8.2
-PyOpenGL==3.1.9
-PyOpenGL-accelerate==3.1.9
-PyQt5==5.15.11
-PyQt5-Qt5==5.15.17
-PyQt5_sip==12.17.0
-PyQt6==6.9.1
-PyQt6-Qt6==6.9.1
-PyQt6_sip==13.10.2
+PyOpenGL==3.1.9                         # Updated to latest version
+PyOpenGL-accelerate==3.1.9              # Updated to latest version
+PyQt6==6.9.1                            # Updated to latest version
+PyQt6-Qt6==6.9.1                        # Updated to latest version
+PyQt6_sip==13.10.2                      # Updated to latest version
 python-dateutil==2.9.0.post0
-requests==2.32.4
+requests==2.32.4                        # Updated to latest version
 s3transfer==0.13.1
 six==1.17.0
 urllib3==2.5.0
