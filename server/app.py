@@ -4,7 +4,7 @@ from server.config.config import config
 from server.config.extensions import ext
 from server.services.user_service import UserService
 from server.routes.auth import auth_bp, register_routes
-from server.routes.game import jogo_bp, register_jogo_routes
+from server.routes.game import create_game_blueprint
 from server.services.matchmaking_service import MatchmakingService
 from server.services.world_pool import MundoPoolService  # ✅ Importe o novo serviço
 from server.integrations.aws_loader import AWSLoader
@@ -79,7 +79,7 @@ def create_app(config_name='default'):
     print("✅ DEBUG: auth_bp registrado no app.")
 
     # --- 🔹 Jogo Online (NOVO) ---
-    register_jogo_routes(user_service, matchmaking_service)
+    jogo_bp = create_game_blueprint(user_service, matchmaking_service)
     app.register_blueprint(jogo_bp)
     print("✅ DEBUG: jogo_bp registrado no app.")
 

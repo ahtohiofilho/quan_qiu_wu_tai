@@ -5,13 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/client/widgets/game_placeholder.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/components/icon_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/components/icon_manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/consolidar.py" beforeDir="false" afterPath="$PROJECT_DIR$/consolidar.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server/routes/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/server/routes/game.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

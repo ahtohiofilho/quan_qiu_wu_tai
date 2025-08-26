@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-24 17:41:04
+Gerado em: 2025-08-26 12:15:59
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -2862,41 +2862,82 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
     def _mostrar_dialogo_modos(self):
-        """Shows the dialog to choose between Offline and Online mode."""
+        """Exibe um diálogo para escolher entre modo Offline e Online."""
+        # Evita múltiplas aberturas do diálogo
+        if hasattr(self, '_modo_dialog_aberto') and self._modo_dialog_aberto:
+            return
+        self._modo_dialog_aberto = True
+
         modo_dialog = QDialog(self)
-        modo_dialog.setWindowTitle("Game Mode")
+        modo_dialog.setWindowTitle("Modo de Jogo")
         modo_dialog.setModal(True)
         modo_dialog.resize(300, 150)
+        modo_dialog.setStyleSheet("""
+            QDialog {
+                background-color: #2c3e50;
+                font-family: Arial;
+            }
+            QLabel {
+                color: #ecf0f1;
+                font-size: 14px;
+                margin-bottom: 15px;
+            }
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
 
         layout = QVBoxLayout()
-        layout.addWidget(QLabel("Choose game mode:"))
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        btn_offline = QPushButton("Offline")
-        btn_online = QPushButton("Online")
+        # Título
+        label = QLabel("Selecione o modo de jogo:")
+        layout.addWidget(label)
+
+        # Botões
+        btn_offline = QPushButton("🎮 Offline")
+        btn_online = QPushButton("🌐 Online")
 
         layout.addWidget(btn_offline)
         layout.addWidget(btn_online)
+
         modo_dialog.setLayout(layout)
 
-        # Prevent automatic acceptance
+        # Prevenir aceitação automática
         modo_dialog.accepted.connect(lambda: None)
 
         def escolher_offline():
             modo_dialog.reject()
+            self._modo_dialog_aberto = False
             self._ir_para_tela_pre_jogo(offline=True)
 
         def escolher_online():
             modo_dialog.reject()
+            self._modo_dialog_aberto = False
             if self.usuario_logado:
                 self._entrar_na_fila()
             else:
-                # ✅ Open login with callback to enter queue after login
+                # Abre o diálogo de login e entra na fila após sucesso
                 self._abrir_dialogo_autenticacao_completo(
-                    success_callback=lambda u: self._entrar_na_fila()
+                    success_callback=lambda username: self._entrar_na_fila()
                 )
 
+        # Conectar botões
         btn_offline.clicked.connect(escolher_offline)
         btn_online.clicked.connect(escolher_online)
+
+        # Limpar flag se o diálogo for fechado de outra forma (ex: ESC)
+        modo_dialog.finished.connect(lambda: setattr(self, '_modo_dialog_aberto', False))
 
         modo_dialog.exec()
 
@@ -3014,20 +3055,29 @@ class JanelaPrincipal(QMainWindow):
         self.parar_loop()
 
         try:
-            # ✅ 1. Check if user is already in a game or queue
-            response = requests.get("http://localhost:5000/jogo/status", timeout=3)
+            # ✅ 1. Verificar se o usuário está em uma partida ativa ou na fila
+            username = self._ler_username()
+            if not username:
+                # Se não está logado, vai direto para o diálogo de escolha + login
+                self._mostrar_dialogo_modos()
+                return
+
+            response = requests.get("http://localhost:5000/jogo/status",
+                                    json={"username": username},
+                                    timeout=3)
+
             if response.status_code == 200:
                 data = response.json()
                 em_partida = data.get("em_partida", False)
                 em_fila = data.get("em_fila", False)
 
                 if em_partida or em_fila:
-                    # ✅ Perguntar ao usuário
+                    # ✅ Perguntar se quer retomar
                     msg = (
                         "Você foi encontrado em uma partida ativa ou na fila.\n\n"
                         "Deseja:\n"
                         " • 'Sim' para retomar a partida atual\n"
-                        " • 'Não' para sair e começar uma nova"
+                        " • 'Não' para sair e escolher um novo modo"
                     )
                     reply = QMessageBox.question(
                         self,
@@ -3037,26 +3087,24 @@ class JanelaPrincipal(QMainWindow):
                     )
 
                     if reply == QMessageBox.StandardButton.Yes:
-                        # Retomar
                         self.mostrar_tela_jogo()
                         return
                     else:
-                        # Começar do zero: forçar saída
-                        username = self._ler_username()
-                        requests.post("http://localhost:5000/jogo/sair", json={"username": username})
+                        # Forçar saída
+                        requests.post("http://localhost:5000/jogo/sair",
+                                      json={"username": username})
 
-                # Se não estava em partida, ou escolheu começar nova
-                self._ir_para_tela_pre_jogo(offline=False)
-
-            else:
-                # Servidor respondeu, mas com erro
-                self._ir_para_tela_pre_jogo(offline=False)
+            # ✅ 2. Mostrar diálogo de escolha (offline/online)
+            self._mostrar_dialogo_modos()
 
         except requests.exceptions.ConnectionError:
             QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
+            # Mesmo com erro, mostre o diálogo de modos
+            self._mostrar_dialogo_modos()
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
             print(f"❌ Erro em on_icone_play: {e}")
+            self._mostrar_dialogo_modos()
 
     def _iniciar_offline(self, escolha, dialog):
         escolha[0] = "offline"
@@ -3080,7 +3128,7 @@ class JanelaPrincipal(QMainWindow):
 
     def _ir_para_tela_pre_jogo(self, offline: bool):
         if offline:
-            QMessageBox.information(self, "Pré-Jogo", "Modo offline será implementado em breve.")
+            QMessageBox.information(self, "Pre-Game Lobby", "Offline Mode Coming Soon.")
         else:
             self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
 
@@ -3566,6 +3614,23 @@ class JanelaPrincipal(QMainWindow):
             self.overlay_widget.raise_()
 
         print("✅ Retornou ao menu principal.")
+
+    def _ler_username(self) -> str:
+        """Lê o username do arquivo session.txt. Retorna string vazia se não encontrado."""
+        try:
+            with open("session.txt", "r", encoding="utf-8") as f:
+                username = f.read().strip()
+            if username:
+                return username
+            else:
+                print("⚠️ Arquivo session.txt encontrado, mas vazio.")
+                return ""
+        except FileNotFoundError:
+            print("⚠️ Arquivo session.txt não encontrado.")
+            return ""
+        except Exception as e:
+            print(f"❌ Erro ao ler session.txt: {e}")
+            return ""
 
 
 # --- Ponto de Entrada da Aplicação ---
