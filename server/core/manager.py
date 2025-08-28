@@ -77,7 +77,8 @@ class Gerenciador:
                         'fator': {'N': str(mundo.planeta.fator)},
                         'bioma_inicial': {'S': bioma_inicial},
                         'vagas': {'N': str(vagas)},
-                        'timestamp': {'N': str(int(time.time()))}
+                        'timestamp': {'N': str(int(time.time()))},
+                        'status': {'S': 'disponivel'}
                     }
                 )
                 print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")

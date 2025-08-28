@@ -584,63 +584,85 @@ class JanelaPrincipal(QMainWindow):
                     self.gerenciador_icones.atualizar_estado_login(True, "Player")
 
     def on_icone_play(self):
-        """Action triggered by the 'Play' icon: checks state and offers offline or online mode."""
+        """Action triggered by the 'Play' icon: checks server state before acting."""
+        print("🔵 [DEBUG] on_icone_play: Início da execução")
         print("Action: 'Play' icon clicked. Checking state...")
 
         # ✅ Stop render loop before any UI changes
         self.parar_loop()
+        print("⏸️ [DEBUG] on_icone_play: Render loop parado")
 
         try:
-            # ✅ 1. Verificar se o usuário está em uma partida ativa ou na fila
+            # ✅ 1. Verificar se o usuário está logado
             username = self._ler_username()
+            print(f"🔵 [DEBUG] on_icone_play: Username lido de session.txt: '{username}'")
+
             if not username:
-                # Se não está logado, vai direto para o diálogo de escolha + login
+                print("🟡 [DEBUG] on_icone_play: Nenhum usuário logado. Mostrando diálogo de modos.")
                 self._mostrar_dialogo_modos()
                 return
 
-            response = requests.get("http://localhost:5000/jogo/status",
-                                    json={"username": username},
-                                    timeout=3)
+            # ✅ 2. CONSULTAR ESTADO ANTES DE LIMPAR
+            print("🔵 [DEBUG] on_icone_play: Consultando estado do jogador no servidor...")
+            try:
+                response = requests.post(
+                    "http://localhost:5000/jogo/estado",
+                    json={"username": username},
+                    timeout=3
+                )
+                print(f"🟢 [DEBUG] on_icone_play: Resposta de /jogo/estado: {response.status_code} - {response.text}")
 
-            if response.status_code == 200:
-                data = response.json()
-                em_partida = data.get("em_partida", False)
-                em_fila = data.get("em_fila", False)
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"🟢 [DEBUG] on_icone_play: Estado recebido: {data}")
 
-                if em_partida or em_fila:
-                    # ✅ Perguntar se quer retomar
-                    msg = (
-                        "Você foi encontrado em uma partida ativa ou na fila.\n\n"
-                        "Deseja:\n"
-                        " • 'Sim' para retomar a partida atual\n"
-                        " • 'Não' para sair e escolher um novo modo"
-                    )
-                    reply = QMessageBox.question(
-                        self,
-                        "Partida Detectada",
-                        msg,
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-
-                    if reply == QMessageBox.StandardButton.Yes:
+                    if data.get("em_partida"):
+                        print("⚠️ Jogador já está em partida. Mostrando placeholder...")
                         self.mostrar_tela_jogo()
                         return
-                    else:
-                        # Forçar saída
-                        requests.post("http://localhost:5000/jogo/sair",
-                                      json={"username": username})
+                    elif data.get("em_fila"):
+                        print("⚠️ Jogador já está na fila. Reexibindo overlay...")
+                        # Opcional: reconectar ao estado da fila
+                        # self._reconectar_a_fila(data)
+                        pass
+                else:
+                    print(f"🟡 [DEBUG] on_icone_play: /jogo/estado retornou status {response.status_code}")
+            except requests.exceptions.ConnectionError:
+                print("🔴 [DEBUG] on_icone_play: Falha de conexão com o servidor. Assumindo estado limpo.")
+            except requests.exceptions.Timeout:
+                print("🔴 [DEBUG] on_icone_play: Tempo de resposta excedido. Assumindo estado limpo.")
+            except requests.exceptions.RequestException as e:
+                print(f"🔴 [DEBUG] on_icone_play: Falha de rede ao consultar estado: {e}")
+            except Exception as e:
+                print(f"🔴 [DEBUG] on_icone_play: Erro ao processar resposta de /jogo/estado: {e}")
 
-            # ✅ 2. Mostrar diálogo de escolha (offline/online)
+            # ✅ 3. SE LIVRE, LIMPAR ESTADO E CONTINUAR
+            print("🔵 [DEBUG] on_icone_play: Limpando estado do usuário no servidor...")
+            try:
+                response = requests.post(
+                    "http://localhost:5000/jogo/limpar_usuario",
+                    json={"username": username},
+                    timeout=3
+                )
+                print(
+                    f"🧹 Estado do usuário '{username}' limpo no servidor. Resposta: {response.status_code} - {response.text}")
+            except requests.exceptions.ConnectionError:
+                print("🟠 [DEBUG] on_icone_play: Servidor offline. Continuando sem limpeza.")
+            except requests.exceptions.Timeout:
+                print("🟠 [DEBUG] on_icone_play: Timeout ao limpar estado. Continuando.")
+            except Exception as e:
+                print(f"⚠️ Falha ao limpar estado no servidor: {e}")
+
+            # ✅ 4. MOSTRAR DIÁLOGO DE MODOS
+            print("🟢 [DEBUG] on_icone_play: Mostrando diálogo de escolha de modo (offline/online)")
             self._mostrar_dialogo_modos()
 
-        except requests.exceptions.ConnectionError:
-            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
-            # Mesmo com erro, mostre o diálogo de modos
-            self._mostrar_dialogo_modos()
         except Exception as e:
+            print(f"❌ Erro inesperado em on_icone_play: {e}")
             QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
-            print(f"❌ Erro em on_icone_play: {e}")
             self._mostrar_dialogo_modos()
+
+        print("🟢 [DEBUG] on_icone_play: Execução concluída")
 
     def _iniciar_offline(self, escolha, dialog):
         escolha[0] = "offline"
@@ -669,41 +691,60 @@ class JanelaPrincipal(QMainWindow):
             self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
 
     def on_icone_sair(self):
-        """Action triggered by the 'Exit' icon: confirms intent and exits, but preserves login."""
+        """Action triggered by the 'Exit' icon: cleans server state and closes the app."""
         print("Action: 'Exit' icon clicked.")
 
-        # Check if the user is in the waiting room
+        # ✅ Stop render loop
+        self.parar_loop()
+
+        username = self._ler_username()
+        if not username:
+            # Se não está logado, fecha direto
+            self.close()
+            return
+
+        # ✅ 1. Perguntar se quer sair da sala de espera (se estiver em uma)
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
             reply = QMessageBox.question(
                 self,
-                "Exit Game",
-                "You are in a waiting room. Exiting now will cancel your participation.\n\nDo you really want to exit?",
+                "Sair da Partida",
+                "Você está em uma sala de espera. Sair agora cancelará sua participação.\n\n"
+                "Deseja realmente sair?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
-                return  # Cancel exit
+                return  # Cancela o fechamento
 
-            # Notify server that user is leaving the queue
-            try:
-                with open("session.txt", "r") as f:
-                    username = f.read().strip()
-                import requests
-                requests.post(
-                    "http://localhost:5000/jogo/sair",
-                    json={"username": username},
-                    timeout=3
-                )
-                print(f"📤 {username} left the queue via 'Exit'.")
-            except Exception as e:
-                print(f"❌ Failed to notify server: {e}")
-            finally:
+        # ✅ 2. Sempre limpar o estado do jogador no servidor
+        try:
+            response = requests.post(
+                "http://localhost:5000/jogo/limpar_usuario",
+                json={"username": username},
+                timeout=3
+            )
+            print(f"🧹 Estado do usuário '{username}' limpo no servidor ao sair. {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Falha ao limpar estado ao sair: {e}")
+            # Ignora erro — o importante é fechar
+
+        # ✅ 3. Limpeza local: remover overlays e parar polling
+        try:
+            if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
                 self._esconder_overlay_sala_espera()
+        except Exception as e:
+            print(f"⚠️ Falha ao remover overlay local: {e}")
 
-        # ✅ NÃO remove session.txt → login será lembrado na próxima abertura
-        # ✅ NÃO altera self.usuario_logado → estado de login permanece até a próxima inicialização
+        try:
+            if hasattr(self, 'polling_timer') and self.polling_timer:
+                self.polling_timer.stop()
+                self.polling_timer.deleteLater()
+                self.polling_timer = None
+            print("⏸️ Polling de status da sala interrompido.")
+        except Exception as e:
+            print(f"⚠️ Falha ao parar polling: {e}")
 
-        # Close the application
+        # ✅ 4. Fechar o programa
         self.close()
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
@@ -893,7 +934,7 @@ class JanelaPrincipal(QMainWindow):
             data = response.json()
 
             if data.get("success"):
-                max_jogadores = data.get("max_jogadores", 4)
+                max_jogadores = data.get("max_jogadores")
 
                 # 6. ✅ Mostrar overlay da sala de espera
                 self._mostrar_overlay_sala_espera(username, max_jogadores)
@@ -921,43 +962,64 @@ class JanelaPrincipal(QMainWindow):
         """Chamado quando a partida começa.
         Realiza limpeza completa de UI e prepara a transição para o modo de jogo.
         """
+        print("🔵 [DEBUG] on_partida_iniciada: Início da execução")
+
+        # ✅ Verificar se já foi chamado (evitar duplicação)
+        if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
+            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado anteriormente. Ignorando.")
+            return
+        self.partida_iniciada = True
+        print("🟢 [DEBUG] on_partida_iniciada: Flag 'partida_iniciada' definido como True")
+
         print("🎮 Partida iniciada: removendo overlays, status e parando polling...")
 
         # 1. Remover o widget de status da barra lateral (se existir)
         try:
             if hasattr(self, 'gerenciador_icones') and self.gerenciador_icones:
+                print("🔵 [DEBUG] on_partida_iniciada: Removendo widget de status da barra lateral")
                 self.gerenciador_icones.remover_status_sala()
                 print("🗑️ Widget de status da sala removido da barra esquerda.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado ou inexistente")
         except Exception as e:
             print(f"⚠️ Falha ao remover status da sala: {e}")
 
         # 2. Esconder e remover o overlay da sala de espera (se existir)
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                print("🔵 [DEBUG] on_partida_iniciada: Overlay da sala de espera detectado. Iniciando remoção...")
                 # Usa o mecanismo de fade_out do overlay, se disponível
                 if hasattr(self.overlay_sala, 'fade_out'):
+                    print("🎨 [DEBUG] on_partida_iniciada: Aplicando fade_out no overlay")
                     self.overlay_sala.fade_out()
                     # Após a animação, esconde e remove
                     from PyQt6.QtCore import QTimer
                     QTimer.singleShot(300, self._esconder_overlay_sala_espera)
                 else:
+                    print("🎨 [DEBUG] on_partida_iniciada: Sem fade_out. Escondendo diretamente")
                     self._esconder_overlay_sala_espera()
                 print("🎨 Overlay da sala de espera removido com sucesso.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado ou já removido")
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay da sala: {e}")
 
         # 3. Parar o polling de status (evita chamadas desnecessárias)
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
+                print("⏸️ [DEBUG] on_partida_iniciada: Parando polling_timer")
                 self.polling_timer.stop()
                 self.polling_timer.deleteLater()
                 self.polling_timer = None
                 print("⏸️ Polling de status da sala interrompido.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: polling_timer não encontrado ou já parado")
         except Exception as e:
             print(f"⚠️ Falha ao parar o polling: {e}")
 
         # 4. Placeholder: exibir mensagem de partida iniciada
         try:
+            print("🟢 [DEBUG] on_partida_iniciada: Exibindo placeholder da partida")
             # ✅ Compatível com o código atual
             QMessageBox.information(self, "Game Started", "Loading Planet...")
             print("🟢 Placeholder de partida exibido: 'Loading Planet...'")
@@ -968,79 +1030,139 @@ class JanelaPrincipal(QMainWindow):
                 # self.opengl_widget.ativar_modo_jogo()
                 # Por enquanto, forçar atualização
                 self.opengl_widget.update()
+                print("🔵 [DEBUG] on_partida_iniciada: OpenGL widget atualizado")
         except Exception as e:
             print(f"⚠️ Falha ao exibir tela de jogo: {e}")
 
         # 5. Mensagem final de sucesso
-        print("✅ Transição para partida concluída com sucesso.")
+        print("✅ Transição para partida iniciada com sucesso.")
+        print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
     def _mostrar_overlay_sala_espera(self, username: str, max_jogadores: int):
         """
         Mostra o overlay da sala de espera como sobreposição flutuante sobre o OpenGL,
         substituindo o 'Welcome to Global Arena', sem afetar o layout do OpenGL.
         """
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Início da execução")
+        print(
+            f"🟢 [DEBUG] _mostrar_overlay_sala_espera: Tentando mostrar overlay para {username} | max_jogadores: {max_jogadores}")
+
         # 1. Se já existe um overlay da sala, remova-o corretamente
         if self.overlay_sala is not None:
+            print(
+                "🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala já existe. Chamando _esconder_overlay_sala_espera()")
             self._esconder_overlay_sala_espera()
+        else:
+            print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Nenhum overlay existente. Continuando...")
 
         # 2. Esconder o overlay de boas-vindas
-        self.overlay_widget.hide()
+        if self.overlay_widget:
+            self.overlay_widget.hide()
+            print("🎨 [DEBUG] _mostrar_overlay_sala_espera: overlay_widget (boas-vindas) escondido")
+        else:
+            print("🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_widget não encontrado")
 
         # 3. Criar o novo overlay da sala de espera
         try:
+            print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Criando nova instância de WaitingRoomOverlay")
             self.overlay_sala = WaitingRoomOverlay(username, max_jogadores, parent=self.opengl_container)
+            print("🟢 [DEBUG] _mostrar_overlay_sala_espera: WaitingRoomOverlay criado com sucesso")
         except Exception as e:
             print(f"❌ Falha ao criar WaitingRoomOverlay: {e}")
-            self.overlay_widget.show()  # Restaura se falhar
+            if self.overlay_widget:
+                self.overlay_widget.show()  # Restaura se falhar
             return
 
         # 4. Adicionar como widget filho direto (sem usar layout) → evita interferência no OpenGL
         self.overlay_sala.setParent(self.opengl_container)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala definido como filho de opengl_container")
+
         self.overlay_sala.hide()  # Inicialmente oculto para ajustar posição primeiro
+        print("🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala inicialmente oculto para ajuste de posição")
 
         # 5. Ajustar posição e tamanho com base no container (será refinado após renderização)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Ajustando posição inicial do overlay")
         self._ajustar_overlay_sala()
 
         # 6. Exibir o overlay
         self.overlay_sala.show()
         self.overlay_sala.raise_()  # Garante que fique na frente
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala exibido e trazido para frente (raise_)")
 
         # 7. Conectar o botão Cancelar com a lógica de saída
         def on_cancel():
+            print(f"🔵 [DEBUG] on_cancel: {username} clicou em Cancelar")
             try:
                 import requests
-                requests.post(
+                response = requests.post(
                     "http://localhost:5000/jogo/sair",
                     json={"username": username},
                     timeout=3
                 )
-                print(f"📤 {username} saiu da fila via cancelamento.")
+                print(f"📤 {username} saiu da fila via cancelamento. Resposta: {response.status_code}")
             except Exception as e:
                 print(f"❌ Falha ao sair da fila: {e}")
             finally:
                 # Sempre esconder o overlay após tentar sair
+                print("🔵 [DEBUG] on_cancel: Chamando _esconder_overlay_sala_espera()")
                 self._esconder_overlay_sala_espera()
 
         # Conectar o callback ao botão Cancelar
         self.overlay_sala.connect_cancel(on_cancel)
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Callback de cancelamento conectado")
 
         # 8. 👉 Garantir posicionamento pós-renderização (evita geometria 0x0)
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(30, self._ajustar_overlay_sala)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: QTimer.singleShot(30) agendado para _ajustar_overlay_sala")
+
         QTimer.singleShot(60, lambda: self.overlay_sala.raise_() if self.overlay_sala else None)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: QTimer.singleShot(60) agendado para garantir raise_()")
+
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Execução concluída")
 
     def _esconder_overlay_sala_espera(self):
-        """Remove o overlay da sala de espera e limpa a referência."""
+        """Remove o overlay da sala de espera, para timers e limpa a referência."""
+        print("🔵 [DEBUG] _esconder_overlay_sala_espera: Início da execução")
+
+        # 1. Parar o polling_timer (evita atualizações desnecessárias)
+        if hasattr(self, 'polling_timer') and self.polling_timer:
+            print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando polling_timer")
+            self.polling_timer.stop()
+            self.polling_timer.deleteLater()
+            self.polling_timer = None
+            print("✅ [DEBUG] _esconder_overlay_sala_espera: polling_timer parado e removido")
+        else:
+            print("🟡 [DEBUG] _esconder_overlay_sala_espera: polling_timer já parado ou inexistente")
+
+        # 2. Verificar se o overlay existe
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-            # Parar timer do overlay
+            print(f"🎨 [DEBUG] _esconder_overlay_sala_espera: Removendo overlay_sala de {self.overlay_sala.parent()}")
+
+            # 3. Parar o timer interno do overlay (se existir)
             if hasattr(self.overlay_sala, 'timer') and self.overlay_sala.timer:
+                print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando timer do overlay_sala")
                 self.overlay_sala.timer.stop()
 
-            # Remover do layout e deletar
+            # 4. Remover do container e deletar
+            # Importante: setParent(None) antes de deleteLater()
             self.overlay_sala.setParent(None)
             self.overlay_sala.deleteLater()
             self.overlay_sala = None  # 👈 Muito importante!
-            print("🎨 Overlay da sala de espera removido e referência limpa.")
+
+            print("🟢 [DEBUG] _esconder_overlay_sala_espera: overlay_sala removido e referência limpa")
+        else:
+            print("🟡 [DEBUG] _esconder_overlay_sala_espera: overlay_sala já removido ou inexistente")
+
+        # 5. Garantir que o overlay de boas-vindas volte a aparecer (se necessário)
+        if hasattr(self, 'overlay_widget') and not self.overlay_widget.isVisible():
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+            print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_widget (boas-vindas) restaurado")
+        else:
+            print("🟢 [DEBUG] _esconder_overlay_sala_espera: overlay_widget já visível ou inexistente")
+
+        print("🟢 [DEBUG] _esconder_overlay_sala_espera: Execução concluída")
 
     def _ajustar_overlay_sala(self):
         """Ajusta posição e tamanho do overlay da sala de espera, garantindo centralização e responsividade.
@@ -1080,62 +1202,85 @@ class JanelaPrincipal(QMainWindow):
         """Inicia o polling para atualizar o status da sala de espera a cada 1 segundo."""
         from PyQt6.QtCore import QTimer
 
-        # Pare qualquer timer anterior
+        print("🔵 [DEBUG] _iniciar_polling_sala: Iniciando ou reiniciando polling")
+
+        # 1. Parar qualquer timer anterior
         if hasattr(self, 'polling_timer') and self.polling_timer:
+            print("⏸️ [DEBUG] _iniciar_polling_sala: Parando polling_timer existente")
             self.polling_timer.stop()
             self.polling_timer.deleteLater()
+            self.polling_timer = None
 
+        # 2. Criar novo timer
         self.polling_timer = QTimer(self)
+
+        # 3. Conectar ao novo método de atualização
         self.polling_timer.timeout.connect(self._atualizar_status_sala)
+
+        # 4. Iniciar polling
         self.polling_timer.start(1000)  # A cada 1 segundo
-        self._atualizar_status_sala()  # Primeira atualização imediata
+        print("🟢 [DEBUG] _iniciar_polling_sala: polling_timer iniciado (1s)")
+
+        # 5. Atualização imediata
+        self._atualizar_status_sala()
+        print("🟢 [DEBUG] _iniciar_polling_sala: Primeira atualização de status disparada")
 
     def _atualizar_status_sala(self):
-        """Atualiza o número de jogadores na sala via requisição ao servidor."""
+        """Atualiza o status da sala com base na sala do jogador."""
         try:
-            import requests
-            response = requests.get("http://localhost:5000/status", timeout=3)
+            username = self._ler_username()
+            if not username:
+                print("🟡 [DEBUG] _atualizar_status_sala: Nenhum usuário logado. Ignorando.")
+                return
+
+            print(f"🔵 [DEBUG] _atualizar_status_sala: Consultando /jogo/minha_sala para {username}")
+            response = requests.post(
+                "http://localhost:5000/jogo/minha_sala",
+                json={"username": username},
+                timeout=3
+            )
             if response.status_code == 200:
                 data = response.json()
-                total_na_fila = data.get("total_na_fila", 0)
+                print(f"🟢 [DEBUG] _atualizar_status_sala: Estado recebido: {data}")
 
-                # Atualiza o overlay, se existir
-                if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-                    self.overlay_sala.atualizar_status(total_na_fila)
+                if data.get("em_fila"):
+                    jogadores = data["jogadores_na_sala"]
+                    vagas = data["vagas"]
+                    esta_cheia = data["esta_cheia"]
 
-                # Se a sala encheu, inicia a partida
-                if total_na_fila >= 4:  # Ou use self.overlay_sala.max_jogadores se quiser
+                    # Atualiza o overlay da sala de espera
+                    if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                        print(f"🎨 [DEBUG] _atualizar_status_sala: Atualizando overlay para {len(jogadores)}/{vagas}")
+                        self.overlay_sala.atualizar_status(len(jogadores), vagas)
+                    else:
+                        print("🟡 [DEBUG] _atualizar_status_sala: overlay_sala não encontrado")
+
+                    # Se a sala encheu, inicia a partida
+                    if esta_cheia:
+                        print(
+                            f"✅ [DEBUG] _atualizar_status_sala: Sala cheia detectada ({len(jogadores)}/{vagas}). Iniciando partida.")
+                        self._esconder_overlay_sala_espera()
+                        if hasattr(self, 'polling_timer') and self.polling_timer:
+                            self.polling_timer.stop()
+                            self.polling_timer.deleteLater()
+                            self.polling_timer = None
+                            print("⏸️ [DEBUG] _atualizar_status_sala: polling_timer parado")
+                        self.on_partida_iniciada()
+                else:
+                    # Jogador não está mais na fila
+                    print("🟡 [DEBUG] _atualizar_status_sala: Jogador não está na fila. Escondendo overlay.")
                     self._esconder_overlay_sala_espera()
-                    self.polling_timer.stop()
-                    self.on_partida_iniciada()
+            else:
+                print(f"🔴 [DEBUG] _atualizar_status_sala: /jogo/minha_sala retornou status {response.status_code}")
 
+        except requests.exceptions.ConnectionError:
+            print("🔴 [DEBUG] _atualizar_status_sala: Falha de conexão com o servidor.")
+        except requests.exceptions.Timeout:
+            print("🔴 [DEBUG] _atualizar_status_sala: Tempo de resposta excedido.")
+        except requests.exceptions.RequestException as e:
+            print(f"🔴 [DEBUG] _atualizar_status_sala: Erro de rede: {e}")
         except Exception as e:
-            print(f"❌ Erro ao atualizar status da sala: {e}")
-            pass
-
-    def mostrar_tela_jogo(self):
-        """Mostra a tela placeholder do jogo."""
-        # Esconder overlays
-        if self.overlay_widget:
-            self.overlay_widget.hide()
-        if self.overlay_sala:
-            self._esconder_overlay_sala_espera()
-
-        # Remover status da barra
-        if hasattr(self, 'gerenciador_icones'):
-            self.gerenciador_icones.remover_status_sala()
-
-        # Parar polling
-        if hasattr(self, 'polling_timer') and self.polling_timer:
-            self.polling_timer.stop()
-
-        # Criar e mostrar placeholder
-        username = self._ler_username()
-        self.game_placeholder = GamePlaceholder(username, parent=self.opengl_container)
-        self.game_placeholder.setParent(self.opengl_container)
-        self.game_placeholder.setGeometry(self.opengl_container.rect())
-        self.game_placeholder.show()
-        self.game_placeholder.raise_()
+            print(f"❌ Erro inesperado em _atualizar_status_sala: {e}")
 
     def sair_da_partida(self):
         """Sai da partida e volta para o menu principal."""
@@ -1184,7 +1329,6 @@ def main():
 
     try:
         janela = JanelaPrincipal()
-        # janela.show() # show() já é chamado dentro de __init__
         print("✅ Janela principal exibida em fullscreen.")
         sys.exit(app.exec())
     except Exception as e:

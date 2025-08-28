@@ -95,9 +95,9 @@ class WaitingRoomOverlay(QWidget):
         # ✅ Adicionar stretch abaixo para centralizar
         layout.addStretch()
 
-    def atualizar_status(self, total_na_fila: int):
-        """Atualiza o subtítulo com o número de jogadores na fila."""
-        self.label_subtitulo.setText(f"Players: {total_na_fila} / {self.max_jogadores}")
+    def atualizar_status(self, total_na_sala: int, vagas: int):
+        """Atualiza o subtítulo com o número de jogadores na sala."""
+        self.label_subtitulo.setText(f"Players: {total_na_sala} / {vagas}")
 
     def connect_cancel(self, callback):
         """Conecta o botão Cancelar a uma função."""

@@ -112,18 +112,48 @@ class OverlaySalaEspera(QWidget):
             self.label_status.setText(f"❌ Erro: {str(e)}")
 
     def partida_iniciada(self):
-        """Chamado quando a sala está cheia."""
+        """Chamado quando a sala está cheia. Evita chamadas duplicadas e garante transição segura."""
+        print("🔵 [DEBUG] WaitingRoomOverlay.partida_iniciada: Início da execução")
+
+        # 1. Parar o timer de atualização
         if self.timer:
+            print("⏸️ [DEBUG] WaitingRoomOverlay.partida_iniciada: Parando timer de atualização")
             self.timer.stop()
+        else:
+            print("🟡 [DEBUG] WaitingRoomOverlay.partida_iniciada: Timer já parado ou inexistente")
+
+        # 2. Atualizar o status visual
+        print("🎨 [DEBUG] WaitingRoomOverlay.partida_iniciada: Atualizando texto do status")
         self.label_status.setText("✅ Partida iniciada! Carregando mundo...")
 
-        # Chama função da janela principal
-        if hasattr(self.parent_widget, 'on_partida_iniciada'):
-            # Animação de saída opcional antes de esconder
-            self.fade_out()
-            QTimer.singleShot(300, self.parent_widget.on_partida_iniciada)
-        else:
+        # 3. Verificar se a partida já foi iniciada (evitar duplicação)
+        parent = self.parent_widget
+        if hasattr(parent, 'game_placeholder') and parent.game_placeholder is not None:
+            print(
+                "🔴 [DEBUG] WaitingRoomOverlay.partida_iniciada: game_placeholder já existe. Partida já iniciada. Ignorando.")
             self.hide()
+            return
+        else:
+            print("🟢 [DEBUG] WaitingRoomOverlay.partida_iniciada: Nenhum game_placeholder detectado. Continuando...")
+
+        # 4. Chamar a função da janela principal com animação
+        if hasattr(parent, 'on_partida_iniciada'):
+            print(
+                "🔵 [DEBUG] WaitingRoomOverlay.partida_iniciada: on_partida_iniciada encontrado no parent. Iniciando fade_out")
+
+            # Iniciar animação de saída
+            self.fade_out()
+
+            # Chamar on_partida_iniciada após a animação
+            print("🟡 [DEBUG] WaitingRoomOverlay.partida_iniciada: Agendando parent.on_partida_iniciada em 300ms")
+            QTimer.singleShot(300, parent.on_partida_iniciada)
+        else:
+            print(
+                "🔴 [DEBUG] WaitingRoomOverlay.partida_iniciada: parent.on_partida_iniciada não encontrado. Escondendo overlay.")
+            # Caso não exista callback, apenas esconder
+            self.hide()
+
+        print("🟢 [DEBUG] WaitingRoomOverlay.partida_iniciada: Execução concluída")
 
     def fade_in(self):
         """Animação de entrada suave."""

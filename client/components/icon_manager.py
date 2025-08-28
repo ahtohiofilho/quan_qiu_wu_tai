@@ -5,8 +5,6 @@ import os
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
-import requests
-from client.widgets.status_room import WidgetStatusSalaEspera
 
 
 class IconeInterativo(QLabel):

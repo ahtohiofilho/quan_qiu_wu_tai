@@ -174,16 +174,20 @@ class MundoPoolService:
         return total
 
     def _carregar_mundos_existentes(self):
-        """Carrega mundos com vagas do DynamoDB para o pool, usando o gerenciador."""
+        """Carrega mundos com vagas DO DynamoDB para o pool, mas apenas se estiverem 'disponiveis'."""
         try:
             dynamodb = self.gerenciador.aws_loader.get_client('dynamodb')
             response = dynamodb.scan(
                 TableName=self.gerenciador.dynamodb_table_name,
-                # ✅ Corrigido: usa begins_with para PK que começa com "PLANET#"
-                FilterExpression="begins_with(PK, :pk_prefix) AND vagas > :zero",
+                # ✅ Filtra por PK começando com PLANET#, com vagas > 0 E status = 'disponivel'
+                FilterExpression="begins_with(PK, :pk_prefix) AND vagas > :zero AND #status = :ativo",
+                ExpressionAttributeNames={
+                    '#status': 'status'  # ✅ Protege contra palavras reservadas
+                },
                 ExpressionAttributeValues={
-                    ":pk_prefix": {"S": "PLANET#"},
-                    ":zero": {"N": "0"}
+                    ':pk_prefix': {'S': 'PLANET#'},
+                    ':zero': {'N': '0'},
+                    ':ativo': {'S': 'disponivel'}  # ✅ Apenas mundos disponíveis
                 }
             )
 
@@ -191,7 +195,9 @@ class MundoPoolService:
                 for item in response.get('Items', []):
                     id_mundo = item['PK']['S'].split('#')[1]
                     vagas = int(item['vagas']['N'])
+                    # ✅ Verifica novamente (embora o scan já tenha filtrado)
                     if vagas > 0:
+                        # ✅ Evita duplicação
                         if not any(m.id_mundo == id_mundo for m in self.mundos_com_vaga):
                             mundo_stub = Mundo(fator=self.fator, bioma=self.bioma)
                             mundo_stub.id_mundo = id_mundo
@@ -202,3 +208,37 @@ class MundoPoolService:
             print(f"⚠️ Falha ao carregar mundos existentes: {e}")
             import traceback
             traceback.print_exc()
+
+    def consumir_mundo(self, id_mundo: str) -> Optional[Mundo]:
+        """Remove um mundo do pool e marca como 'consumido' no DynamoDB."""
+        with self.lock:
+            # 1. Remover do pool local
+            mundo = None
+            for m in self.mundos_com_vaga:
+                if m.id_mundo == id_mundo:
+                    self.mundos_com_vaga.remove(m)
+                    mundo = m
+                    break
+            if not mundo:
+                print(f"⚠️ Mundo {id_mundo} não encontrado no pool para consumo.")
+                return None
+
+            print(f"🌍 Mundo {id_mundo} removido do pool (consumido).")
+
+            # 2. Atualizar status no DynamoDB
+            try:
+                self.dynamodb.update_item(
+                    TableName=self.dynamodb_table_name,
+                    Key={
+                        'PK': {'S': f'PLANET#{id_mundo}'},
+                        'SK': {'S': 'METADATA'}
+                    },
+                    UpdateExpression="SET #status = :consumido",
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={':consumido': {'S': 'consumido'}}
+                )
+                print(f"✅ DynamoDB atualizado: mundo {id_mundo} marcado como 'consumido'.")
+            except Exception as e:
+                print(f"❌ Falha ao atualizar status do mundo {id_mundo} no DynamoDB: {e}")
+
+            return mundo

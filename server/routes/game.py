@@ -71,19 +71,23 @@ def create_game_blueprint(
         Permite que um jogador saia da fila de matchmaking.
         Útil quando clica em 'Cancelar' na UI.
         """
+        print(f"🔔 Rota /jogo/sair chamada")
         if not request.is_json:
+            print(f"❌ Requisição não é JSON")
             return jsonify({"success": False, "message": "JSON esperado"}), 400
 
         username = request.get_json().get("username")
         if not username:
+            print(f"⚠️ Username ausente")
             return jsonify({"success": False, "message": "Username necessário."}), 400
 
         if matchmaking_service.sair_da_fila(username):
+            print(f"✅ {username} saiu da fila com sucesso.")
             return jsonify({
                 "success": True,
                 "message": f"{username} saiu da fila com sucesso."
             }), 200
-
+        print(f"⚠️ {username} não estava na fila.")
         return jsonify({
             "success": False,
             "message": "Você não estava na fila."
@@ -103,25 +107,119 @@ def create_game_blueprint(
         matchmaking_service.sair_da_fila(username)
         return jsonify({"success": True, "message": f"Estado de {username} limpo."}), 200
 
-    @jogo_bp.route("/status", methods=["GET"])
-    def status():
-        """Retorna o status do jogador: se está na fila ou em partida."""
-        username = request.args.get("username")
+    @jogo_bp.route("/estado", methods=["POST"])
+    def estado_jogador():
+        """
+        Retorna o estado atual do jogador: se está na fila, em partida ou livre.
+        Útil para o cliente decidir qual UI mostrar.
+        """
+        print("🔵 [DEBUG] /jogo/estado: Requisição recebida")
+
+        # 1. Verificar se o corpo é JSON
+        if not request.is_json:
+            print("🔴 [DEBUG] /jogo/estado: Requisição não é JSON")
+            return jsonify({"error": "JSON esperado."}), 400
+
+        # 2. Extrair o username
+        data = request.get_json()
+        print(f"🔵 [DEBUG] /jogo/estado: Dados recebidos: {data}")
+
+        username = data.get("username")
         if not username:
-            return jsonify({"error": "Username necessário"}), 400
+            print("🔴 [DEBUG] /jogo/estado: Username ausente no JSON")
+            return jsonify({"error": "Username necessário."}), 400
 
-        em_fila = any(username in sala.jogadores for sala in matchmaking_service.salas)
+        print(f"🟢 [DEBUG] /jogo/estado: Consultando estado do jogador: {username}")
 
-        # Por enquanto, "em partida" = sala cheia
-        em_partida = any(
-            username in sala.jogadores and len(sala.jogadores) >= sala.vagas
-            for sala in matchmaking_service.salas
-        )
+        # 3. Verificar no MatchmakingService
+        try:
+            # Verifica se está em alguma sala (na fila)
+            em_fila = any(username in sala.jogadores for sala in matchmaking_service.salas)
+            print(f"🔵 [DEBUG] /jogo/estado: em_fila = {em_fila}")
 
-        return jsonify({
+            # Verifica se está em uma partida (sala cheia)
+            em_partida = any(
+                username in sala.jogadores and len(sala.jogadores) >= sala.vagas
+                for sala in matchmaking_service.salas
+            )
+            print(f"🔵 [DEBUG] /jogo/estado: em_partida = {em_partida}")
+
+            # Conta o total na fila
+            total_na_fila = sum(len(sala.jogadores) for sala in matchmaking_service.salas)
+            print(f"🟢 [DEBUG] /jogo/estado: total_na_fila = {total_na_fila}")
+
+            # Detalhar cada sala (para depuração profunda)
+            for i, sala in enumerate(matchmaking_service.salas):
+                jogadores = sala.jogadores
+                vagas = sala.vagas
+                cheia = len(jogadores) >= vagas
+                tem_usuario = username in jogadores
+                print(
+                    f"🔍 [DEBUG] /jogo/estado: Sala {i}: jogadores={jogadores}, vagas={vagas}, cheia={cheia}, tem_usuario={tem_usuario}")
+
+        except Exception as e:
+            print(f"❌ [DEBUG] /jogo/estado: Erro ao verificar estado: {e}")
+            return jsonify({"error": "Erro interno ao verificar estado."}), 500
+
+        # 4. Retornar resposta
+        response_data = {
+            "success": True,
+            "username": username,
             "em_fila": em_fila,
             "em_partida": em_partida,
-            "total_na_fila": sum(len(s.jogadores) for s in matchmaking_service.salas)
-        })
+            "total_na_fila": total_na_fila
+        }
+        print(f"🟢 [DEBUG] /jogo/estado: Resposta enviada: {response_data}")
+
+        return jsonify(response_data), 200
+
+    @jogo_bp.route("/debug/salas", methods=["GET"])
+    def debug_salas():
+        """Rota de depuração: mostra o estado de todas as salas."""
+        with matchmaking_service.lock:
+            salas_info = []
+            for i, sala in enumerate(matchmaking_service.salas):
+                with sala.lock:  # Acessa o estado interno da sala com segurança
+                    salas_info.append({
+                        "indice": i,
+                        "id_mundo": sala.mundo.id_mundo,
+                        "vagas": sala.vagas,
+                        "jogadores": sala.jogadores.copy(),  # Cópia segura
+                        "tamanho": len(sala.jogadores),
+                        "esta_cheia": len(sala.jogadores) >= sala.vagas
+                    })
+            return jsonify({
+                "success": True,
+                "total_salas": len(salas_info),
+                "salas": salas_info
+            }), 200
+
+    @jogo_bp.route("/minha_sala", methods=["POST"])
+    def minha_sala():
+        """Retorna o estado da sala do jogador: jogadores, vagas, se está cheia."""
+        if not request.is_json:
+            return jsonify({"error": "JSON esperado."}), 400
+
+        username = request.get_json().get("username")
+        if not username:
+            return jsonify({"error": "Username necessário."}), 400
+
+        # Procurar a sala onde o jogador está
+        for sala in matchmaking_service.salas:
+            if username in sala.jogadores:
+                return jsonify({
+                    "em_fila": True,
+                    "jogadores_na_sala": sala.jogadores.copy(),
+                    "vagas": sala.vagas,
+                    "esta_cheia": len(sala.jogadores) >= sala.vagas
+                })
+
+        # Se não está em nenhuma sala
+        return jsonify({
+            "em_fila": False,
+            "jogadores_na_sala": [],
+            "vagas": 0,
+            "esta_cheia": False
+        }), 200
 
     return jogo_bp

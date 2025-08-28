@@ -39,12 +39,6 @@ def main():
             from server.app import create_app
             app = create_app('development')
 
-            # DEBUG: Listar todas as rotas registradas
-            print("\n📋 Rotas registradas no app (debug real):")
-            for rule in app.url_map.iter_rules():
-                print(f"  {rule.rule} -> {rule.endpoint}")
-            print("\n")
-
             print("✅ Servidor configurado. Acesse em http://127.0.0.1:5000")
             app.run(host='127.0.0.1', port=5000, debug=False)
 

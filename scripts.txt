@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-26 12:15:59
+Gerado em: 2025-08-27 19:16:38
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -47,7 +47,6 @@ Conteúdo dos scripts principais reunidos.
 │   │   └── waiting_room.py
 │   ├── widgets
 │   │   ├── game_placeholder.py
-│   │   ├── status_room.py
 │   │   └── waiting_room_overlay.py
 │   └── main.py
 ├── shared
@@ -72,7 +71,7 @@ from server.config.config import config
 from server.config.extensions import ext
 from server.services.user_service import UserService
 from server.routes.auth import auth_bp, register_routes
-from server.routes.game import jogo_bp, register_jogo_routes
+from server.routes.game import create_game_blueprint
 from server.services.matchmaking_service import MatchmakingService
 from server.services.world_pool import MundoPoolService  # ✅ Importe o novo serviço
 from server.integrations.aws_loader import AWSLoader
@@ -147,7 +146,7 @@ def create_app(config_name='default'):
     print("✅ DEBUG: auth_bp registrado no app.")
 
     # --- 🔹 Jogo Online (NOVO) ---
-    register_jogo_routes(user_service, matchmaking_service)
+    jogo_bp = create_game_blueprint(user_service, matchmaking_service)
     app.register_blueprint(jogo_bp)
     print("✅ DEBUG: jogo_bp registrado no app.")
 
@@ -392,14 +391,33 @@ class MatchmakingService:
 
     def _on_partida_cheia(self, jogadores: List[str]):
         """Callback interno chamado quando uma sala enche."""
+
+        # 1. Encontrar a sala associada aos jogadores
+        sala = next((s for s in self.salas if s.jogadores == jogadores), None)
+
+        # 2. Se encontrou a sala e ela tem um mundo, consuma-o
+        if sala and sala.mundo:
+            sucesso = self.world_pool.consumir_mundo(sala.mundo.id_mundo)
+            if sucesso:
+                print(f"✅ Mundo {sala.mundo.id_mundo} consumido após partida iniciar.")
+            else:
+                print(f"⚠️ Falha ao consumir mundo {sala.mundo.id_mundo}")
+
+        # 3. Notificar o cliente que a partida começou
         if self.partida_iniciada_callback:
             self.partida_iniciada_callback(jogadores)
+
+        # 4. Remover a sala da lista de salas ativas
+        with self.lock:
+            self.salas = [s for s in self.salas if s.jogadores != jogadores]
+            print(f"🟢 [DEBUG] MatchmakingService._on_partida_cheia: Sala removida. Salas ativas: {len(self.salas)}")
 
     def entrar_na_fila(self, username: str) -> str:
         """
         1. Obtém um mundo com vaga do MundoPoolService.
         2. Associa o jogador a esse mundo (cria ou entra em sala).
         3. Registra ocupação no pool.
+        4. Consome o mundo: remove do pool e marca como 'consumido' no DynamoDB.
         """
         with self.lock:
             # 1. Obter um mundo com vaga disponível
@@ -421,6 +439,14 @@ class MatchmakingService:
             # 3. Registrar no pool que o jogador ocupou uma vaga
             if "Erro" not in mensagem:
                 self.world_pool.registrar_jogador_no_mundo(username, mundo)
+
+            # ✅ 4. CONSUMIR o mundo imediatamente após alocação
+            # Isso garante que ele não seja reutilizado, mesmo se a sala não encher
+            sucesso_consumo = self.world_pool.consumir_mundo(mundo.id_mundo)
+            if sucesso_consumo:
+                print(f"✅ Mundo {mundo.id_mundo} foi consumido após alocação para {username}.")
+            else:
+                print(f"⚠️ Falha ao consumir mundo {mundo.id_mundo} (já pode ter sido consumido).")
 
             print(mensagem)
             return mensagem
@@ -792,16 +818,20 @@ class MundoPoolService:
         return total
 
     def _carregar_mundos_existentes(self):
-        """Carrega mundos com vagas do DynamoDB para o pool, usando o gerenciador."""
+        """Carrega mundos com vagas DO DynamoDB para o pool, mas apenas se estiverem 'disponiveis'."""
         try:
             dynamodb = self.gerenciador.aws_loader.get_client('dynamodb')
             response = dynamodb.scan(
                 TableName=self.gerenciador.dynamodb_table_name,
-                # ✅ Corrigido: usa begins_with para PK que começa com "PLANET#"
-                FilterExpression="begins_with(PK, :pk_prefix) AND vagas > :zero",
+                # ✅ Filtra por PK começando com PLANET#, com vagas > 0 E status = 'disponivel'
+                FilterExpression="begins_with(PK, :pk_prefix) AND vagas > :zero AND #status = :ativo",
+                ExpressionAttributeNames={
+                    '#status': 'status'  # ✅ Protege contra palavras reservadas
+                },
                 ExpressionAttributeValues={
-                    ":pk_prefix": {"S": "PLANET#"},
-                    ":zero": {"N": "0"}
+                    ':pk_prefix': {'S': 'PLANET#'},
+                    ':zero': {'N': '0'},
+                    ':ativo': {'S': 'disponivel'}  # ✅ Apenas mundos disponíveis
                 }
             )
 
@@ -809,7 +839,9 @@ class MundoPoolService:
                 for item in response.get('Items', []):
                     id_mundo = item['PK']['S'].split('#')[1]
                     vagas = int(item['vagas']['N'])
+                    # ✅ Verifica novamente (embora o scan já tenha filtrado)
                     if vagas > 0:
+                        # ✅ Evita duplicação
                         if not any(m.id_mundo == id_mundo for m in self.mundos_com_vaga):
                             mundo_stub = Mundo(fator=self.fator, bioma=self.bioma)
                             mundo_stub.id_mundo = id_mundo
@@ -820,6 +852,40 @@ class MundoPoolService:
             print(f"⚠️ Falha ao carregar mundos existentes: {e}")
             import traceback
             traceback.print_exc()
+
+    def consumir_mundo(self, id_mundo: str) -> Optional[Mundo]:
+        """Remove um mundo do pool e marca como 'consumido' no DynamoDB."""
+        with self.lock:
+            # 1. Remover do pool local
+            mundo = None
+            for m in self.mundos_com_vaga:
+                if m.id_mundo == id_mundo:
+                    self.mundos_com_vaga.remove(m)
+                    mundo = m
+                    break
+            if not mundo:
+                print(f"⚠️ Mundo {id_mundo} não encontrado no pool para consumo.")
+                return None
+
+            print(f"🌍 Mundo {id_mundo} removido do pool (consumido).")
+
+            # 2. Atualizar status no DynamoDB
+            try:
+                self.dynamodb.update_item(
+                    TableName=self.dynamodb_table_name,
+                    Key={
+                        'PK': {'S': f'PLANET#{id_mundo}'},
+                        'SK': {'S': 'METADATA'}
+                    },
+                    UpdateExpression="SET #status = :consumido",
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={':consumido': {'S': 'consumido'}}
+                )
+                print(f"✅ DynamoDB atualizado: mundo {id_mundo} marcado como 'consumido'.")
+            except Exception as e:
+                print(f"❌ Falha ao atualizar status do mundo {id_mundo} no DynamoDB: {e}")
+
+            return mundo
 
 ================================================================================
 📄 server/tools/sei_la_o_que.py
@@ -1209,142 +1275,202 @@ config = {
 📄 server/routes/game.py
 ================================================================================
 # server/routes/game.py
+"""
+Rotas relacionadas ao jogo online (fila de matchmaking, status, etc).
+Todas as rotas são registradas dentro de uma função fábrica de blueprint,
+permitindo injeção explícita de dependências (UserService, MatchmakingService).
+"""
+
 from flask import Blueprint, jsonify, request
 from server.services.user_service import UserService
-from server.services.matchmaking_service import MatchmakingService  # ✅ Usa o serviço de matchmaking
+from server.services.matchmaking_service import MatchmakingService
 
 
-jogo_bp = Blueprint('jogo', __name__, url_prefix='/jogo')
-
-# Variáveis para injeção de dependência
-_user_service = None
-_matchmaking_service = None
-
-
-def register_jogo_routes(user_service: UserService, matchmaking_service: MatchmakingService):
-    """Função para injetar dependências no blueprint jogo."""
-    global _user_service, _matchmaking_service
-    _user_service = user_service
-    _matchmaking_service = matchmaking_service
-
-
-@jogo_bp.route('/entrar', methods=['POST'])
-def entrar_na_fila():
-    """Adiciona o jogador à fila de matchmaking online."""
-    if not request.is_json:
-        return jsonify({"success": False, "message": "JSON esperado"}), 400
-
-    data = request.get_json()
-    modo = data.get("modo")
-    username = data.get("username")
-
-    if modo != "online":
-        return jsonify({"success": False, "message": "Modo inválido. Use 'online'."}), 400
-
-    if not username:
-        return jsonify({"success": False, "message": "Username necessário."}), 400
-
-    # ✅ Validar se o usuário existe
-    usuario = _user_service.get_user(username)
-    if not usuario:
-        return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
-
-    # ✅ Tenta entrar na fila
-    mensagem = _matchmaking_service.entrar_na_fila(username)
-    if "Erro ao entrar na fila" in mensagem:
-        return jsonify({"success": False, "message": mensagem}), 409
-
-    # ✅ Encontra a sala onde o jogador foi alocado
-    sala_atual = None
-    for sala in _matchmaking_service.salas:
-        if username in sala.jogadores:
-            sala_atual = sala
-            break
-
-    if not sala_atual:
-        return jsonify({
-            "success": False,
-            "message": "Erro interno: jogador não encontrado em nenhuma sala."
-        }), 500
-
-    # ✅ Total de jogadores em todas as salas ativas
-    total_na_fila = sum(len(sala.jogadores) for sala in _matchmaking_service.salas)
-
-    return jsonify({
-        "success": True,
-        "message": mensagem,
-        "modo": modo,
-        "total_na_fila": total_na_fila,
-        "max_jogadores": sala_atual.vagas  # Limite da sala
-    }), 200
-
-
-@jogo_bp.route('/sair', methods=['POST'])
-def sair_da_fila():
+def create_game_blueprint(
+    user_service: UserService,
+    matchmaking_service: MatchmakingService
+) -> Blueprint:
     """
-    Permite que um jogador saia da fila de matchmaking.
-    Útil quando clica em 'Cancelar' na UI.
+    Cria o blueprint de rotas do jogo com as dependências injetadas.
     """
-    if not request.is_json:
-        return jsonify({"success": False, "message": "JSON esperado"}), 400
+    jogo_bp = Blueprint("jogo", __name__, url_prefix="/jogo")
 
-    data = request.get_json()
-    username = data.get("username")
+    @jogo_bp.route("/entrar", methods=["POST"])
+    def entrar_na_fila():
+        """Adiciona o jogador à fila de matchmaking online."""
+        if not request.is_json:
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
 
-    if not username:
-        return jsonify({"success": False, "message": "Username necessário."}), 400
+        data = request.get_json()
+        modo = data.get("modo")
+        username = data.get("username")
 
-    # ✅ Tenta remover o jogador da fila
-    if _matchmaking_service.sair_da_fila(username):
+        if modo != "online":
+            return jsonify({"success": False, "message": "Modo inválido. Use 'online'."}), 400
+        if not username:
+            return jsonify({"success": False, "message": "Username necessário."}), 400
+
+        # Validar se o usuário existe
+        usuario = user_service.get_user(username)
+        if not usuario:
+            return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
+
+        # Tenta entrar na fila
+        mensagem = matchmaking_service.entrar_na_fila(username)
+        if "Erro ao entrar na fila" in mensagem:
+            return jsonify({"success": False, "message": mensagem}), 409
+
+        # Encontra a sala onde o jogador foi alocado
+        sala_atual = next(
+            (s for s in matchmaking_service.salas if username in s.jogadores),
+            None
+        )
+        if not sala_atual:
+            return jsonify({
+                "success": False,
+                "message": "Erro interno: jogador não encontrado em nenhuma sala."
+            }), 500
+
+        total_na_fila = sum(len(sala.jogadores) for sala in matchmaking_service.salas)
+
         return jsonify({
             "success": True,
-            "message": f"{username} saiu da fila com sucesso."
+            "message": mensagem,
+            "modo": modo,
+            "total_na_fila": total_na_fila,
+            "max_jogadores": sala_atual.vagas
         }), 200
-    else:
+
+    @jogo_bp.route("/sair", methods=["POST"])
+    def sair_da_fila():
+        """
+        Permite que um jogador saia da fila de matchmaking.
+        Útil quando clica em 'Cancelar' na UI.
+        """
+        print(f"🔔 Rota /jogo/sair chamada")
+        if not request.is_json:
+            print(f"❌ Requisição não é JSON")
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+        username = request.get_json().get("username")
+        if not username:
+            print(f"⚠️ Username ausente")
+            return jsonify({"success": False, "message": "Username necessário."}), 400
+
+        if matchmaking_service.sair_da_fila(username):
+            print(f"✅ {username} saiu da fila com sucesso.")
+            return jsonify({
+                "success": True,
+                "message": f"{username} saiu da fila com sucesso."
+            }), 200
+        print(f"⚠️ {username} não estava na fila.")
         return jsonify({
             "success": False,
             "message": "Você não estava na fila."
         }), 400
 
-@jogo_bp.route('/limpar_usuario', methods=['POST'])
-def limpar_usuario():
-    """Remove o jogador de qualquer fila ou sala, mesmo que não esteja na fila."""
-    if not request.is_json:
-        return jsonify({"success": False, "message": "JSON esperado"}), 400
-    data = request.get_json()
-    username = data.get("username")
-    if not username:
-        return jsonify({"success": False, "message": "Username necessário"}), 400
+    @jogo_bp.route("/limpar_usuario", methods=["POST"])
+    def limpar_usuario():
+        """Remove o jogador de qualquer fila ou sala, mesmo que não esteja na fila."""
+        if not request.is_json:
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
 
-    # Tenta remover da fila (não importa se já saiu, só garante o cleanup)
-    _matchmaking_service.sair_da_fila(username)
+        username = request.get_json().get("username")
+        if not username:
+            return jsonify({"success": False, "message": "Username necessário"}), 400
 
-    return jsonify({"success": True, "message": f"Estado de {username} limpo."}), 200
+        # Cleanup independente do estado
+        matchmaking_service.sair_da_fila(username)
+        return jsonify({"success": True, "message": f"Estado de {username} limpo."}), 200
 
+    @jogo_bp.route("/estado", methods=["POST"])
+    def estado_jogador():
+        """
+        Retorna o estado atual do jogador: se está na fila, em partida ou livre.
+        Útil para o cliente decidir qual UI mostrar.
+        """
+        print("🔵 [DEBUG] /jogo/estado: Requisição recebida")
 
-@jogo_bp.route('/status', methods=['GET'])
-def status():
-    """Retorna o status do jogador: se está na fila ou em partida."""
-    username = request.args.get("username")
-    if not username:
-        return jsonify({"error": "Username necessário"}), 400
+        # 1. Verificar se o corpo é JSON
+        if not request.is_json:
+            print("🔴 [DEBUG] /jogo/estado: Requisição não é JSON")
+            return jsonify({"error": "JSON esperado."}), 400
 
-    # Verificar se está na fila
-    em_fila = any(username in sala.jogadores for sala in _matchmaking_service.salas)
+        # 2. Extrair o username
+        data = request.get_json()
+        print(f"🔵 [DEBUG] /jogo/estado: Dados recebidos: {data}")
 
-    # Verificar se está em partida (você pode ter um serviço de "partidas ativas")
-    # Por enquanto, assumimos que se está na fila e a partida iniciou, está em partida
-    em_partida = False
-    for sala in _matchmaking_service.salas:
-        if username in sala.jogadores and len(sala.jogadores) >= 4:
-            em_partida = True
-            break
+        username = data.get("username")
+        if not username:
+            print("🔴 [DEBUG] /jogo/estado: Username ausente no JSON")
+            return jsonify({"error": "Username necessário."}), 400
 
-    return jsonify({
-        "em_fila": em_fila,
-        "em_partida": em_partida,
-        "total_na_fila": sum(len(s.jogadores) for s in _matchmaking_service.salas)
-    })
+        print(f"🟢 [DEBUG] /jogo/estado: Consultando estado do jogador: {username}")
+
+        # 3. Verificar no MatchmakingService
+        try:
+            # Verifica se está em alguma sala (na fila)
+            em_fila = any(username in sala.jogadores for sala in matchmaking_service.salas)
+            print(f"🔵 [DEBUG] /jogo/estado: em_fila = {em_fila}")
+
+            # Verifica se está em uma partida (sala cheia)
+            em_partida = any(
+                username in sala.jogadores and len(sala.jogadores) >= sala.vagas
+                for sala in matchmaking_service.salas
+            )
+            print(f"🔵 [DEBUG] /jogo/estado: em_partida = {em_partida}")
+
+            # Conta o total na fila
+            total_na_fila = sum(len(sala.jogadores) for sala in matchmaking_service.salas)
+            print(f"🟢 [DEBUG] /jogo/estado: total_na_fila = {total_na_fila}")
+
+            # Detalhar cada sala (para depuração profunda)
+            for i, sala in enumerate(matchmaking_service.salas):
+                jogadores = sala.jogadores
+                vagas = sala.vagas
+                cheia = len(jogadores) >= vagas
+                tem_usuario = username in jogadores
+                print(
+                    f"🔍 [DEBUG] /jogo/estado: Sala {i}: jogadores={jogadores}, vagas={vagas}, cheia={cheia}, tem_usuario={tem_usuario}")
+
+        except Exception as e:
+            print(f"❌ [DEBUG] /jogo/estado: Erro ao verificar estado: {e}")
+            return jsonify({"error": "Erro interno ao verificar estado."}), 500
+
+        # 4. Retornar resposta
+        response_data = {
+            "success": True,
+            "username": username,
+            "em_fila": em_fila,
+            "em_partida": em_partida,
+            "total_na_fila": total_na_fila
+        }
+        print(f"🟢 [DEBUG] /jogo/estado: Resposta enviada: {response_data}")
+
+        return jsonify(response_data), 200
+
+    @jogo_bp.route("/debug/salas", methods=["GET"])
+    def debug_salas():
+        """Rota de depuração: mostra o estado de todas as salas."""
+        with matchmaking_service.lock:
+            salas_info = []
+            for i, sala in enumerate(matchmaking_service.salas):
+                with sala.lock:  # Acessa o estado interno da sala com segurança
+                    salas_info.append({
+                        "indice": i,
+                        "id_mundo": sala.mundo.id_mundo,
+                        "vagas": sala.vagas,
+                        "jogadores": sala.jogadores.copy(),  # Cópia segura
+                        "tamanho": len(sala.jogadores),
+                        "esta_cheia": len(sala.jogadores) >= sala.vagas
+                    })
+            return jsonify({
+                "success": True,
+                "total_salas": len(salas_info),
+                "salas": salas_info
+            }), 200
+
+    return jogo_bp
 
 ================================================================================
 📄 server/routes/auth.py
@@ -2085,7 +2211,8 @@ class Gerenciador:
                         'fator': {'N': str(mundo.planeta.fator)},
                         'bioma_inicial': {'S': bioma_inicial},
                         'vagas': {'N': str(vagas)},
-                        'timestamp': {'N': str(int(time.time()))}
+                        'timestamp': {'N': str(int(time.time()))},
+                        'status': {'S': 'disponivel'}
                     }
                 )
                 print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")
@@ -3048,63 +3175,75 @@ class JanelaPrincipal(QMainWindow):
                     self.gerenciador_icones.atualizar_estado_login(True, "Player")
 
     def on_icone_play(self):
-        """Action triggered by the 'Play' icon: checks state and offers offline or online mode."""
+        """Action triggered by the 'Play' icon: checks server state before acting."""
+        print("🔵 [DEBUG] on_icone_play: Início da execução")
         print("Action: 'Play' icon clicked. Checking state...")
 
         # ✅ Stop render loop before any UI changes
         self.parar_loop()
+        print("⏸️ [DEBUG] on_icone_play: Render loop parado")
 
         try:
-            # ✅ 1. Verificar se o usuário está em uma partida ativa ou na fila
+            # ✅ 1. Verificar se o usuário está logado
             username = self._ler_username()
+            print(f"🔵 [DEBUG] on_icone_play: Username lido de session.txt: '{username}'")
+
             if not username:
-                # Se não está logado, vai direto para o diálogo de escolha + login
+                print("🟡 [DEBUG] on_icone_play: Nenhum usuário logado. Mostrando diálogo de modos.")
                 self._mostrar_dialogo_modos()
                 return
 
-            response = requests.get("http://localhost:5000/jogo/status",
-                                    json={"username": username},
-                                    timeout=3)
+            # ✅ 2. CONSULTAR ESTADO ANTES DE LIMPAR
+            print("🔵 [DEBUG] on_icone_play: Consultando estado do jogador no servidor...")
+            try:
+                response = requests.post(
+                    "http://localhost:5000/jogo/estado",
+                    json={"username": username},
+                    timeout=3
+                )
+                print(f"🟢 [DEBUG] on_icone_play: Resposta de /jogo/estado: {response.status_code} - {response.text}")
 
-            if response.status_code == 200:
-                data = response.json()
-                em_partida = data.get("em_partida", False)
-                em_fila = data.get("em_fila", False)
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"🟢 [DEBUG] on_icone_play: Estado recebido: {data}")
 
-                if em_partida or em_fila:
-                    # ✅ Perguntar se quer retomar
-                    msg = (
-                        "Você foi encontrado em uma partida ativa ou na fila.\n\n"
-                        "Deseja:\n"
-                        " • 'Sim' para retomar a partida atual\n"
-                        " • 'Não' para sair e escolher um novo modo"
-                    )
-                    reply = QMessageBox.question(
-                        self,
-                        "Partida Detectada",
-                        msg,
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-
-                    if reply == QMessageBox.StandardButton.Yes:
+                    if data.get("em_partida"):
+                        print("⚠️ Jogador já está em partida. Mostrando placeholder...")
                         self.mostrar_tela_jogo()
                         return
-                    else:
-                        # Forçar saída
-                        requests.post("http://localhost:5000/jogo/sair",
-                                      json={"username": username})
+                    elif data.get("em_fila"):
+                        print("⚠️ Jogador já está na fila. Reexibindo overlay...")
+                        # Opcional: reconectar ao estado da fila
+                        # self._reconectar_a_fila(data)
+                        pass
+                else:
+                    print(f"🟡 [DEBUG] on_icone_play: /jogo/estado retornou status {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                print(f"🔴 [DEBUG] on_icone_play: Falha ao consultar estado: {e}")
 
-            # ✅ 2. Mostrar diálogo de escolha (offline/online)
+            # ✅ 3. SE LIVRE, LIMPAR ESTADO E CONTINUAR
+            print("🔵 [DEBUG] on_icone_play: Limpando estado do usuário no servidor...")
+            try:
+                response = requests.post(
+                    "http://localhost:5000/jogo/limpar_usuario",
+                    json={"username": username},
+                    timeout=3
+                )
+                print(
+                    f"🧹 Estado do usuário '{username}' limpo no servidor. Resposta: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"⚠️ Falha ao limpar estado no servidor: {e}")
+
+            # ✅ 4. MOSTRAR DIÁLOGO DE MODOS
+            print("🟢 [DEBUG] on_icone_play: Mostrando diálogo de escolha de modo (offline/online)")
             self._mostrar_dialogo_modos()
 
-        except requests.exceptions.ConnectionError:
-            QMessageBox.critical(self, "Erro", "Não foi possível conectar ao servidor.")
-            # Mesmo com erro, mostre o diálogo de modos
-            self._mostrar_dialogo_modos()
         except Exception as e:
+            print(f"❌ Erro inesperado em on_icone_play: {e}")
             QMessageBox.critical(self, "Erro", f"Erro inesperado: {e}")
-            print(f"❌ Erro em on_icone_play: {e}")
             self._mostrar_dialogo_modos()
+
+        print("🟢 [DEBUG] on_icone_play: Execução concluída")
 
     def _iniciar_offline(self, escolha, dialog):
         escolha[0] = "offline"
@@ -3133,41 +3272,60 @@ class JanelaPrincipal(QMainWindow):
             self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
 
     def on_icone_sair(self):
-        """Action triggered by the 'Exit' icon: confirms intent and exits, but preserves login."""
+        """Action triggered by the 'Exit' icon: cleans server state and closes the app."""
         print("Action: 'Exit' icon clicked.")
 
-        # Check if the user is in the waiting room
+        # ✅ Stop render loop
+        self.parar_loop()
+
+        username = self._ler_username()
+        if not username:
+            # Se não está logado, fecha direto
+            self.close()
+            return
+
+        # ✅ 1. Perguntar se quer sair da sala de espera (se estiver em uma)
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
             reply = QMessageBox.question(
                 self,
-                "Exit Game",
-                "You are in a waiting room. Exiting now will cancel your participation.\n\nDo you really want to exit?",
+                "Sair da Partida",
+                "Você está em uma sala de espera. Sair agora cancelará sua participação.\n\n"
+                "Deseja realmente sair?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
-                return  # Cancel exit
+                return  # Cancela o fechamento
 
-            # Notify server that user is leaving the queue
-            try:
-                with open("session.txt", "r") as f:
-                    username = f.read().strip()
-                import requests
-                requests.post(
-                    "http://localhost:5000/jogo/sair",
-                    json={"username": username},
-                    timeout=3
-                )
-                print(f"📤 {username} left the queue via 'Exit'.")
-            except Exception as e:
-                print(f"❌ Failed to notify server: {e}")
-            finally:
+        # ✅ 2. Sempre limpar o estado do jogador no servidor
+        try:
+            response = requests.post(
+                "http://localhost:5000/jogo/limpar_usuario",
+                json={"username": username},
+                timeout=3
+            )
+            print(f"🧹 Estado do usuário '{username}' limpo no servidor ao sair. {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Falha ao limpar estado ao sair: {e}")
+            # Ignora erro — o importante é fechar
+
+        # ✅ 3. Limpeza local: remover overlays e parar polling
+        try:
+            if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
                 self._esconder_overlay_sala_espera()
+        except Exception as e:
+            print(f"⚠️ Falha ao remover overlay local: {e}")
 
-        # ✅ NÃO remove session.txt → login será lembrado na próxima abertura
-        # ✅ NÃO altera self.usuario_logado → estado de login permanece até a próxima inicialização
+        try:
+            if hasattr(self, 'polling_timer') and self.polling_timer:
+                self.polling_timer.stop()
+                self.polling_timer.deleteLater()
+                self.polling_timer = None
+            print("⏸️ Polling de status da sala interrompido.")
+        except Exception as e:
+            print(f"⚠️ Falha ao parar polling: {e}")
 
-        # Close the application
+        # ✅ 4. Fechar o programa
         self.close()
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
@@ -3357,7 +3515,7 @@ class JanelaPrincipal(QMainWindow):
             data = response.json()
 
             if data.get("success"):
-                max_jogadores = data.get("max_jogadores", 4)
+                max_jogadores = data.get("max_jogadores")
 
                 # 6. ✅ Mostrar overlay da sala de espera
                 self._mostrar_overlay_sala_espera(username, max_jogadores)
@@ -3385,43 +3543,64 @@ class JanelaPrincipal(QMainWindow):
         """Chamado quando a partida começa.
         Realiza limpeza completa de UI e prepara a transição para o modo de jogo.
         """
+        print("🔵 [DEBUG] on_partida_iniciada: Início da execução")
+
+        # ✅ Verificar se já foi chamado (evitar duplicação)
+        if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
+            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado anteriormente. Ignorando.")
+            return
+        self.partida_iniciada = True
+        print("🟢 [DEBUG] on_partida_iniciada: Flag 'partida_iniciada' definido como True")
+
         print("🎮 Partida iniciada: removendo overlays, status e parando polling...")
 
         # 1. Remover o widget de status da barra lateral (se existir)
         try:
             if hasattr(self, 'gerenciador_icones') and self.gerenciador_icones:
+                print("🔵 [DEBUG] on_partida_iniciada: Removendo widget de status da barra lateral")
                 self.gerenciador_icones.remover_status_sala()
                 print("🗑️ Widget de status da sala removido da barra esquerda.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado ou inexistente")
         except Exception as e:
             print(f"⚠️ Falha ao remover status da sala: {e}")
 
         # 2. Esconder e remover o overlay da sala de espera (se existir)
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                print("🔵 [DEBUG] on_partida_iniciada: Overlay da sala de espera detectado. Iniciando remoção...")
                 # Usa o mecanismo de fade_out do overlay, se disponível
                 if hasattr(self.overlay_sala, 'fade_out'):
+                    print("🎨 [DEBUG] on_partida_iniciada: Aplicando fade_out no overlay")
                     self.overlay_sala.fade_out()
                     # Após a animação, esconde e remove
                     from PyQt6.QtCore import QTimer
                     QTimer.singleShot(300, self._esconder_overlay_sala_espera)
                 else:
+                    print("🎨 [DEBUG] on_partida_iniciada: Sem fade_out. Escondendo diretamente")
                     self._esconder_overlay_sala_espera()
                 print("🎨 Overlay da sala de espera removido com sucesso.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado ou já removido")
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay da sala: {e}")
 
         # 3. Parar o polling de status (evita chamadas desnecessárias)
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
+                print("⏸️ [DEBUG] on_partida_iniciada: Parando polling_timer")
                 self.polling_timer.stop()
                 self.polling_timer.deleteLater()
                 self.polling_timer = None
                 print("⏸️ Polling de status da sala interrompido.")
+            else:
+                print("🟡 [DEBUG] on_partida_iniciada: polling_timer não encontrado ou já parado")
         except Exception as e:
             print(f"⚠️ Falha ao parar o polling: {e}")
 
         # 4. Placeholder: exibir mensagem de partida iniciada
         try:
+            print("🟢 [DEBUG] on_partida_iniciada: Exibindo placeholder da partida")
             # ✅ Compatível com o código atual
             QMessageBox.information(self, "Game Started", "Loading Planet...")
             print("🟢 Placeholder de partida exibido: 'Loading Planet...'")
@@ -3432,79 +3611,136 @@ class JanelaPrincipal(QMainWindow):
                 # self.opengl_widget.ativar_modo_jogo()
                 # Por enquanto, forçar atualização
                 self.opengl_widget.update()
+                print("🔵 [DEBUG] on_partida_iniciada: OpenGL widget atualizado")
         except Exception as e:
             print(f"⚠️ Falha ao exibir tela de jogo: {e}")
 
         # 5. Mensagem final de sucesso
-        print("✅ Transição para partida concluída com sucesso.")
+        print("✅ Transição para partida iniciada com sucesso.")
+        print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
     def _mostrar_overlay_sala_espera(self, username: str, max_jogadores: int):
         """
         Mostra o overlay da sala de espera como sobreposição flutuante sobre o OpenGL,
         substituindo o 'Welcome to Global Arena', sem afetar o layout do OpenGL.
         """
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Início da execução")
+        print(
+            f"🟢 [DEBUG] _mostrar_overlay_sala_espera: Tentando mostrar overlay para {username} | max_jogadores: {max_jogadores}")
+
         # 1. Se já existe um overlay da sala, remova-o corretamente
         if self.overlay_sala is not None:
+            print(
+                "🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala já existe. Chamando _esconder_overlay_sala_espera()")
             self._esconder_overlay_sala_espera()
+        else:
+            print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Nenhum overlay existente. Continuando...")
 
         # 2. Esconder o overlay de boas-vindas
-        self.overlay_widget.hide()
+        if self.overlay_widget:
+            self.overlay_widget.hide()
+            print("🎨 [DEBUG] _mostrar_overlay_sala_espera: overlay_widget (boas-vindas) escondido")
+        else:
+            print("🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_widget não encontrado")
 
         # 3. Criar o novo overlay da sala de espera
         try:
+            print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Criando nova instância de WaitingRoomOverlay")
             self.overlay_sala = WaitingRoomOverlay(username, max_jogadores, parent=self.opengl_container)
+            print("🟢 [DEBUG] _mostrar_overlay_sala_espera: WaitingRoomOverlay criado com sucesso")
         except Exception as e:
             print(f"❌ Falha ao criar WaitingRoomOverlay: {e}")
-            self.overlay_widget.show()  # Restaura se falhar
+            if self.overlay_widget:
+                self.overlay_widget.show()  # Restaura se falhar
             return
 
         # 4. Adicionar como widget filho direto (sem usar layout) → evita interferência no OpenGL
         self.overlay_sala.setParent(self.opengl_container)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala definido como filho de opengl_container")
+
         self.overlay_sala.hide()  # Inicialmente oculto para ajustar posição primeiro
+        print("🟡 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala inicialmente oculto para ajuste de posição")
 
         # 5. Ajustar posição e tamanho com base no container (será refinado após renderização)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: Ajustando posição inicial do overlay")
         self._ajustar_overlay_sala()
 
         # 6. Exibir o overlay
         self.overlay_sala.show()
         self.overlay_sala.raise_()  # Garante que fique na frente
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: overlay_sala exibido e trazido para frente (raise_)")
 
         # 7. Conectar o botão Cancelar com a lógica de saída
         def on_cancel():
+            print(f"🔵 [DEBUG] on_cancel: {username} clicou em Cancelar")
             try:
                 import requests
-                requests.post(
+                response = requests.post(
                     "http://localhost:5000/jogo/sair",
                     json={"username": username},
                     timeout=3
                 )
-                print(f"📤 {username} saiu da fila via cancelamento.")
+                print(f"📤 {username} saiu da fila via cancelamento. Resposta: {response.status_code}")
             except Exception as e:
                 print(f"❌ Falha ao sair da fila: {e}")
             finally:
                 # Sempre esconder o overlay após tentar sair
+                print("🔵 [DEBUG] on_cancel: Chamando _esconder_overlay_sala_espera()")
                 self._esconder_overlay_sala_espera()
 
         # Conectar o callback ao botão Cancelar
         self.overlay_sala.connect_cancel(on_cancel)
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Callback de cancelamento conectado")
 
         # 8. 👉 Garantir posicionamento pós-renderização (evita geometria 0x0)
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(30, self._ajustar_overlay_sala)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: QTimer.singleShot(30) agendado para _ajustar_overlay_sala")
+
         QTimer.singleShot(60, lambda: self.overlay_sala.raise_() if self.overlay_sala else None)
+        print("🔵 [DEBUG] _mostrar_overlay_sala_espera: QTimer.singleShot(60) agendado para garantir raise_()")
+
+        print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Execução concluída")
 
     def _esconder_overlay_sala_espera(self):
-        """Remove o overlay da sala de espera e limpa a referência."""
+        """Remove o overlay da sala de espera, para timers e limpa a referência."""
+        print("🔵 [DEBUG] _esconder_overlay_sala_espera: Início da execução")
+
+        # 1. Parar o polling_timer (evita atualizações desnecessárias)
+        if hasattr(self, 'polling_timer') and self.polling_timer:
+            print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando polling_timer")
+            self.polling_timer.stop()
+            self.polling_timer.deleteLater()
+            self.polling_timer = None
+            print("✅ [DEBUG] _esconder_overlay_sala_espera: polling_timer parado e removido")
+        else:
+            print("🟡 [DEBUG] _esconder_overlay_sala_espera: polling_timer já parado ou inexistente")
+
+        # 2. Verificar se o overlay existe
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-            # Parar timer do overlay
+            print(f"🎨 [DEBUG] _esconder_overlay_sala_espera: Removendo overlay_sala de {self.overlay_sala.parent()}")
+
+            # 3. Parar o timer interno do overlay (se existir)
             if hasattr(self.overlay_sala, 'timer') and self.overlay_sala.timer:
+                print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando timer do overlay_sala")
                 self.overlay_sala.timer.stop()
 
-            # Remover do layout e deletar
+            # 4. Remover do container e deletar
             self.overlay_sala.setParent(None)
             self.overlay_sala.deleteLater()
             self.overlay_sala = None  # 👈 Muito importante!
-            print("🎨 Overlay da sala de espera removido e referência limpa.")
+
+            print("🟢 [DEBUG] _esconder_overlay_sala_espera: overlay_sala removido e referência limpa")
+        else:
+            print("🟡 [DEBUG] _esconder_overlay_sala_espera: overlay_sala já removido ou inexistente")
+
+        # 5. Garantir que o overlay de boas-vindas volte a aparecer (se necessário)
+        if hasattr(self, 'overlay_widget') and not self.overlay_widget.isVisible():
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+            print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_widget (boas-vindas) restaurado")
+
+        print("🟢 [DEBUG] _esconder_overlay_sala_espera: Execução concluída")
 
     def _ajustar_overlay_sala(self):
         """Ajusta posição e tamanho do overlay da sala de espera, garantindo centralização e responsividade.
@@ -3568,7 +3804,7 @@ class JanelaPrincipal(QMainWindow):
                     self.overlay_sala.atualizar_status(total_na_fila)
 
                 # Se a sala encheu, inicia a partida
-                if total_na_fila >= 4:  # Ou use self.overlay_sala.max_jogadores se quiser
+                if total_na_fila >= self.overlay_sala.max_jogadores:
                     self._esconder_overlay_sala_espera()
                     self.polling_timer.stop()
                     self.on_partida_iniciada()
@@ -3576,30 +3812,6 @@ class JanelaPrincipal(QMainWindow):
         except Exception as e:
             print(f"❌ Erro ao atualizar status da sala: {e}")
             pass
-
-    def mostrar_tela_jogo(self):
-        """Mostra a tela placeholder do jogo."""
-        # Esconder overlays
-        if self.overlay_widget:
-            self.overlay_widget.hide()
-        if self.overlay_sala:
-            self._esconder_overlay_sala_espera()
-
-        # Remover status da barra
-        if hasattr(self, 'gerenciador_icones'):
-            self.gerenciador_icones.remover_status_sala()
-
-        # Parar polling
-        if hasattr(self, 'polling_timer') and self.polling_timer:
-            self.polling_timer.stop()
-
-        # Criar e mostrar placeholder
-        username = self._ler_username()
-        self.game_placeholder = GamePlaceholder(username, parent=self.opengl_container)
-        self.game_placeholder.setParent(self.opengl_container)
-        self.game_placeholder.setGeometry(self.opengl_container.rect())
-        self.game_placeholder.show()
-        self.game_placeholder.raise_()
 
     def sair_da_partida(self):
         """Sai da partida e volta para o menu principal."""
@@ -3648,7 +3860,6 @@ def main():
 
     try:
         janela = JanelaPrincipal()
-        # janela.show() # show() já é chamado dentro de __init__
         print("✅ Janela principal exibida em fullscreen.")
         sys.exit(app.exec())
     except Exception as e:
@@ -3663,96 +3874,6 @@ if __name__ == "__main__":
     # with open("session.txt", "w") as f:
     #     f.write("usuario_teste_logado")
     main()
-
-================================================================================
-📄 client/widgets/status_room.py
-================================================================================
-# client/widgets/status_room.py
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QFrame
-)
-from PyQt6.QtCore import Qt
-import requests
-
-
-class WidgetStatusSalaEspera(QWidget):
-    """
-    Widget compacto para exibir status da sala de espera
-    diretamente na barra esquerda, entre 'Play' e 'Sair'.
-    """
-
-    def __init__(self, username: str, max_jogadores: int, parent=None):
-        super().__init__(parent)
-        self.username = username
-        self.max_jogadores = max_jogadores
-        self.parent_widget = parent
-        self.timer = None
-        self.setup_ui()
-
-    def setup_ui(self):
-        layout = QVBoxLayout()
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 10, 12, 10)
-
-        # Fundo arredondado
-        self.setStyleSheet("""
-            background-color: #34495e;
-            border-radius: 10px;
-            border: 1px solid #3498db;
-        """)
-        self.setFixedHeight(110)
-
-        # Título
-        self.titulo = QLabel("🎮 Sala de Espera")
-        self.titulo.setStyleSheet("font-size: 13px; font-weight: bold; color: #ecf0f1;")
-        layout.addWidget(self.titulo)
-
-        # Status: jogadores
-        self.label_status = QLabel(f"Jogadores: 1 / {self.max_jogadores}")
-        self.label_status.setStyleSheet("font-size: 12px; color: #bdc3c7;")
-        layout.addWidget(self.label_status)
-
-        # Usuário
-        self.label_usuario = QLabel(f"Você: {self.username}")
-        self.label_usuario.setStyleSheet("font-size: 11px; color: #95a5a6;")
-        layout.addWidget(self.label_usuario)
-
-        # Botão Cancelar
-        self.btn_cancelar = QPushButton("Cancelar")
-        self.btn_cancelar.setStyleSheet("""
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                border: none;
-                padding: 5px;
-                border-radius: 6px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #c0392b;
-            }
-        """)
-        self.btn_cancelar.setFixedHeight(25)
-        self.btn_cancelar.clicked.connect(self.on_cancelar)
-        layout.addWidget(self.btn_cancelar)
-
-        self.setLayout(layout)
-
-    def atualizar_status(self, total_na_fila: int):
-        """Atualiza o contador de jogadores."""
-        self.label_status.setText(f"Jogadores: {total_na_fila} / {self.max_jogadores}")
-
-    def on_cancelar(self):
-        """Chamado ao clicar em Cancelar."""
-        try:
-            with open("session.txt", "r") as f:
-                username = f.read().strip()
-            requests.post("http://localhost:5000/jogo/sair", json={"username": username})
-        except:
-            pass
-        finally:
-            if self.parent_widget:
-                self.parent_widget.remover_status_sala()  # Método que vamos adicionar
 
 ================================================================================
 📄 client/widgets/waiting_room_overlay.py
@@ -4039,18 +4160,48 @@ class OverlaySalaEspera(QWidget):
             self.label_status.setText(f"❌ Erro: {str(e)}")
 
     def partida_iniciada(self):
-        """Chamado quando a sala está cheia."""
+        """Chamado quando a sala está cheia. Evita chamadas duplicadas e garante transição segura."""
+        print("🔵 [DEBUG] WaitingRoomOverlay.partida_iniciada: Início da execução")
+
+        # 1. Parar o timer de atualização
         if self.timer:
+            print("⏸️ [DEBUG] WaitingRoomOverlay.partida_iniciada: Parando timer de atualização")
             self.timer.stop()
+        else:
+            print("🟡 [DEBUG] WaitingRoomOverlay.partida_iniciada: Timer já parado ou inexistente")
+
+        # 2. Atualizar o status visual
+        print("🎨 [DEBUG] WaitingRoomOverlay.partida_iniciada: Atualizando texto do status")
         self.label_status.setText("✅ Partida iniciada! Carregando mundo...")
 
-        # Chama função da janela principal
-        if hasattr(self.parent_widget, 'on_partida_iniciada'):
-            # Animação de saída opcional antes de esconder
-            self.fade_out()
-            QTimer.singleShot(300, self.parent_widget.on_partida_iniciada)
-        else:
+        # 3. Verificar se a partida já foi iniciada (evitar duplicação)
+        parent = self.parent_widget
+        if hasattr(parent, 'game_placeholder') and parent.game_placeholder is not None:
+            print(
+                "🔴 [DEBUG] WaitingRoomOverlay.partida_iniciada: game_placeholder já existe. Partida já iniciada. Ignorando.")
             self.hide()
+            return
+        else:
+            print("🟢 [DEBUG] WaitingRoomOverlay.partida_iniciada: Nenhum game_placeholder detectado. Continuando...")
+
+        # 4. Chamar a função da janela principal com animação
+        if hasattr(parent, 'on_partida_iniciada'):
+            print(
+                "🔵 [DEBUG] WaitingRoomOverlay.partida_iniciada: on_partida_iniciada encontrado no parent. Iniciando fade_out")
+
+            # Iniciar animação de saída
+            self.fade_out()
+
+            # Chamar on_partida_iniciada após a animação
+            print("🟡 [DEBUG] WaitingRoomOverlay.partida_iniciada: Agendando parent.on_partida_iniciada em 300ms")
+            QTimer.singleShot(300, parent.on_partida_iniciada)
+        else:
+            print(
+                "🔴 [DEBUG] WaitingRoomOverlay.partida_iniciada: parent.on_partida_iniciada não encontrado. Escondendo overlay.")
+            # Caso não exista callback, apenas esconder
+            self.hide()
+
+        print("🟢 [DEBUG] WaitingRoomOverlay.partida_iniciada: Execução concluída")
 
     def fade_in(self):
         """Animação de entrada suave."""
@@ -4241,8 +4392,6 @@ import os
 from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
-import requests
-from client.widgets.status_room import WidgetStatusSalaEspera
 
 
 class IconeInterativo(QLabel):
@@ -5576,5 +5725,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 33 arquivos incluídos.
+✅ Total de 32 arquivos incluídos.
 ================================================================================
