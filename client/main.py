@@ -264,6 +264,50 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
+        self.partida_iniciada = False
+
+    def _iniciar_partida(self, modo: str, **kwargs):
+        """
+        Método centralizado para iniciar qualquer tipo de partida.
+        Garante que flags, overlays e estado sejam tratados de forma consistente.
+        """
+        print(f"🟢 [DEBUG] _iniciar_partida: Iniciando partida {modo}...")
+
+        # ✅ MARCAR QUE A PARTIDA ESTÁ INICIADA
+        self.partida_iniciada = True
+
+        # ✅ Parar render loop antes de mudar UI
+        self.parar_loop()
+
+        # --- Lógica específica por modo ---
+        if modo == "offline":
+            fator = kwargs.get("fator")
+            bioma = kwargs.get("bioma")
+            self._configurar_modo_offline(fator, bioma)
+        elif modo == "online":
+            jogadores = kwargs.get("jogadores", [])
+            self._configurar_modo_online(jogadores)
+
+        # ✅ Esconder overlays de espera
+        self._esconder_overlay_sala_espera()
+
+        # ✅ Ativar modo de jogo no OpenGL
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            self.opengl_widget.ativar_modo_jogo()
+            self.opengl_widget.update()
+
+        print("✅ Transição para partida concluída.")
+
+    def _configurar_modo_offline(self, fator, bioma):
+        try:
+            from shared.world import Mundo
+            self.mundo = Mundo(fator=fator, bioma=bioma)
+            print(
+                f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
+            self.opengl_widget.carregar_mundo(self.mundo)
+        except Exception as e:
+            print(f"❌ Erro ao criar mundo offline: {e}")
+
     def _mostrar_dialogo_modos(self):
         """Exibe um diálogo para escolher entre modo Offline e Online."""
         # Evita múltiplas aberturas do diálogo
@@ -562,10 +606,10 @@ class JanelaPrincipal(QMainWindow):
             self._entrar_na_fila()
 
     def on_icone_sair(self):
-        """Action triggered by the 'Exit' icon: cleans server state and closes the app."""
+        """Action triggered by the 'Exit' icon: shows contextual dialog based on current state."""
         print("Action: 'Exit' icon clicked.")
 
-        # ✅ Stop render loop
+        # ✅ Stop render loop (safe to call always)
         self.parar_loop()
 
         username = self._ler_username()
@@ -574,11 +618,16 @@ class JanelaPrincipal(QMainWindow):
             self.close()
             return
 
-        # ✅ 1. Perguntar se quer sair da sala de espera (se estiver em uma)
+        # 🔥 Caso 1: Jogador está em partida ativa → diálogo avançado
+        if self.partida_iniciada:
+            self._mostrar_dialogo_saida_partida(username)
+            return
+
+        # 🔹 Caso 2: Não está em partida, mas está em sala de espera → perguntar antes de sair
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
             reply = QMessageBox.question(
                 self,
-                "Sair da Partida",
+                "Sair da Sala de Espera",
                 "Você está em uma sala de espera. Sair agora cancelará sua participação.\n\n"
                 "Deseja realmente sair?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -587,7 +636,17 @@ class JanelaPrincipal(QMainWindow):
             if reply == QMessageBox.StandardButton.No:
                 return  # Cancela o fechamento
 
-        # ✅ 2. Sempre limpar o estado do jogador no servidor
+        # ✅ Limpar estado no servidor (em todos os casos)
+        self._limpar_estado_servidor(username)
+
+        # ✅ Limpeza local
+        self._limpeza_local()
+
+        # ✅ Fechar o programa
+        self.close()
+
+    def _limpar_estado_servidor(self, username: str):
+        """Limpa o estado do jogador no servidor."""
         try:
             response = requests.post(
                 "http://localhost:5000/jogo/limpar_usuario",
@@ -597,15 +656,20 @@ class JanelaPrincipal(QMainWindow):
             print(f"🧹 Estado do usuário '{username}' limpo no servidor ao sair. {response.text}")
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Falha ao limpar estado ao sair: {e}")
-            # Ignora erro — o importante é fechar
 
-        # ✅ 3. Limpeza local: remover overlays e parar polling
+    def _limpeza_local(self):
+        """Remove overlays, para timers e limpa o estado do OpenGL ao voltar ao menu."""
+        print("🧹 [DEBUG] _limpeza_local: Iniciando limpeza completa...")
+
+        # 1. Esconder overlay da sala de espera (se existir)
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                print("🔵 [DEBUG] _limpeza_local: Escondendo overlay da sala de espera")
                 self._esconder_overlay_sala_espera()
         except Exception as e:
-            print(f"⚠️ Falha ao remover overlay local: {e}")
+            print(f"⚠️ Falha ao remover overlay da sala: {e}")
 
+        # 2. Parar e limpar polling_timer
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
                 self.polling_timer.stop()
@@ -615,7 +679,102 @@ class JanelaPrincipal(QMainWindow):
         except Exception as e:
             print(f"⚠️ Falha ao parar polling: {e}")
 
-        # ✅ 4. Fechar o programa
+        # 3. Limpar o mundo do OpenGLWidget (planeta, VAOs, VBOs)
+        try:
+            if hasattr(self, 'opengl_widget') and self.opengl_widget is not None:
+                print("🧹 [DEBUG] _limpeza_local: Limpando mundo do OpenGLWidget")
+                self.opengl_widget.limpar_mundo()  # Método que adicionamos antes
+            else:
+                print("🟡 [DEBUG] _limpeza_local: opengl_widget não encontrado ou já destruído")
+        except Exception as e:
+            print(f"⚠️ Falha ao limpar opengl_widget: {e}")
+
+        # 4. Restaurar overlay de boas-vindas (se não estiver em modo jogo)
+        try:
+            if hasattr(self, 'overlay_widget') and self.overlay_widget is not None:
+                # Só mostra se NÃO estamos em uma partida
+                if not (hasattr(self, 'partida_iniciada') and self.partida_iniciada):
+                    self.overlay_widget.show()
+                    self.overlay_widget.raise_()
+                    print("✅ [DEBUG] _limpeza_local: Overlay de boas-vindas restaurado")
+                else:
+                    print("🟡 [DEBUG] _limpeza_local: Partida ainda ativa, não restaura overlay")
+            else:
+                print("🟡 [DEBUG] _limpeza_local: overlay_widget não encontrado")
+        except Exception as e:
+            print(f"⚠️ Falha ao restaurar overlay de boas-vindas: {e}")
+
+        # 5. Resetar estado de partida
+        self.partida_iniciada = False
+
+        print("✅ [DEBUG] _limpeza_local: Limpeza concluída com sucesso.")
+
+    def _mostrar_dialogo_saida_partida(self, username: str):
+        """Mostra diálogo com Cancel, Main Menu, Quit quando em partida."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Sair do Jogo")
+        dialog.setModal(True)
+        dialog.setFixedSize(320, 150)
+        dialog.setStyleSheet("""
+            QDialog { background-color: #2c3e50; font-family: Arial; }
+            QLabel { color: #ecf0f1; font-size: 14px; }
+            QPushButton {
+                background-color: #3498db; color: white; border: none;
+                padding: 8px 16px; border-radius: 6px; font-size: 13px;
+                min-width: 90px;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+            QPushButton#quit { background-color: #e74c3c; }
+            QPushButton#quit:hover { background-color: #c0392b; }
+        """)
+
+        layout = QVBoxLayout()
+        label = QLabel("O que você gostaria de fazer?")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+        button_layout = QHBoxLayout()
+        btn_cancel = QPushButton("Cancel")
+        btn_menu = QPushButton("Main Menu")
+        btn_quit = QPushButton("Quit")
+        btn_quit.setObjectName("quit")
+
+        button_layout.addWidget(btn_cancel)
+        button_layout.addWidget(btn_menu)
+        button_layout.addWidget(btn_quit)
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+
+        # Ações
+        btn_cancel.clicked.connect(dialog.reject)
+        btn_menu.clicked.connect(lambda: self._sair_para_menu(dialog, username))
+        btn_quit.clicked.connect(lambda: self._sair_do_jogo(dialog, username))
+
+        dialog.exec()
+
+    def _sair_para_menu(self, dialog, username: str):
+        """Volta ao menu principal, limpa estado, mas não fecha o jogo."""
+        dialog.accept()
+
+        self._limpar_estado_servidor(username)
+        self._limpeza_local()
+
+        self.partida_iniciada = False  # ✅ Resetar flag
+
+        # Restaurar overlay inicial
+        if hasattr(self, 'overlay_widget') and self.overlay_widget:
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+
+        print("✅ Retornou ao menu principal.")
+
+    def _sair_do_jogo(self, dialog, username: str):
+        """Fecha o aplicativo após limpar estado."""
+        dialog.accept()
+
+        self._limpar_estado_servidor(username)
+        self._limpeza_local()
+
         self.close()
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
@@ -830,82 +989,71 @@ class JanelaPrincipal(QMainWindow):
             self.entrando_na_fila = False
 
     def on_partida_iniciada(self):
-        """Chamado quando a partida começa.
-        Realiza limpeza completa de UI e prepara a transição para o modo de jogo.
+        """Chamado quando a partida começa (online ou offline).
+        Realiza limpeza de UI, para polling e marca o estado de partida ativa.
+        A criação do mundo e ativação do OpenGL devem ser feitas antes.
         """
         print("🔵 [DEBUG] on_partida_iniciada: Início da execução")
 
-        # ✅ Verificar se já foi chamado (evitar duplicação)
+        # ✅ Evitar duplicação
         if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
-            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado anteriormente. Ignorando.")
+            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado. Ignorando.")
             return
         self.partida_iniciada = True
         print("🟢 [DEBUG] on_partida_iniciada: Flag 'partida_iniciada' definido como True")
 
         print("🎮 Partida iniciada: removendo overlays, status e parando polling...")
 
-        # 1. Remover o widget de status da barra lateral (se existir)
+        # 1. Remover widget de status da barra lateral
         try:
             if hasattr(self, 'gerenciador_icones') and self.gerenciador_icones:
                 print("🔵 [DEBUG] on_partida_iniciada: Removendo widget de status da barra lateral")
                 self.gerenciador_icones.remover_status_sala()
-                print("🗑️ Widget de status da sala removido da barra esquerda.")
+                print("🗑️ Widget de status da sala removido.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado ou inexistente")
+                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado")
         except Exception as e:
             print(f"⚠️ Falha ao remover status da sala: {e}")
 
-        # 2. Esconder e remover o overlay da sala de espera (se existir)
+        # 2. Esconder overlay da sala de espera
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-                print("🔵 [DEBUG] on_partida_iniciada: Overlay da sala de espera detectado. Iniciando remoção...")
-                # Usa o mecanismo de fade_out do overlay, se disponível
+                print("🔵 [DEBUG] on_partida_iniciada: Removendo overlay da sala de espera")
                 if hasattr(self.overlay_sala, 'fade_out'):
-                    print("🎨 [DEBUG] on_partida_iniciada: Aplicando fade_out no overlay")
                     self.overlay_sala.fade_out()
-                    # Após a animação, esconde e remove
                     from PyQt6.QtCore import QTimer
                     QTimer.singleShot(300, self._esconder_overlay_sala_espera)
                 else:
-                    print("🎨 [DEBUG] on_partida_iniciada: Sem fade_out. Escondendo diretamente")
                     self._esconder_overlay_sala_espera()
-                print("🎨 Overlay da sala de espera removido com sucesso.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado ou já removido")
+                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado")
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay da sala: {e}")
 
-        # 3. Parar o polling de status (evita chamadas desnecessárias)
+        # 3. Parar polling
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
-                print("⏸️ [DEBUG] on_partida_iniciada: Parando polling_timer")
                 self.polling_timer.stop()
                 self.polling_timer.deleteLater()
                 self.polling_timer = None
                 print("⏸️ Polling de status da sala interrompido.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: polling_timer não encontrado ou já parado")
+                print("🟡 [DEBUG] on_partida_iniciada: polling_timer já parado")
         except Exception as e:
-            print(f"⚠️ Falha ao parar o polling: {e}")
+            print(f"⚠️ Falha ao parar polling: {e}")
 
-        # 4. Placeholder: exibir mensagem de partida iniciada
+        # 4. Ativar modo de jogo no OpenGLWidget
         try:
-            print("🟢 [DEBUG] on_partida_iniciada: Exibindo placeholder da partida")
-            # ✅ Compatível com o código atual
-            QMessageBox.information(self, "Game Started", "Loading Planet...")
-            print("🟢 Placeholder de partida exibido: 'Loading Planet...'")
-
-            # ✅ Opcional: ativar modo de jogo no OpenGL (se implementado futuramente)
             if hasattr(self, 'opengl_widget') and self.opengl_widget:
-                # Se no futuro você adicionar o método:
-                # self.opengl_widget.ativar_modo_jogo()
-                # Por enquanto, forçar atualização
+                self.opengl_widget.ativar_modo_jogo()
                 self.opengl_widget.update()
-                print("🔵 [DEBUG] on_partida_iniciada: OpenGL widget atualizado")
+                print("🔵 [DEBUG] OpenGLWidget ativado e atualizado.")
+            else:
+                print("⚠️ [WARN] opengl_widget não encontrado ao ativar modo de jogo.")
         except Exception as e:
-            print(f"⚠️ Falha ao exibir tela de jogo: {e}")
+            print(f"⚠️ Falha ao ativar OpenGLWidget: {e}")
 
-        # 5. Mensagem final de sucesso
+        # 5. Finalização
         print("✅ Transição para partida iniciada com sucesso.")
         print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
@@ -1219,57 +1367,8 @@ class JanelaPrincipal(QMainWindow):
         self.offline_overlay.show()
 
     def on_offline_setup_confirmed(self, fator, bioma):
-        """
-        Chamado quando o usuário confirma as configurações offline.
-        Cria um mundo local e ativa a renderização 3D.
-        """
         print(f"🟢 [DEBUG] on_offline_setup_confirmed: Iniciando partida offline | fator={fator}, bioma='{bioma}'")
-
-        # 1. Esconder overlay atual
-        if hasattr(self, 'offline_overlay') and self.offline_overlay:
-            self.offline_overlay.hide()
-            print("🔵 [DEBUG] Overlay de configuração offline escondido.")
-
-        # 2. Criar mundo
-        try:
-            from shared.world import Mundo
-            self.mundo = Mundo(fator=fator, bioma=bioma)
-            print(
-                f"✅ Mundo criado com sucesso: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}"
-            )
-        except Exception as e:
-            print(f"❌ Falha ao criar mundo: {e}")
-            import traceback
-            traceback.print_exc()
-            # Opcional: mostrar mensagem ao usuário
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Erro", f"Não foi possível criar o mundo: {e}")
-            return
-
-        # 3. Enviar para OpenGLWidget
-        if hasattr(self, 'opengl_widget') and self.opengl_widget:
-            try:
-                # ✅ Resetar câmera com base no fator para garantir que o planeta caiba na tela
-                if hasattr(self.opengl_widget, 'camera'):
-                    self.opengl_widget.camera.resetar(fator)
-                    print(f"🔧 [DEBUG] Câmera reposicionada para fator={fator}")
-
-                # ✅ Carregar mundo e ativar modo 3D
-                self.opengl_widget.carregar_mundo(self.mundo)
-                self.opengl_widget.ativar_modo_jogo()
-                self.opengl_widget.update()  # Força renderização
-                print("🟢 [DEBUG] Mundo enviado para MeuOpenGLWidget. Modo 3D ativado.")
-            except Exception as e:
-                print(f"❌ Erro ao carregar mundo no OpenGLWidget: {e}")
-        else:
-            print("⚠️ [WARN] opengl_widget não encontrado ou não inicializado.")
-            return
-
-        # 4. Esconder outros overlays (ex: sala de espera)
-        self._esconder_overlay_sala_espera()
-
-        # 5. Log final
-        print("✅ Transição para modo offline concluída com sucesso.")
+        self._iniciar_partida("offline", fator=fator, bioma=bioma)
 
     def on_offline_setup_canceled(self):
         """Chamado ao cancelar. Restaura o overlay de boas-vindas."""

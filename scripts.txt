@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-30 13:13:37
+Gerado em: 2025-08-31 00:50:55
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -10,6 +10,33 @@ Conteúdo dos scripts principais reunidos.
 ================================================================================
 
 📁 .
+├── server
+│   ├── config
+│   │   ├── config.py
+│   │   ├── extensions.py
+│   │   ├── initializer.py
+│   │   └── signals.py
+│   ├── core
+│   │   ├── commander.py
+│   │   ├── interface.py
+│   │   ├── manager.py
+│   │   ├── registrar_players.py
+│   │   └── simulador_players.py
+│   ├── integrations
+│   │   └── aws_loader.py
+│   ├── routes
+│   │   ├── auth.py
+│   │   └── game.py
+│   ├── saves
+│   ├── services
+│   │   ├── matchmaking_service.py
+│   │   ├── queue_service.py
+│   │   ├── user_service.py
+│   │   └── world_pool.py
+│   ├── tools
+│   │   └── sei_la_o_que.py
+│   ├── app.py
+│   └── serialization.py
 ├── client
 │   ├── components
 │   │   └── icon_manager.py
@@ -40,6 +67,2595 @@ Conteúdo dos scripts principais reunidos.
 ================================================================================
 📄 CONTEÚDO DOS ARQUIVOS
 ================================================================================
+
+================================================================================
+📄 server/app.py
+================================================================================
+# server/app.py
+from flask import Flask, jsonify
+from server.config.config import config
+from server.config.extensions import ext
+from server.services.user_service import UserService
+from server.routes.auth import auth_bp, register_routes
+from server.routes.game import create_game_blueprint
+from server.services.matchmaking_service import MatchmakingService
+from server.services.world_pool import MundoPoolService  # ✅ Importe o novo serviço
+from server.integrations.aws_loader import AWSLoader
+from server.core.manager import Gerenciador
+
+
+def create_app(config_name='default'):
+    """Factory function para criar a aplicação Flask."""
+    app = Flask(__name__)
+
+    # 1. Carrega a configuração
+    app.config.from_object(config[config_name])
+
+    # 2. Inicializa as extensões
+    ext.init_app(app)
+
+    # 3. Cria instâncias de serviços, injetando dependências
+    user_service = UserService(ext.dynamodb, app.config['DYNAMODB_TABLE_NAME'])
+    print(f"✅ DEBUG: UserService criado: {user_service}")
+
+    # --- 🔹 AWS Loader e Gerenciador de Mundos ---
+    aws_loader = AWSLoader(
+        profile_name=app.config.get('AWS_PROFILE_NAME'),
+        region_name=app.config.get('AWS_REGION_NAME')
+    )
+
+    # ✅ Passando o nome da tabela DynamoDB para o Gerenciador
+    gerenciador = Gerenciador(
+        aws_loader=aws_loader,
+        save_dir="saves",
+        dynamodb_table_name=app.config['DYNAMODB_TABLE_NAME']  # ← Correção essencial
+    )
+
+    # --- 🔹 World Pool: Gerencia mundos pré-criados ---
+    world_pool = MundoPoolService(
+        gerenciador=gerenciador,
+        fator=4,
+        bioma="Meadow",
+        min_mundos=3,
+        max_mundos=10,
+        intervalo_verificacao=5.0
+    )
+
+    # --- 🔹 Matchmaking: Sistema Avançado de Salas ---
+    # MatchmakingService agora recebe o world_pool, não o gerenciador diretamente
+    matchmaking_service = MatchmakingService(world_pool=world_pool)
+
+    # Callback para quando uma partida for formada
+    def partida_formada(jogadores):
+        print(f"\n🎉🎉🎉 PARTIDA INICIADA COM: {jogadores}")
+        print(f"🎮 Os jogadores estão prontos para o combate!\n")
+        # Aqui você pode:
+        # - Notificar jogadores via WebSocket
+        # - Registrar a partida no DynamoDB
+        # - Iniciar a lógica do jogo
+
+    # ✅ Registra o callback no novo serviço
+    matchmaking_service.partida_iniciada_callback = partida_formada
+
+    # Armazena serviços no app.config para acesso futuro, se necessário
+    app.config['USER_SERVICE'] = user_service
+    app.config['MATCHMAKING_SERVICE'] = matchmaking_service
+
+    # 4. Registra os Blueprints e injeta dependências
+    print("📋 DEBUG: Iniciando injeção de dependências e registro de blueprints...")
+
+    # --- 🔹 Auth ---
+    print("🔧 DEBUG: Injetando UserService em auth_bp...")
+    register_routes(user_service)
+    print(f"✅ DEBUG: register_routes(user_service) chamado com sucesso.")
+    app.register_blueprint(auth_bp)
+    print("✅ DEBUG: auth_bp registrado no app.")
+
+    # --- 🔹 Jogo Online (NOVO) ---
+    jogo_bp = create_game_blueprint(user_service, matchmaking_service)
+    app.register_blueprint(jogo_bp)
+    print("✅ DEBUG: jogo_bp registrado no app.")
+
+    # 5. Rotas principais (opcional)
+    @app.route('/')
+    def home():
+        return "🚀 Servidor Global Arena - API (Refatorado com Classes)", 200
+
+    # 🔍 Rota de status do matchmaking (monitoramento)
+    @app.route('/status')
+    def status():
+        return jsonify({
+            "success": True,
+            "total_na_fila": world_pool.total_jogadores_na_fila(),  # ✅ Agora existe
+            "mundos_no_pool": world_pool.quantidade_total(),
+            "vagas_disponiveis": world_pool.quantidade_vagas(),
+            "partidas_ativas": len(matchmaking_service.salas)
+        })
+
+    return app
+
+
+# Para execução direta (ex: python server/app.py)
+if __name__ == '__main__':
+    app = create_app('development')  # Ou 'production'
+    print("🚀 Iniciando Servidor Global Arena (Flask - Refatorado)...")
+    print("📄 Endpoints disponíveis:")
+    print("   GET  /                        - Status do servidor")
+    print("   GET  /status                  - Status do matchmaking e pool de mundos")
+    print("   GET  /auth/teste_dynamodb     - Teste de conexão com DynamoDB")
+    print("   POST /jogo/entrar             - Entrar na fila de jogo online (novo)")
+    print("-" * 40)
+    app.run(host='127.0.0.1', port=5000, debug=app.config['DEBUG'])
+
+================================================================================
+📄 server/serialization.py
+================================================================================
+# server/serialization.py
+import json
+import networkx as nx
+import numpy as np
+from pathlib import Path
+from typing import Any, Dict, Optional
+from shared.world import Mundo
+from shared.references import Referencias
+
+
+class Serializador:
+    """
+    Classe responsável por serializar e desserializar o estado completo de um Mundo.
+    Converte para dict serializável em JSON, salva em disco e recarrega.
+    """
+
+    @staticmethod
+    def _convert(value: Any) -> Any:
+        """
+        Converte valores não serializáveis em tipos compatíveis com JSON.
+        """
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, tuple):
+            return list(value)
+        if hasattr(value, '__dict__'):
+            return {k: Serializador._convert(v) for k, v in value.__dict__.items() if not k.startswith('_')}
+        return value
+
+    @classmethod
+    def to_serializable_dict(cls, mundo: Mundo) -> Dict[str, Any]:
+        """
+        Converte um objeto Mundo em um dicionário compatível com JSON.
+        Remove atributos deriváveis para reduzir tamanho.
+        """
+        if not hasattr(mundo, 'planeta') or not hasattr(mundo, 'civs'):
+            raise ValueError("Objeto mundo inválido: falta atributos 'planeta' ou 'civs'")
+
+        G = mundo.planeta.geografia.copy()
+
+        # Atributos que podem ser recalculados, então não precisam ser salvos
+        node_attrs_to_remove = {
+            'cor_placa', 'cor_bioma', 'letra_grega', 'cust_mob', 'tipo', 'altitude', 'umidade', 'temperatura',
+        }
+        for node in G.nodes:
+            for attr in node_attrs_to_remove:
+                G.nodes[node].pop(attr, None)  # Remove silenciosamente
+
+        # Remover arestas (serão recalculadas com custo de mobilidade)
+        G.remove_edges_from(list(G.edges))
+
+        # Converter atributos dos nós
+        for node in G.nodes:
+            attrs = G.nodes[node]
+            for key in list(attrs.keys()):
+                attrs[key] = cls._convert(attrs[key])
+
+        # Usa 'edges="links"' para manter compatibilidade com o formato antigo
+        # O padrão futuro será 'edges="edges"', mas queremos evitar mudanças inesperadas
+        G_data = nx.node_link_data(G, edges="links")
+        G_data.pop("directed", None)
+        G_data.pop("multigraph", None)
+        G_data.pop("graph", None)
+
+        # Serializar civilizações
+        civilizacoes_data = []
+        for civ in mundo.civs:
+            civ_data = {
+                'nome': civ.nome,
+                'cultura': civ.cultura,
+                'cor': cls._convert(civ.cor),
+                'modalidade_bandeira': civ.modalidade_bandeira,
+                'cores_bandeira': cls._convert(civ.cores_bandeira),
+                'player': civ.player,
+                'provincias': [
+                    {
+                        'coordenadas': cls._convert(p.coordenadas),
+                        'nome': p.nome
+                    }
+                    for p in civ.provincias
+                ]
+            }
+            civilizacoes_data.append(civ_data)
+
+        return {
+            "id_mundo": mundo.id_mundo,
+            "fator": mundo.planeta.fator,
+            "bioma_inicial": mundo.planeta.bioma_inicial,
+            "vagas": mundo.planeta.numero_de_jogadores,
+            "geografia": G_data,
+            "civilizacoes": civilizacoes_data
+        }
+
+    @classmethod
+    def from_serializable_dict(cls, data: Dict[str, Any], ref: Optional[Referencias] = None):
+        """
+        Reconstroi um objeto Mundo a partir de um dicionário.
+        Requer uma instância de Referencias para inicialização.
+        """
+        """
+        Ainda a ser implementado
+        retorna Mundo
+        """
+
+    @classmethod
+    def save_to_json(cls, mundo: Mundo, filepath: str) -> bool:
+        try:
+            data = cls.to_serializable_dict(mundo)
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"✅ Mundo salvo em JSON: {filepath}")
+            return True
+        except Exception as e:
+            print(f"❌ Falha ao salvar mundo: {e}")
+            return False
+
+    @classmethod
+    def save_mundo(cls, mundo: Mundo, filepath: str = None) -> str:
+        """
+        Salva um objeto Mundo em JSON.
+        Se filepath não for fornecido, gera um nome automático em 'saves/'.
+        :param mundo: Instância de Mundo
+        :param filepath: Caminho opcional para salvar
+        :return: Caminho final usado, ou string vazia se falhar
+        """
+        from pathlib import Path
+
+        if filepath is None:
+            # Gera caminho padrão: saves/mundo_{id}.json
+            saves_dir = Path("saves")
+            saves_dir.mkdir(exist_ok=True)
+            filepath = saves_dir / f"mundo_{mundo.id_mundo}.json"
+        else:
+            # Garante que o diretório pai exista
+            path = Path(filepath)
+            path.parent.mkdir(exist_ok=True, parents=True)
+
+        sucesso = cls.save_to_json(mundo, filepath)
+        return str(filepath) if sucesso else ""
+
+================================================================================
+📄 server/services/matchmaking_service.py
+================================================================================
+# server/services/matchmaking_service.py
+from typing import List, Optional, Callable
+import threading
+from shared.world import Mundo
+from server.services.world_pool import MundoPoolService  # ✅ Injeção de dependência
+
+class SalaDeEspera:
+    def __init__(self, mundo: Mundo, callback: Callable[[List[str]], None]):
+        self.mundo = mundo
+        self.vagas = len(mundo.planeta.capitais_players)  # ✅ Vagas definidas pelo mundo
+        self.jogadores = []
+        self.lock = threading.Lock()
+        self.callback = callback
+
+    def adicionar_jogador(self, username: str) -> str:
+        with self.lock:
+            if username in self.jogadores:
+                return f"Erro ao entrar na fila: {username} já está na sala."
+            if len(self.jogadores) >= self.vagas:
+                return "Erro ao entrar na fila: sala cheia."
+
+            self.jogadores.append(username)
+
+            if len(self.jogadores) == self.vagas:
+                self.callback(self.jogadores.copy())
+
+            return f"{username} entrou na sala {self.mundo.id_mundo} ({len(self.jogadores)}/{self.vagas})"
+
+    def esta_cheia(self) -> bool:
+        with self.lock:
+            return len(self.jogadores) >= self.vagas
+
+    def tamanho(self) -> int:
+        with self.lock:
+            return len(self.jogadores)
+
+    def remover_jogador(self, username: str) -> bool:
+        """Remove um jogador da sala. Retorna True se encontrado."""
+        if username in self.jogadores:
+            self.jogadores.remove(username)
+            print(f"🗑️ Jogador '{username}' removido da sala de espera.")
+            return True
+        return False
+
+
+class MatchmakingService:
+    """
+    Matchmaking baseado em MUNDOS PRÉ-CRIADOS fornecidos pelo MundoPoolService.
+    O MatchmakingService não cria mundos — apenas aloca jogadores.
+    """
+    def __init__(self, world_pool: MundoPoolService):
+        self.world_pool = world_pool
+        self.salas: List[SalaDeEspera] = []  # Salas ativas com vagas
+        self.lock = threading.Lock()
+        self.partida_iniciada_callback: Optional[Callable[[List[str]], None]] = None
+
+    def _on_partida_cheia(self, jogadores: List[str]):
+        """Callback interno chamado quando uma sala enche. Garante limpeza completa do estado."""
+        print(f"🔵 [DEBUG] MatchmakingService._on_partida_cheia: Início com {len(jogadores)} jogadores")
+
+        # 1. Encontrar a sala associada aos jogadores
+        sala = None
+        with self.lock:
+            for s in self.salas:
+                # Comparar listas de jogadores (ordem pode variar, mas conteúdo deve ser igual)
+                if set(s.jogadores) == set(jogadores):
+                    sala = s
+                    break
+
+        if not sala:
+            print("🟡 [DEBUG] MatchmakingService._on_partida_cheia: Sala não encontrada. Ignorando.")
+            return
+
+        print(f"🟢 [DEBUG] MatchmakingService._on_partida_cheia: Sala encontrada com mundo {sala.mundo.id_mundo}")
+
+        # 2. Se encontrou a sala e ela tem um mundo, consuma-o
+        if sala.mundo:
+            sucesso = self.world_pool.consumir_mundo(sala.mundo.id_mundo)
+            if sucesso:
+                print(f"✅ Mundo {sala.mundo.id_mundo} consumido após partida iniciar.")
+            else:
+                print(f"⚠️ Falha ao consumir mundo {sala.mundo.id_mundo}")
+
+        # 3. Notificar o cliente que a partida começou
+        if self.partida_iniciada_callback:
+            print("🟢 [DEBUG] MatchmakingService._on_partida_cheia: Notificando cliente: partida iniciada")
+            self.partida_iniciada_callback(jogadores)
+        else:
+            print("🟡 [DEBUG] MatchmakingService._on_partida_cheia: Nenhum callback registrado para partida iniciada")
+
+        # 4. Remover a sala da lista de salas ativas
+        with self.lock:
+            antes = len(self.salas)
+            # Remover pela referência da sala, não pela lista de jogadores
+            if sala in self.salas:
+                self.salas.remove(sala)
+                print(f"🗑️ [DEBUG] MatchmakingService._on_partida_cheia: Sala com mundo {sala.mundo.id_mundo} removida")
+            else:
+                print("🟡 [DEBUG] MatchmakingService._on_partida_cheia: Sala já foi removida")
+            depois = len(self.salas)
+            print(f"🟢 [DEBUG] MatchmakingService._on_partida_cheia: Salas ativas: {antes} → {depois}")
+
+        print("🟢 [DEBUG] MatchmakingService._on_partida_cheia: Execução concluída")
+
+    def entrar_na_fila(self, username: str) -> str:
+        """
+        1. Obtém um mundo com vaga do MundoPoolService.
+        2. Associa o jogador a esse mundo (cria ou entra em sala).
+        3. Registra ocupação no pool.
+
+        NOTA: O mundo NÃO é consumido aqui. Ele só será consumido em `_on_partida_cheia`,
+        quando a sala encher. Isso permite que múltiplos jogadores entrem no mesmo mundo.
+        """
+        with self.lock:
+            # 1. Obter um mundo com vaga disponível
+            mundo = self.world_pool.obter_mundo_com_vaga()
+            if not mundo:
+                return f"Erro ao entrar na fila: nenhum mundo disponível para {username}."
+
+            # 2. Verificar se já existe uma sala para esse mundo
+            sala_existente = next((s for s in self.salas if s.mundo.id_mundo == mundo.id_mundo), None)
+
+            if sala_existente:
+                mensagem = sala_existente.adicionar_jogador(username)
+                print(f"👥 {username} adicionado à sala existente do mundo {mundo.id_mundo}")
+            else:
+                # Criar nova sala para esse mundo
+                nova_sala = SalaDeEspera(mundo=mundo, callback=self._on_partida_cheia)
+                self.salas.append(nova_sala)
+                mensagem = nova_sala.adicionar_jogador(username)
+                print(f"🆕 Sala criada para o mundo {mundo.id_mundo}. {username} entrou.")
+
+            # 3. Registrar no pool que o jogador ocupou uma vaga
+            if "Erro" not in mensagem:
+                self.world_pool.registrar_jogador_no_mundo(username, mundo)
+                print(f"✅ {username} registrado no mundo {mundo.id_mundo}")
+
+            # ❌ REMOVIDO: consumo prematuro do mundo
+            # O mundo será consumido apenas quando a sala encher, em `_on_partida_cheia`
+            # Isso permite que outros jogadores entrem no mesmo mundo
+
+            print(mensagem)
+            return mensagem
+
+    def sair_da_fila(self, username: str) -> bool:
+        """Remove o jogador da fila de qualquer sala. Remove a sala se ficar vazia."""
+        with self.lock:
+            for sala in self.salas:
+                if sala.remover_jogador(username):
+                    print(f"📤 {username} removido da sala {sala.mundo.id_mundo}")
+
+                    # ✅ Remover do pool de jogadores do mundo
+                    if sala.mundo.id_mundo in self.world_pool.jogadores_por_mundo:
+                        if username in self.world_pool.jogadores_por_mundo[sala.mundo.id_mundo]:
+                            self.world_pool.jogadores_por_mundo[sala.mundo.id_mundo].remove(username)
+                            print(f"🧹 {username} removido de jogadores_por_mundo[{sala.mundo.id_mundo}]")
+
+                    # ✅ Remover a sala se ficar vazia
+                    if len(sala.jogadores) == 0:
+                        self.salas.remove(sala)
+                        print(f"🗑️ Sala com mundo {sala.mundo.id_mundo} removida (vazia)")
+                    return True
+            return False
+
+================================================================================
+📄 server/services/queue_service.py
+================================================================================
+# server/services/queue_service.py
+"""
+Serviço de fila de espera para matchmaking online.
+Gerencia a entrada de jogadores e formação de partidas quando há 4+ jogadores.
+"""
+
+import threading
+from typing import Optional, Callable
+
+
+class FilaService:
+    """
+    Serviço responsável por gerenciar a fila de jogadores online.
+    Forma partidas automaticamente quando 4 jogadores estão na fila.
+    """
+
+    def __init__(self):
+        self.fila = []
+        self.lock = threading.Lock()
+        self.partida_iniciada_callback: Optional[Callable[[list], None]] = None
+
+    def adicionar_jogador(self, username: str) -> bool:
+        with self.lock:
+            if username in self.fila:
+                print(f"⚠️ '{username}' já está na fila. Bloqueado.")
+                return False
+            self.fila.append(username)
+            print(f"📥 Jogador '{username}' adicionado à fila. Total: {len(self.fila)}")
+            self._tentar_formar_partida()
+            return True
+
+    def remover_jogador(self, username: str):
+        """
+        Remove um jogador da fila, se estiver presente.
+        """
+        with self.lock:
+            if username in self.fila:
+                self.fila.remove(username)
+                print(f"📤 Jogador '{username}' removido da fila.")
+
+    def _tentar_formar_partida(self):
+        with self.lock:
+            print(f"🔍 Verificando formação de partida. Fila atual: {self.fila} (total: {len(self.fila)})")  # ← Novo log
+            if len(self.fila) >= 4:
+                partida = [self.fila.pop(0) for _ in range(4)]
+                print(f"🎉 Partida formada com: {partida}")
+                if self.partida_iniciada_callback:
+                    try:
+                        self.partida_iniciada_callback(partida)
+                    except Exception as e:
+                        print(f"❌ Erro ao executar partida_iniciada_callback: {e}")
+                else:
+                    print("ℹ️ Nenhum callback configurado.")
+
+================================================================================
+📄 server/services/user_service.py
+================================================================================
+# server/services/user_service.py
+import bcrypt
+from botocore.exceptions import ClientError
+
+
+class UserService:
+    def __init__(self, dynamodb_client, table_name):
+        self.dynamodb = dynamodb_client
+        self.table_name = table_name
+
+    def _format_user_key(self, username: str) -> dict:
+        """Formata a chave primária do usuário no DynamoDB."""
+        return {
+            'PK': {'S': f'USER#{username}'},
+            'SK': {'S': 'PROFILE'}
+        }
+
+    def get_user(self, username: str) -> dict:
+        """Busca um usuário pelo username."""
+        if not self.dynamodb:
+            print("⚠️ Cliente DynamoDB não disponível no UserService.")
+            return None
+        try:
+            response = self.dynamodb.get_item(
+                TableName=self.table_name,
+                Key=self._format_user_key(username)
+            )
+            return response.get('Item')
+        except ClientError as e:
+            print(f"❌ Erro do DynamoDB ao buscar usuário '{username}': {e.response['Error']['Message']}")
+            return None
+        except Exception as e:
+            print(f"❌ Erro inesperado ao buscar usuário '{username}': {e}")
+            return None
+
+    def create_user_item(self, username: str, **attributes) -> bool:
+        """
+        Cria um novo item de usuário no DynamoDB.
+        `attributes` pode conter {'password_hash': bytes, 'outro_attr': valor, ...}
+        """
+        if not self.dynamodb:
+            print("⚠️ Cliente DynamoDB não disponível no UserService.")
+            return False
+        try:
+            # Inicia o item com a chave primária
+            item = self._format_user_key(username)
+
+            # Adiciona outros atributos fornecidos
+            for attr_name, attr_value in attributes.items():
+                # Trata tipos específicos
+                if isinstance(attr_value, bytes):
+                    # Para password_hash, salva como tipo binário 'B'
+                    item[attr_name] = {'B': attr_value}
+                elif isinstance(attr_value, str):
+                    # Para strings, salva como tipo string 'S'
+                    item[attr_name] = {'S': attr_value}
+                elif isinstance(attr_value, (int, float)):
+                    # Para números, salva como tipo número 'N' (convertido para string)
+                    item[attr_name] = {'N': str(attr_value)}
+                else:
+                    # Para outros tipos, converte para string e salva como 'S'
+                    # (você pode querer ser mais específico aqui dependendo das suas necessidades)
+                    print(
+                        f"⚠️ Atributo '{attr_name}' tem tipo inesperado ({type(attr_value)}). Convertendo para string.")
+                    item[attr_name] = {'S': str(attr_value)}
+
+            self.dynamodb.put_item(
+                TableName=self.table_name,
+                Item=item
+            )
+            print(f"✅ Item de usuário '{username}' criado/Atualizado no DynamoDB.")
+            return True
+        except ClientError as e:
+            print(f"❌ Erro do DynamoDB ao criar usuário '{username}': {e.response['Error']['Message']}")
+            return False
+        except Exception as e:
+            print(f"❌ Erro inesperado ao criar usuário '{username}': {e}")
+            return False
+
+    def authenticate_user(self, username: str, password: str) -> tuple[bool, str]:
+        """
+        Autentica um usuário verificando a senha com bcrypt.
+
+        :param username: Nome de usuário.
+        :param password: Senha em texto plano.
+        :return: (sucesso: bool, mensagem: str)
+        """
+        if not username or not password:
+            return False, "Usuário ou senha ausentes."
+
+        # 1. Buscar usuário
+        user = self.get_user(username)
+        if not user:
+            return False, "Usuário não encontrado."
+
+        # 2. Extrair o hash da senha
+        password_hash_attr = user.get('password_hash')
+        if not password_hash_attr:
+            return False, "Usuário sem senha cadastrada."
+
+        # 3. O hash pode vir como {'B': bytes} do DynamoDB
+        if isinstance(password_hash_attr, dict) and 'B' in password_hash_attr:
+            stored_hash = password_hash_attr['B']
+        elif isinstance(password_hash_attr, bytes):
+            stored_hash = password_hash_attr
+        else:
+            return False, "Formato de hash de senha inválido."
+
+        # 4. Verificar com bcrypt
+        try:
+            if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+                return True, "Login bem-sucedido."
+            else:
+                return False, "Senha incorreta."
+        except Exception as e:
+            print(f"❌ Erro ao verificar senha com bcrypt: {e}")
+            return False, "Erro interno ao processar autenticação."
+
+
+================================================================================
+📄 server/services/world_pool.py
+================================================================================
+# server/services/world_pool.py
+from typing import List, Optional, Dict
+import threading
+from shared.world import Mundo
+from server.core.manager import Gerenciador
+
+
+class MundoPoolService:
+    """
+    Serviço ativo que mantém um número mínimo de mundos com vagas disponíveis.
+    Reabastece automaticamente o pool quando necessário.
+    """
+    def __init__(
+        self,
+        gerenciador: Gerenciador,
+        fator: int = 4,
+        bioma: str = "Meadow",
+        min_mundos: int = 3,        # ✅ Mínimo que queremos manter ativo
+        max_mundos: int = 10,       # Limite total de mundos no sistema
+        intervalo_verificacao: float = 5.0  # Tempo entre verificações (segundos)
+    ):
+        self.gerenciador = gerenciador
+        self.fator = fator
+        self.bioma = bioma
+        self.min_mundos = min_mundos
+        self.max_mundos = max_mundos
+        self.intervalo_verificacao = intervalo_verificacao
+
+        self.mundos_com_vaga: List[Mundo] = []  # Apenas mundos com pelo menos 1 vaga
+        self.jogadores_por_mundo: Dict[str, List[str]] = {}  # id_mundo → [user1, ...]
+        self.lock = threading.Lock()
+
+        # Controle da thread de reabastecimento
+        self._thread_reabastecimento = None
+        self._parar_reabastecimento = threading.Event()
+
+        # Inicializa o pool e inicia o serviço ativo
+        self._inicializar_pool()
+        self.iniciar_servico()
+
+    def total_jogadores_na_fila(self) -> int:
+        """Retorna o número total de jogadores já alocados nos mundos do pool."""
+        total = 0
+        with self.lock:
+            for jogadores in self.jogadores_por_mundo.values():
+                total += len(jogadores)
+        return total
+
+    def quantidade_total(self) -> int:
+        """Retorna o número total de mundos com vagas disponíveis no pool."""
+        return self.quantidade_mundos_ativos()
+
+    def _inicializar_pool(self):
+        """Inicializa o pool com mundos existentes e cria novos apenas se necessário."""
+        print("🔄 Inicializando pool de mundos...")
+
+        # Etapa 1: Carregar mundos existentes com vagas
+        self._carregar_mundos_existentes()
+
+        # Etapa 2: Contar quantos ainda precisamos criar
+        with self.lock:
+            atual = len(self.mundos_com_vaga)
+        print(f"📦 {atual} mundos com vagas já carregados.")
+
+        # Etapa 3: Criar apenas o necessário para atingir min_mundos
+        a_criar = max(0, self.min_mundos - atual)
+        print(f"🏗️  Criando {a_criar} novos mundos para atingir o mínimo ({self.min_mundos})...")
+
+        for _ in range(a_criar):
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                fator=self.fator,
+                bioma=self.bioma,
+                bucket_name="global-arena-tiles",
+                s3_prefix="planetas/"
+            )
+            if sucesso and mundo:
+                with self.lock:
+                    self.mundos_com_vaga.append(mundo)
+                    self.jogadores_por_mundo[mundo.id_mundo] = []
+                print(f"✅ Mundo {mundo.id_mundo} adicionado ao pool inicial.")
+            else:
+                print("⚠️ Falha ao criar mundo durante inicialização.")
+
+    def iniciar_servico(self):
+        """Inicia o loop de monitoramento e reabastecimento."""
+        if self._thread_reabastecimento is None:
+            self._parar_reabastecimento.clear()
+            self._thread_reabastecimento = threading.Thread(target=self._loop_reabastecimento, daemon=True)
+            self._thread_reabastecimento.start()
+            print(f"✅ MundoPoolService: serviço ativo iniciado (min={self.min_mundos}, max={self.max_mundos})")
+
+    def parar_servico(self):
+        """Para o serviço de reabastecimento (para testes ou desligamento)."""
+        if self._thread_reabastecimento is not None:
+            self._parar_reabastecimento.set()
+            self._thread_reabastecimento.join(timeout=2)
+            print("🛑 MundoPoolService: serviço ativo parado.")
+
+    def _loop_reabastecimento(self):
+        """Loop contínuo que verifica e reabastece o pool."""
+        while not self._parar_reabastecimento.is_set():
+            self._parar_reabastecimento.wait(self.intervalo_verificacao)
+            if self._parar_reabastecimento.is_set():
+                break
+            self._reabastecer()
+
+    def _reabastecer(self):
+        """Cria mundos até atingir min_mundos, respeitando max_mundos."""
+        with self.lock:
+            atual = len(self.mundos_com_vaga)
+            if atual >= self.min_mundos:
+                return  # Já temos o mínimo
+
+            # Quantos mundos precisamos criar?
+            a_criar = min(self.min_mundos - atual, self.max_mundos - len(self.mundos_com_vaga))
+            for _ in range(a_criar):
+                sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                    fator=self.fator,
+                    bioma=self.bioma,
+                    bucket_name="global-arena-tiles",
+                    s3_prefix="planetas/"
+                )
+                if sucesso and mundo:
+                    self.mundos_com_vaga.append(mundo)
+                    self.jogadores_por_mundo[mundo.id_mundo] = []
+                    print(f"🔄 Mundo {mundo.id_mundo} criado. Pool agora tem {len(self.mundos_com_vaga)} mundos com vaga.")
+                else:
+                    print("⚠️ Falha ao criar mundo durante reabastecimento.")
+                    break
+
+    def obter_mundo_com_vaga(self) -> Optional[Mundo]:
+        """Retorna um mundo com vaga disponível, se houver."""
+        with self.lock:
+            for mundo in self.mundos_com_vaga:
+                ocupadas = len(self.jogadores_por_mundo[mundo.id_mundo])
+                if ocupadas < len(mundo.planeta.capitais_players):
+                    return mundo
+            return None
+
+    def registrar_jogador_no_mundo(self, username: str, mundo: Mundo):
+        """Registra um jogador em um mundo. Remove o mundo do pool se encher."""
+        with self.lock:
+            lista = self.jogadores_por_mundo[mundo.id_mundo]
+            if username not in lista:
+                lista.append(username)
+
+            # Se o mundo encheu, remova do pool
+            if len(lista) >= len(mundo.planeta.capitais_players):
+                if mundo in self.mundos_com_vaga:
+                    self.mundos_com_vaga.remove(mundo)
+                    print(f"🗑️ Mundo {mundo.id_mundo} removido do pool (partida formada).")
+
+    def quantidade_mundos_ativos(self) -> int:
+        """Retorna quantos mundos ainda têm vagas disponíveis."""
+        with self.lock:
+            return len(self.mundos_com_vaga)
+
+    def quantidade_vagas_totais(self) -> int:
+        """Retorna o número total de vagas disponíveis no pool."""
+        total = 0
+        with self.lock:
+            for mundo in self.mundos_com_vaga:
+                ocupadas = len(self.jogadores_por_mundo[mundo.id_mundo])
+                total += len(mundo.planeta.capitais_players) - ocupadas
+        return total
+
+    def quantidade_vagas(self) -> int:
+        """Retorna o número total de vagas disponíveis em todos os mundos do pool."""
+        total = 0
+        with self.lock:
+            for mundo in self.mundos_com_vaga:
+                ocupadas = len(self.jogadores_por_mundo.get(mundo.id_mundo, []))
+                total += len(mundo.planeta.capitais_players) - ocupadas
+        return total
+
+    def _carregar_mundos_existentes(self):
+        """Carrega mundos com vagas DO DynamoDB para o pool, mas apenas se estiverem 'disponiveis'."""
+        try:
+            dynamodb = self.gerenciador.aws_loader.get_client('dynamodb')
+            response = dynamodb.scan(
+                TableName=self.gerenciador.dynamodb_table_name,
+                # ✅ Filtra por PK começando com PLANET#, com vagas > 0 E status = 'disponivel'
+                FilterExpression="begins_with(PK, :pk_prefix) AND vagas > :zero AND #status = :ativo",
+                ExpressionAttributeNames={
+                    '#status': 'status'  # ✅ Protege contra palavras reservadas
+                },
+                ExpressionAttributeValues={
+                    ':pk_prefix': {'S': 'PLANET#'},
+                    ':zero': {'N': '0'},
+                    ':ativo': {'S': 'disponivel'}  # ✅ Apenas mundos disponíveis
+                }
+            )
+
+            with self.lock:
+                for item in response.get('Items', []):
+                    id_mundo = item['PK']['S'].split('#')[1]
+                    vagas = int(item['vagas']['N'])
+                    # ✅ Verifica novamente (embora o scan já tenha filtrado)
+                    if vagas > 0:
+                        # ✅ Evita duplicação
+                        if not any(m.id_mundo == id_mundo for m in self.mundos_com_vaga):
+                            mundo_stub = Mundo(fator=self.fator, bioma=self.bioma)
+                            mundo_stub.id_mundo = id_mundo
+                            self.mundos_com_vaga.append(mundo_stub)
+                            self.jogadores_por_mundo[id_mundo] = []
+                            print(f"🔁 Mundo carregado do DynamoDB: {id_mundo} ({vagas} vagas)")
+        except Exception as e:
+            print(f"⚠️ Falha ao carregar mundos existentes: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def consumir_mundo(self, id_mundo: str) -> Optional[Mundo]:
+        """Remove um mundo do pool e marca como 'consumido' no DynamoDB."""
+        with self.lock:
+            # 1. Remover do pool local
+            mundo = None
+            for m in self.mundos_com_vaga:
+                if m.id_mundo == id_mundo:
+                    self.mundos_com_vaga.remove(m)
+                    mundo = m
+                    break
+            if not mundo:
+                print(f"⚠️ Mundo {id_mundo} não encontrado no pool para consumo.")
+                return None
+
+            print(f"🌍 Mundo {id_mundo} removido do pool (consumido).")
+
+            # 2. Atualizar status no DynamoDB
+            try:
+                self.dynamodb.update_item(
+                    TableName=self.dynamodb_table_name,
+                    Key={
+                        'PK': {'S': f'PLANET#{id_mundo}'},
+                        'SK': {'S': 'METADATA'}
+                    },
+                    UpdateExpression="SET #status = :consumido",
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={':consumido': {'S': 'consumido'}}
+                )
+                print(f"✅ DynamoDB atualizado: mundo {id_mundo} marcado como 'consumido'.")
+            except Exception as e:
+                print(f"❌ Falha ao atualizar status do mundo {id_mundo} no DynamoDB: {e}")
+
+            return mundo
+
+================================================================================
+📄 server/tools/sei_la_o_que.py
+================================================================================
+# sei_la_o_que.py
+
+from server.integrations.aws_loader import AWSLoader  # ou from server.aws_loader import AWSLoader
+
+def main():
+    print("🚀 Iniciando aplicação...\n")
+
+    # --- Configuração ---
+    loader = AWSLoader(
+        region_name='us-east-2',
+        # profile_name='seu-perfil'  # opcional
+    )
+
+    # --- 1. Informações da conta ---
+    try:
+        account = loader.get_account_info()
+        print(f"✅ Logado na conta AWS: {account['account_id']}")
+        print(f"👤 Usuário/Role: {account['arn']}\n")
+    except Exception as e:
+        print(f"❌ Falha ao obter conta: {e}")
+        return
+
+    # --- 2. Listar buckets S3 ---
+    try:
+        buckets = loader.list_s3_buckets()
+        print(f"📦 Buckets S3 encontrados ({len(buckets)}):")
+        for bucket in buckets:
+            print(f"  - {bucket}")
+    except Exception as e:
+        print(f"❌ Erro ao listar buckets S3: {e}")
+
+    # --- 3. Listar tabelas DynamoDB ---
+    try:
+        tables = loader.list_dynamodb_tables()
+        print(f"\n📊 Tabelas DynamoDB encontradas ({len(tables)}):")
+        for table in tables:
+            print(f"  - {table}")
+    except Exception as e:
+        print(f"❌ Erro ao listar tabelas DynamoDB: {e}")
+
+    # --- 4. Exemplo: usar cliente S3 ---
+    try:
+        s3 = loader.get_client('s3')
+        response = s3.list_buckets()
+        print(f"\n🌍 Conexão S3 bem-sucedida. Total de buckets: {len(response['Buckets'])}")
+    except Exception as e:
+        print(f"❌ Falha ao usar cliente S3: {e}")
+
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+📄 server/integrations/aws_loader.py
+================================================================================
+# aws_loader.py
+
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+
+
+class AWSLoader:
+    def __init__(self, profile_name=None, region_name='us-east-2'):
+        """
+        Inicializa o loader de credenciais AWS.
+
+        :param profile_name: Nome do perfil no arquivo ~/.aws/credentials (opcional)
+        :param region_name: Região AWS padrão
+        """
+        self.profile_name = profile_name
+        self.region_name = region_name
+        self.session = None
+        self._create_session()
+
+    def _create_session(self):
+        """Cria uma sessão boto3 com base no perfil ou nas credenciais padrão."""
+        try:
+            if self.profile_name:
+                self.session = boto3.Session(profile_name=self.profile_name, region_name=self.region_name)
+            else:
+                self.session = boto3.Session(region_name=self.region_name)
+
+            # Testa credenciais
+            sts = self.session.client('sts')
+            sts.get_caller_identity()
+            print("✅ Credenciais AWS carregadas com sucesso.")
+
+        except NoCredentialsError:
+            raise Exception("❌ Credenciais AWS não encontradas. Configure AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except PartialCredentialsError:
+            raise Exception("❌ Credenciais incompletas. Verifique AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY.")
+        except Exception as e:
+            raise Exception(f"❌ Erro ao carregar credenciais: {e}")
+
+    def get_credentials(self):
+        """
+        Retorna as credenciais (access key, secret key, token).
+        """
+        credentials = self.session.get_credentials()
+        frozen_creds = credentials.get_frozen_credentials()
+        return {
+            'access_key': frozen_creds.access_key,
+            'secret_key': frozen_creds.secret_key,
+            'token': frozen_creds.token
+        }
+
+    def get_client(self, service_name):
+        """Retorna um cliente boto3 para o serviço especificado."""
+        return self.session.client(service_name)
+
+    def get_resource(self, service_name):
+        """Retorna um recurso boto3 (ex: S3 resource)."""
+        return self.session.resource(service_name)
+
+    # --- 🔧 Novos métodos adicionados ---
+    def get_account_info(self):
+        """Retorna informações da conta AWS: ID, ARN, usuário, região."""
+        sts = self.session.client('sts')
+        identity = sts.get_caller_identity()
+        return {
+            'account_id': identity['Account'],
+            'user_id': identity['UserId'],
+            'arn': identity['Arn'],
+            'region': self.region_name
+        }
+
+    def list_s3_buckets(self):
+        """Lista todos os buckets S3 da conta."""
+        s3 = self.get_client('s3')
+        response = s3.list_buckets()
+        return [bucket['Name'] for bucket in response['Buckets']]
+
+    def list_dynamodb_tables(self):
+        """Lista todas as tabelas DynamoDB da conta."""
+        dynamodb = self.get_client('dynamodb')
+        response = dynamodb.list_tables()
+        return response['TableNames']
+
+================================================================================
+📄 server/config/initializer.py
+================================================================================
+# server/initializer.py
+"""
+Módulo para inicializar ou reinicializar a infraestrutura AWS:
+- Cria/recria a tabela DynamoDB 'GlobalArena' com PK/SK.
+- Limpa os dados no S3 nos prefixos usados.
+- Garante que o bucket S3 exista.
+
+Pode ser executado como script: python server/inicializador.py
+"""
+
+from botocore.exceptions import ClientError
+from server.integrations.aws_loader import AWSLoader
+
+
+class InicializadorAWS:
+    def __init__(self, aws_loader: AWSLoader):
+        self.aws_loader = aws_loader
+        self.dynamodb = self.aws_loader.get_client('dynamodb')
+        self.s3 = self.aws_loader.get_client('s3')
+        self.bucket_name = "global-arena-tiles"
+        self.region = aws_loader.region_name
+
+    def inicializar(self, confirmar: bool = True):
+        """
+        Inicializa ou reinicializa toda a infraestrutura.
+        :param confirmar: Se True, pede confirmação antes de apagar dados.
+        """
+        if confirmar:
+            resposta = input(
+                "⚠️  Isso apagará todos os mundos e metadados no S3 e DynamoDB.\n"
+                "Deseja continuar? (s/N): "
+            )
+            if resposta.lower() not in ['s', 'sim', 'y', 'yes']:
+                print("❌ Operação cancelada.")
+                return False
+
+        print("🔄 Inicializando infraestrutura AWS...")
+
+        try:
+            # 1. Garantir que o bucket S3 existe
+            self._criar_bucket_se_nao_existir()
+
+            # 2. Limpar dados no S3
+            prefixos = ["planetas/", "saves/"]
+            for prefix in prefixos:
+                self._limpar_prefixo_s3(prefix)
+
+            # 3. Recriar tabela DynamoDB (única: GlobalArena)
+            self._recriar_tabela_globalarena()
+
+            print("✅ Infraestrutura AWS reinicializada com sucesso!")
+            return True
+
+        except Exception as e:
+            print(f"❌ Erro ao inicializar infraestrutura: {e}")
+            return False
+
+    def _criar_bucket_se_nao_existir(self):
+        """Cria o bucket S3 se ele não existir."""
+        try:
+            self.s3.head_bucket(Bucket=self.bucket_name)
+            print(f"ℹ️  Bucket S3 '{self.bucket_name}' já existe.")
+        except ClientError:
+            print(f"📦 Criando bucket S3 '{self.bucket_name}'...")
+            try:
+                if self.region == "us-east-1":
+                    self.s3.create_bucket(Bucket=self.bucket_name)
+                else:
+                    self.s3.create_bucket(
+                        Bucket=self.bucket_name,
+                        CreateBucketConfiguration={'LocationConstraint': self.region}
+                    )
+                print(f"✅ Bucket '{self.bucket_name}' criado com sucesso.")
+            except ClientError as e:
+                print(f"❌ Falha ao criar bucket: {e}")
+                raise
+
+    def _limpar_prefixo_s3(self, prefix: str):
+        """Remove todos os objetos com o prefixo dado no S3."""
+        print(f"🧹 Limpando S3: s3://{self.bucket_name}/{prefix}")
+        paginator = self.s3.get_paginator('list_objects_v2')
+        apagados = 0
+
+        try:
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            for page in pages:
+                if 'Contents' not in page:
+                    continue
+                keys = [{'Key': obj['Key']} for obj in page['Contents']]
+                if keys:
+                    self.s3.delete_objects(Bucket=self.bucket_name, Delete={'Objects': keys})
+                    apagados += len(keys)
+            print(f"✅ {apagados} objetos apagados no prefixo '{prefix}'.")
+        except ClientError as e:
+            print(f"❌ Erro ao limpar S3 no prefixo '{prefix}': {e}")
+
+    def _recriar_tabela_globalarena(self):
+        """Deleta e recria a tabela GlobalArena com PK/SK."""
+        table_name = "GlobalArena"
+        try:
+            print(f"🔍 Verificando tabela '{table_name}'...")
+            self.dynamodb.describe_table(TableName=table_name)
+            print(f"🗑️  Tabela '{table_name}' encontrada. Deletando...")
+            self.dynamodb.delete_table(TableName=table_name)
+
+            # Aguardar exclusão
+            waiter = self.dynamodb.get_waiter('table_not_exists')
+            waiter.wait(TableName=table_name, WaiterConfig={'Delay': 2, 'MaxAttempts': 30})
+            print(f"✅ Tabela '{table_name}' deletada.")
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                raise e
+            print(f"ℹ️  Tabela '{table_name}' não existe. Será criada.")
+
+        # Criar tabela com PK/SK
+        print(f"🆕 Criando tabela '{table_name}' com PK/SK...")
+        try:
+            self.dynamodb.create_table(
+                TableName=table_name,
+                AttributeDefinitions=[
+                    {'AttributeName': 'PK', 'AttributeType': 'S'},
+                    {'AttributeName': 'SK', 'AttributeType': 'S'}
+                ],
+                KeySchema=[
+                    {'AttributeName': 'PK', 'KeyType': 'HASH'},
+                    {'AttributeName': 'SK', 'KeyType': 'RANGE'}
+                ],
+                BillingMode='PAY_PER_REQUEST'
+            )
+
+            # Aguardar ativação
+            waiter = self.dynamodb.get_waiter('table_exists')
+            waiter.wait(TableName=table_name, WaiterConfig={'Delay': 2, 'MaxAttempts': 30})
+            print(f"✅ Tabela '{table_name}' criada e ativa.")
+        except ClientError as e:
+            print(f"❌ Falha ao criar tabela '{table_name}': {e}")
+            raise
+
+
+# ========================== CLI ==========================
+if __name__ == "__main__":
+    """
+    Execução direta do módulo:
+    $ python server/inicializador.py
+    """
+    print("🔧 Inicializador AWS - Reinicialização de Infraestrutura\n")
+
+    # Cria o loader AWS
+    try:
+        aws_loader = AWSLoader()
+        print(f"✅ Conectado à AWS (região: {aws_loader.region_name})")
+    except Exception as e:
+        print(f"❌ Falha ao conectar à AWS: {e}")
+        exit(1)
+
+    # Inicializa
+    inicializador = InicializadorAWS(aws_loader)
+    inicializador.inicializar(confirmar=True)
+
+================================================================================
+📄 server/config/extensions.py
+================================================================================
+# server/extensions.py
+from server.integrations.aws_loader import AWSLoader
+
+class Extensions:
+    def __init__(self):
+        self.dynamodb = None
+        # self.redis = None # Futuro
+
+    def init_app(self, app):
+        """Inicializa as extensões com base na configuração da app Flask."""
+        try:
+            aws_loader = AWSLoader(
+                profile_name=app.config['AWS_PROFILE_NAME'],
+                region_name=app.config['AWS_REGION_NAME']
+            )
+            self.dynamodb = aws_loader.get_client('dynamodb')
+            print("✅ Cliente DynamoDB conectado via Extensions.")
+        except Exception as e:
+            print(f"❌ Falha ao conectar ao DynamoDB na inicialização: {e}")
+            self.dynamodb = None # Ou lançar exceção, dependendo da política de falhas
+
+# Instância global
+ext = Extensions()
+
+================================================================================
+📄 server/config/signals.py
+================================================================================
+# server/signals.py
+from PyQt6.QtCore import QObject, pyqtSignal
+
+class WorkerSignals(QObject):
+    """
+    Define sinais para comunicação segura com a thread da UI.
+    Usado pelo Comandante para enviar feedback.
+    """
+    success = pyqtSignal(object)   # resultado
+    error = pyqtSignal(str)        # mensagem de erro
+    finished = pyqtSignal()        # operação concluída
+
+================================================================================
+📄 server/config/config.py
+================================================================================
+# server/config.py
+import os
+
+
+class Config:
+    # Flask
+    SECRET_KEY = os.environ.get(
+        'SECRET_KEY') or 'chave_secreta_dev_super_segura'  # Em produção, use variável de ambiente
+
+    # AWS
+    AWS_PROFILE_NAME = os.environ.get('AWS_PROFILE_NAME') or None
+    AWS_REGION_NAME = os.environ.get('AWS_REGION_NAME') or 'us-east-2'  # Certifique-se de usar a mesma região
+
+    # DynamoDB
+    DYNAMODB_TABLE_NAME = os.environ.get(
+        'DYNAMODB_TABLE_NAME') or 'GlobalArena'  # Ou 'UsuariosGlobalArena' se criar uma nova
+
+    # Futuras configurações (ex: Redis, Logging)
+    # REDIS_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'
+
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+
+
+class ProductionConfig(Config):
+    DEBUG = False
+    # SECRET_KEY = os.environ.get('SECRET_KEY') # Obrigatório em produção
+
+
+config = {
+    'development': DevelopmentConfig,
+    'production': ProductionConfig,
+    'default': DevelopmentConfig
+}
+
+================================================================================
+📄 server/routes/game.py
+================================================================================
+# server/routes/game.py
+"""
+Rotas relacionadas ao jogo online (fila de matchmaking, status, etc).
+Todas as rotas são registradas dentro de uma função fábrica de blueprint,
+permitindo injeção explícita de dependências (UserService, MatchmakingService).
+"""
+
+from flask import Blueprint, jsonify, request
+from server.services.user_service import UserService
+from server.services.matchmaking_service import MatchmakingService
+
+
+def create_game_blueprint(
+    user_service: UserService,
+    matchmaking_service: MatchmakingService
+) -> Blueprint:
+    """
+    Cria o blueprint de rotas do jogo com as dependências injetadas.
+    """
+    jogo_bp = Blueprint("jogo", __name__, url_prefix="/jogo")
+
+    @jogo_bp.route("/entrar", methods=["POST"])
+    def entrar_na_fila():
+        """Adiciona o jogador à fila de matchmaking online."""
+        if not request.is_json:
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+        data = request.get_json()
+        modo = data.get("modo")
+        username = data.get("username")
+
+        if modo != "online":
+            return jsonify({"success": False, "message": "Modo inválido. Use 'online'."}), 400
+        if not username:
+            return jsonify({"success": False, "message": "Username necessário."}), 400
+
+        # Validar se o usuário existe
+        usuario = user_service.get_user(username)
+        if not usuario:
+            return jsonify({"success": False, "message": "Usuário não encontrado."}), 404
+
+        # Tenta entrar na fila
+        mensagem = matchmaking_service.entrar_na_fila(username)
+        if "Erro ao entrar na fila" in mensagem:
+            return jsonify({"success": False, "message": mensagem}), 409
+
+        # Encontra a sala onde o jogador foi alocado
+        sala_atual = next(
+            (s for s in matchmaking_service.salas if username in s.jogadores),
+            None
+        )
+        if not sala_atual:
+            return jsonify({
+                "success": False,
+                "message": "Erro interno: jogador não encontrado em nenhuma sala."
+            }), 500
+
+        total_na_fila = sum(len(sala.jogadores) for sala in matchmaking_service.salas)
+
+        return jsonify({
+            "success": True,
+            "message": mensagem,
+            "modo": modo,
+            "total_na_fila": total_na_fila,
+            "max_jogadores": sala_atual.vagas
+        }), 200
+
+    @jogo_bp.route("/sair", methods=["POST"])
+    def sair_da_fila():
+        """
+        Permite que um jogador saia da fila de matchmaking.
+        Útil quando clica em 'Cancelar' na UI.
+        """
+        print(f"🔔 Rota /jogo/sair chamada")
+        if not request.is_json:
+            print(f"❌ Requisição não é JSON")
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+        username = request.get_json().get("username")
+        if not username:
+            print(f"⚠️ Username ausente")
+            return jsonify({"success": False, "message": "Username necessário."}), 400
+
+        if matchmaking_service.sair_da_fila(username):
+            print(f"✅ {username} saiu da fila com sucesso.")
+            return jsonify({
+                "success": True,
+                "message": f"{username} saiu da fila com sucesso."
+            }), 200
+        print(f"⚠️ {username} não estava na fila.")
+        return jsonify({
+            "success": False,
+            "message": "Você não estava na fila."
+        }), 400
+
+    @jogo_bp.route("/limpar_usuario", methods=["POST"])
+    def limpar_usuario():
+        """Remove o jogador de qualquer fila ou sala, mesmo que não esteja na fila."""
+        if not request.is_json:
+            return jsonify({"success": False, "message": "JSON esperado"}), 400
+
+        username = request.get_json().get("username")
+        if not username:
+            return jsonify({"success": False, "message": "Username necessário"}), 400
+
+        # Cleanup independente do estado
+        matchmaking_service.sair_da_fila(username)
+        return jsonify({"success": True, "message": f"Estado de {username} limpo."}), 200
+
+    @jogo_bp.route("/estado", methods=["POST"])
+    def estado_jogador():
+        """
+        Retorna o estado atual do jogador: se está na fila, em partida ou livre.
+        Útil para o cliente decidir qual UI mostrar.
+        """
+        print("🔵 [DEBUG] /jogo/estado: Requisição recebida")
+
+        # 1. Verificar se o corpo é JSON
+        if not request.is_json:
+            print("🔴 [DEBUG] /jogo/estado: Requisição não é JSON")
+            return jsonify({"error": "JSON esperado."}), 400
+
+        # 2. Extrair o username
+        data = request.get_json()
+        print(f"🔵 [DEBUG] /jogo/estado: Dados recebidos: {data}")
+
+        username = data.get("username")
+        if not username:
+            print("🔴 [DEBUG] /jogo/estado: Username ausente no JSON")
+            return jsonify({"error": "Username necessário."}), 400
+
+        print(f"🟢 [DEBUG] /jogo/estado: Consultando estado do jogador: {username}")
+
+        # 3. Verificar no MatchmakingService
+        try:
+            # Verifica se está em alguma sala (na fila)
+            em_fila = any(username in sala.jogadores for sala in matchmaking_service.salas)
+            print(f"🔵 [DEBUG] /jogo/estado: em_fila = {em_fila}")
+
+            # Verifica se está em uma partida (sala cheia)
+            em_partida = any(
+                username in sala.jogadores and len(sala.jogadores) >= sala.vagas
+                for sala in matchmaking_service.salas
+            )
+            print(f"🔵 [DEBUG] /jogo/estado: em_partida = {em_partida}")
+
+            # Conta o total na fila
+            total_na_fila = sum(len(sala.jogadores) for sala in matchmaking_service.salas)
+            print(f"🟢 [DEBUG] /jogo/estado: total_na_fila = {total_na_fila}")
+
+            # Detalhar cada sala (para depuração profunda)
+            for i, sala in enumerate(matchmaking_service.salas):
+                jogadores = sala.jogadores
+                vagas = sala.vagas
+                cheia = len(jogadores) >= vagas
+                tem_usuario = username in jogadores
+                print(
+                    f"🔍 [DEBUG] /jogo/estado: Sala {i}: jogadores={jogadores}, vagas={vagas}, cheia={cheia}, tem_usuario={tem_usuario}")
+
+        except Exception as e:
+            print(f"❌ [DEBUG] /jogo/estado: Erro ao verificar estado: {e}")
+            return jsonify({"error": "Erro interno ao verificar estado."}), 500
+
+        # 4. Retornar resposta
+        response_data = {
+            "success": True,
+            "username": username,
+            "em_fila": em_fila,
+            "em_partida": em_partida,
+            "total_na_fila": total_na_fila
+        }
+        print(f"🟢 [DEBUG] /jogo/estado: Resposta enviada: {response_data}")
+
+        return jsonify(response_data), 200
+
+    @jogo_bp.route("/debug/salas", methods=["GET"])
+    def debug_salas():
+        """Rota de depuração: mostra o estado de todas as salas."""
+        with matchmaking_service.lock:
+            salas_info = []
+            for i, sala in enumerate(matchmaking_service.salas):
+                with sala.lock:  # Acessa o estado interno da sala com segurança
+                    salas_info.append({
+                        "indice": i,
+                        "id_mundo": sala.mundo.id_mundo,
+                        "vagas": sala.vagas,
+                        "jogadores": sala.jogadores.copy(),  # Cópia segura
+                        "tamanho": len(sala.jogadores),
+                        "esta_cheia": len(sala.jogadores) >= sala.vagas
+                    })
+            return jsonify({
+                "success": True,
+                "total_salas": len(salas_info),
+                "salas": salas_info
+            }), 200
+
+    @jogo_bp.route("/minha_sala", methods=["POST"])
+    def minha_sala():
+        """Retorna o estado da sala do jogador: jogadores, vagas, se está cheia."""
+        if not request.is_json:
+            return jsonify({"error": "JSON esperado."}), 400
+
+        username = request.get_json().get("username")
+        if not username:
+            return jsonify({"error": "Username necessário."}), 400
+
+        # Procurar a sala onde o jogador está
+        for sala in matchmaking_service.salas:
+            if username in sala.jogadores:
+                return jsonify({
+                    "em_fila": True,
+                    "jogadores_na_sala": sala.jogadores.copy(),
+                    "vagas": sala.vagas,
+                    "esta_cheia": len(sala.jogadores) >= sala.vagas
+                })
+
+        # Se não está em nenhuma sala
+        return jsonify({
+            "em_fila": False,
+            "jogadores_na_sala": [],
+            "vagas": 0,
+            "esta_cheia": False
+        }), 200
+
+    return jogo_bp
+
+================================================================================
+📄 server/routes/auth.py
+================================================================================
+# server/routes/auth.py
+"""
+Módulo de rotas de autenticação (login, registro).
+Gerencia a injeção de dependência do UserService.
+"""
+import re
+import bcrypt
+import unicodedata
+from flask import Blueprint, request, jsonify, current_app
+
+# Cria o Blueprint com prefixo
+auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+# Variável global para injeção de dependência
+_user_service = None
+
+
+def normalizar_username(username: str) -> str:
+    """
+    Normaliza o username: remove acentos, converte para minúsculas,
+    substitui caracteres especiais por underscores.
+    Retorna None se resultar em string vazia.
+    """
+    if not username:
+        return None
+    # Remove acentos
+    username = unicodedata.normalize('NFKD', username)
+    username = ''.join(c for c in username if not unicodedata.combining(c))
+    # Substitui não alfanuméricos por underscore
+    username = re.sub(r'[^a-zA-Z0-9]', '_', username)
+    # Minúsculas
+    username = username.lower()
+    # Underscores múltiplos → único
+    username = re.sub(r'_+', '_', username).strip('_')
+    return username or None
+
+
+def register_routes(user_service):
+    """
+    Função de injeção de dependência.
+    Configura as rotas do auth_bp com o UserService fornecido.
+    Deve ser chamada ANTES de registrar o blueprint no app.
+    """
+    global _user_service
+    print(f"📥 DEBUG: Injetando user_service: {user_service}")
+    _user_service = user_service
+
+    # Valida se o serviço foi injetado
+    if not _user_service:
+        print("❌ ERRO GRAVE: user_service é None em register_routes!")
+        raise RuntimeError("UserService não injetado em auth_bp.")
+    else:
+        print(f"✅ DEBUG: _user_service atribuído com sucesso: {_user_service}")
+
+
+# --- ENDPOINT: Teste de Conexão ---
+@auth_bp.route('/teste_dynamodb', methods=['GET'])
+def teste_dynamodb():
+    """Testa a conexão com o DynamoDB via UserService."""
+    if not _user_service or not _user_service.dynamodb:
+        return jsonify({
+            "status": "erro",
+            "message": "Cliente DynamoDB não disponível."
+        }), 500
+
+    try:
+        response = _user_service.dynamodb.list_tables()
+        tabelas = response.get('TableNames', [])
+        return jsonify({
+            "status": "sucesso",
+            "message": "Conexão com DynamoDB bem-sucedida.",
+            "tabelas": tabelas
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "erro",
+            "message": f"Falha ao acessar DynamoDB: {str(e)}"
+        }), 500
+
+
+# --- ENDPOINT: Registrar Usuário ---
+@auth_bp.route('/registrar', methods=['POST'])
+def registrar():
+    """
+    Registra um novo usuário.
+    Expects: {"username": "str", "password": "str"}
+    Returns: {"success": bool, "message": str}
+    """
+    if not request.is_json:
+        return jsonify({"success": False, "message": "JSON esperado."}), 400
+
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+
+    # Validar campos
+    if not username or not password:
+        return jsonify({"success": False, "message": "Username e senha são obrigatórios."}), 400
+    if len(username) < 3:
+        return jsonify({"success": False, "message": "Username deve ter pelo menos 3 caracteres."}), 400
+    if len(password) < 6:
+        return jsonify({"success": False, "message": "Senha deve ter pelo menos 6 caracteres."}), 400
+
+    # Normalizar username (opcional)
+    username_normalizado = normalizar_username(username)
+    if not username_normalizado:
+        return jsonify({"success": False, "message": "Username inválido após normalização."}), 400
+
+    # Verificar se já existe (usando o nome original)
+    if _user_service.get_user(username):
+        return jsonify({"success": False, "message": "Username já está em uso."}), 409
+
+    # Hashear senha
+    try:
+        salt = bcrypt.gensalt()
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), salt)
+    except Exception as e:
+        print(f"❌ Erro ao hashear senha para '{username}': {e}")
+        return jsonify({"success": False, "message": "Erro ao processar senha."}), 500
+
+    # Salvar no DynamoDB
+    sucesso = _user_service.create_user_item(username, password_hash=password_hash)
+    if sucesso:
+        print(f"✅ Usuário '{username}' registrado com sucesso.")
+        return jsonify({"success": True, "message": "Usuário registrado com sucesso."}), 201
+    else:
+        return jsonify({"success": False, "message": "Falha ao salvar no banco."}), 500
+
+
+# --- ENDPOINT: Login ---
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    """
+    Autentica um usuário.
+    Expects: {"username": "str", "password": "str"}
+    Returns: {"success": bool, "message": str, "token": str (opcional)}
+    """
+    print("🔍 DEBUG: Rota /auth/login foi chamada!")
+
+    # Garantir acesso ao serviço injetado via register_routes
+    global _user_service
+    if not _user_service:
+        print("💥 ERRO: _user_service não foi injetado!")
+        return jsonify({
+            "success": False,
+            "message": "Erro interno do servidor."
+        }), 500
+
+    try:
+        # 1. Validar formato da requisição
+        if not request.is_json:
+            print("❌ Requisição não é JSON")
+            return jsonify({
+                "success": False,
+                "message": "JSON esperado."
+            }), 400
+
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        print(f"🔐 Tentativa de login - username: {username}")
+
+        # 2. Validar campos obrigatórios
+        if not username:
+            print("⚠️ Username ausente")
+            return jsonify({
+                "success": False,
+                "message": "Username é obrigatório."
+            }), 400
+        if not password:
+            print("⚠️ Senha ausente")
+            return jsonify({
+                "success": False,
+                "message": "Senha é obrigatória."
+            }), 400
+
+        # 3. Buscar usuário no DynamoDB
+        usuario = _user_service.get_user(username)
+        if not usuario:
+            print(f"❌ Credenciais inválidas para '{username}'.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # 4. Extrair e validar hash da senha
+        password_hash_attr = usuario.get('password_hash')
+        if not password_hash_attr:
+            print(f"❌ Usuário '{username}' sem password_hash.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # Suporta formato DynamoDB {'B': bytes} ou bytes direto
+        stored_hash = password_hash_attr.get('B') if isinstance(password_hash_attr, dict) else password_hash_attr
+
+        if not isinstance(stored_hash, bytes):
+            print(f"⚠️ Hash inválido para '{username}': {type(stored_hash)}")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+        # 5. Verificar senha com bcrypt
+        if bcrypt.checkpw(password.encode('utf-8'), stored_hash):
+            print(f"✅ Login bem-sucedido para '{username}'.")
+
+            # 🔐 Gera um token fake para compatibilidade com o simulador
+            # (Futuro: substituir por JWT real)
+            fake_token = f"fake-jwt-{username}-{hash(username) % 10000}"
+
+            return jsonify({
+                "success": True,
+                "message": "Login bem-sucedido.",
+                "token": fake_token  # ← Adicionado para o simulador usar
+            }), 200
+        else:
+            print(f"❌ Senha incorreta para '{username}'.")
+            return jsonify({
+                "success": False,
+                "message": "Credenciais inválidas."
+            }), 401
+
+    except Exception as e:
+        print(f"💥 ERRO NÃO TRATADO em /auth/login: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": "Erro interno no servidor."
+        }), 500
+
+================================================================================
+📄 server/core/commander.py
+================================================================================
+# server/commander.py
+import queue
+import threading
+import time
+import uuid
+import random
+from typing import Callable, Optional
+from server.config.signals import WorkerSignals
+from server.core.manager import Gerenciador
+from server.config.initializer import InicializadorAWS
+
+
+class Comando:
+    def __init__(
+        self,
+        nome: str,
+        callback: Callable,
+        args=None,
+        kwargs=None,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo: sinais PyQt6
+    ):
+        self.id = str(uuid.uuid4())[:8]
+        self.nome = nome
+        self.callback = callback
+        self.args = args or ()
+        self.kwargs = kwargs or {}
+        self.on_success = on_success  # ⚠️ Evite UI aqui
+        self.on_error = on_error      # ⚠️ Evite UI aqui
+        self.signals = signals        # ✅ Use para UI segura
+        self.timestamp = time.time()
+
+    def __repr__(self):
+        return f"<Comando(id={self.id}, nome='{self.nome}')>"
+
+
+class Comandante:
+    """
+    Orquestrador de operações de domínio.
+    Deve ser usado pela interface gráfica para disparar ações assíncronas.
+    Nunca deve conter lógica de UI.
+    """
+    def __init__(self, gerenciador: Gerenciador, aws_loader):
+        self.gerenciador = gerenciador
+        self.aws_loader = aws_loader
+        self.fila = queue.Queue()
+        self.ativo = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        # 🔁 Estado da simulação
+        self.simulacao_ativa = False
+        self.thread_simulacao: Optional[threading.Thread] = None
+
+    def iniciar(self):
+        """Inicia a thread de processamento de comandos."""
+        self.thread.start()
+        print("✅ Comandante iniciado. Pronto para executar comandos.")
+
+    def parar(self, timeout: float = 2.0):
+        """Para o loop de comandos de forma segura."""
+        self.ativo = False
+        while not self.fila.empty():
+            try:
+                self.fila.get_nowait()
+            except queue.Empty:
+                break
+        self.thread.join(timeout=timeout)
+        if self.thread.is_alive():
+            print("⚠️ Thread do Comandante não encerrou a tempo.")
+        else:
+            print("🛑 Comandante parado com sucesso.")
+
+    def _loop(self):
+        """Loop principal: executa comandos da fila."""
+        while self.ativo:
+            try:
+                comando = self.fila.get(timeout=0.2)
+                print(f"⚙️ Executando [{comando.id}]: {comando.nome}")
+                try:
+                    resultado = comando.callback(*comando.args, **comando.kwargs)
+                    print(f"✅ [{comando.id}] {comando.nome} concluído.")
+
+                    # ✅ Primeiro: emitir sinais (seguro para UI)
+                    if comando.signals:
+                        comando.signals.success.emit(resultado)
+                        comando.signals.finished.emit()
+
+                    # ⚠️ Segundo: callbacks (cuidado! estão na thread secundária)
+                    if comando.on_success:
+                        try:
+                            comando.on_success(resultado)
+                        except Exception as cb_e:
+                            print(f"⚠️ Erro no callback on_success: {cb_e}")
+
+                except Exception as e:
+                    print(f"❌ [{comando.id}] Erro em '{comando.nome}': {e}")
+
+                    # ✅ Sinais de erro
+                    if comando.signals:
+                        comando.signals.error.emit(str(e))
+                        comando.signals.finished.emit()
+
+                    # ⚠️ Callbacks de erro
+                    if comando.on_error:
+                        try:
+                            comando.on_error(str(e))
+                        except Exception as cb_e:
+                            print(f"⚠️ Erro no callback on_error: {cb_e}")
+
+                finally:
+                    self.fila.task_done()
+
+            except queue.Empty:
+                continue
+
+    def _enviar_comando(self, nome: str, callback: Callable, *args, **kwargs):
+        """
+        Método auxiliar para criar e enviar um comando.
+        Aceita on_success, on_error e signals nos kwargs.
+        """
+        on_success = kwargs.pop('on_success', None)
+        on_error = kwargs.pop('on_error', None)
+        signals = kwargs.pop('signals', None)  # ✅ Extrai os sinais
+
+        comando = Comando(
+            nome=nome,
+            callback=callback,
+            args=args,
+            kwargs=kwargs,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+        self.fila.put(comando)
+
+    # ————————————————————————————
+    # Comandos de Domínio
+    # ————————————————————————————
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/",
+        dynamodb_table_name: str = "GlobalArena",
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: cria e faz upload de um novo mundo."""
+        def task():
+            sucesso, mundo = self.gerenciador.criar_e_upload_mundo_com_retorno(
+                fator=fator,
+                bioma=bioma,
+                bucket_name=bucket_name,
+                s3_prefix=s3_prefix,
+                dynamodb_table_name=dynamodb_table_name
+            )
+            return sucesso, mundo
+
+        self._enviar_comando(
+            nome=f"Criar e Upload Mundo (fator={fator}, bioma={bioma})",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+
+    def reinicializar_infra(
+        self,
+        confirmar: bool = False,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: reinicializa a infra AWS (S3 + DynamoDB)."""
+        def task():
+            inicializador = InicializadorAWS(self.aws_loader)
+            sucesso = inicializador.inicializar(confirmar=confirmar)
+            return sucesso
+
+        self._enviar_comando(
+            nome="Reinicializar Infra AWS",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+
+    def testar_conexao_aws(
+        self,
+        on_success: Callable = None,
+        on_error: Callable = None,
+        signals: Optional[WorkerSignals] = None  # ✅ Novo parâmetro
+    ):
+        """Comando: testa conexão com AWS (conta, S3, DynamoDB)."""
+        def task():
+            try:
+                account = self.aws_loader.get_account_info()
+                buckets = self.aws_loader.list_s3_buckets()
+                tables = self.aws_loader.list_dynamodb_tables()
+                return {
+                    'success': True,
+                    'account': account,
+                    'buckets': buckets,
+                    'tables': tables
+                }
+            except Exception as e:
+                raise e
+
+        self._enviar_comando(
+            nome="Testar Conexão AWS",
+            callback=task,
+            on_success=on_success,
+            on_error=on_error,
+            signals=signals  # ✅ Passa os sinais
+        )
+
+    def iniciar_simulacao_players(self, signals: Optional[WorkerSignals] = None):
+        """Inicia a simulação de players online."""
+        def task():
+            if self.simulacao_ativa:
+                return
+
+            self.simulacao_ativa = True
+            contador = 0
+
+            def entrar_na_fila(usuario):
+                nonlocal contador
+                try:
+                    import requests
+                    print(f"🔄 [Comandante] Tentando login com: {usuario['username']}")  # ← Novo log
+                    response = requests.post("http://localhost:5000/auth/login", json=usuario)
+                    if response.status_code == 200:
+                        token = response.json().get("token")
+                        headers = {"Authorization": f"Bearer {token}"} if token else {}
+                        print(f"🔄 [Comandante] {usuario['username']} logado. Tentando entrar na fila...")  # ← Novo log
+
+                        # Chamada para /jogo/entrar
+                        response_entrar = requests.post(
+                            "http://localhost:5000/jogo/entrar",
+                            json={"modo": "online", "username": usuario["username"]},
+                            headers=headers
+                        )
+
+                        # ✅ Log da resposta
+                        print(
+                            f"📨 Resposta de /jogo/entrar para {usuario['username']}: {response_entrar.status_code} - {response_entrar.text}")
+
+                        if response_entrar.status_code == 200:
+                            contador += 1
+                            if signals:
+                                signals.success.emit(f"✅ {usuario['username']} entrou na fila ({contador})")
+                        else:
+                            print(f"❌ Falha ao entrar na fila: {response_entrar.text}")
+                    else:
+                        print(f"❌ Login falhou para {usuario['username']}: {response.text}")
+
+                except Exception as e:
+                    print(f"❌ Erro ao processar {usuario['username']}: {e}")
+                    if signals:
+                        signals.error.emit(f"❌ Falha com {usuario['username']}")
+
+            USUARIOS_SIMULADOS = [{"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)]
+
+            while self.simulacao_ativa:
+                usuario = random.choice(USUARIOS_SIMULADOS)
+                thread = threading.Thread(target=entrar_na_fila, args=(usuario,), daemon=True)
+                thread.start()
+                time.sleep(random.uniform(1.0, 3.0))
+
+            if signals:
+                signals.success.emit("🛑 Simulação encerrada.")
+
+        self._enviar_comando(
+            nome="Simular Players Online",
+            callback=task,
+            on_success=lambda msg: signals.success.emit(msg) if signals else None,
+            on_error=lambda err: signals.error.emit(err) if signals else None,
+            signals=signals
+        )
+
+    def parar_simulacao_players(self):
+        """Para a simulação de players."""
+        self.simulacao_ativa = False
+
+================================================================================
+📄 server/core/simulador_players.py
+================================================================================
+# server/simulador_players.py
+import requests
+import random
+import time
+import threading
+
+# Configuração
+URL_BASE = "http://localhost:5000"
+NUM_PLAYERS = 50  # Quantidade de players simulados: player001 até player050
+
+# Gera usuários dinamicamente
+USUARIOS_SIMULADOS = [{"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)]
+print("🎯 Simulador carregado com formatos: player001, player002, ...")
+
+def registrar_usuario(usuario):
+    """Tenta registrar o usuário no servidor."""
+    try:
+        response = requests.post(f"{URL_BASE}/auth/registrar", json=usuario, timeout=3)
+        data = response.json()
+        if data.get("success"):
+            print(f"🆕 Registrado: {usuario['username']}")
+            return True
+        else:
+            # Pode já existir → não é erro
+            if "já está em uso" in data.get("message", ""):
+                return True
+            print(f"❌ Falha ao registrar {usuario['username']}: {data.get('message')}")
+            return False
+    except Exception as e:
+        print(f"⚠️ Erro ao registrar {usuario['username']}: {e}")
+        return False
+
+def login_usuario(usuario):
+    """Tenta fazer login. Se falhar por usuário não encontrado, tenta registrar."""
+    try:
+        response = requests.post(f"{URL_BASE}/auth/login", json=usuario, timeout=3)
+        data = response.json()
+
+        if data.get("success"):
+            print(f"✅ {usuario['username']} logou com sucesso.")
+            return data.get("token")  # futuro: JWT
+        else:
+            mensagem = data.get("message", "")
+            if "não encontrado" in mensagem:
+                print(f"🔁 {usuario['username']} não existe. Tentando registrar...")
+                if registrar_usuario(usuario):
+                    return login_usuario(usuario)  # Tenta logar novamente após registrar
+            else:
+                print(f"❌ {usuario['username']} falhou: {mensagem}")
+        return None
+    except requests.exceptions.ConnectionError:
+        print("🛑 Erro: Não foi possível conectar ao servidor. Certifique-se de que o servidor está rodando em http://localhost:5000")
+        return None
+    except Exception as e:
+        print(f"⚠️ Erro inesperado ao logar {usuario['username']}: {e}")
+        return None
+
+def entrar_na_fila(usuario):
+    """Após login, entra na fila de jogo online."""
+    token = login_usuario(usuario)
+    if not token:
+        return
+
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        response = requests.post(
+            f"{URL_BASE}/jogo/entrar",
+            json={"modo": "online", "username": usuario["username"]},
+            headers=headers,
+            timeout=3
+        )
+        data = response.json()
+        print(f"🎮 {usuario['username']} → {data.get('message')}")
+    except Exception as e:
+        print(f"⚠️ Falha ao entrar na fila: {e}")
+
+def simular_entrada_periodica(intervalo_min=2, intervalo_max=5):
+    """
+    Simula entrada periódica e aleatória de players no sistema.
+    Cada player tenta:
+    1. Logar (ou se registrar, se necessário)
+    2. Entrar na fila de matchmaking
+    """
+    print(f"🔄 Iniciando simulação com {len(USUARIOS_SIMULADOS)} players...")
+    print(f"💡 Intervalo: {intervalo_min}s a {intervalo_max}s entre tentativas")
+    print("ℹ️  Pressione Ctrl+C para parar.")
+
+    while True:
+        usuario = random.choice(USUARIOS_SIMULADOS)
+        thread = threading.Thread(target=entrar_na_fila, args=(usuario,), daemon=True)
+        thread.start()
+        time.sleep(random.uniform(intervalo_min, intervalo_max))
+
+if __name__ == "__main__":
+    print("🚀 Iniciando simulador de players online...")
+    try:
+        simular_entrada_periodica(intervalo_min=1.5, intervalo_max=4.0)
+    except KeyboardInterrupt:
+        print("\n🛑 Simulação encerrada pelo usuário.")
+    except Exception as e:
+        print(f"\n❌ Erro inesperado: {e}")
+
+================================================================================
+📄 server/core/registrar_players.py
+================================================================================
+# server/registrar_players.py
+import requests
+
+# Lista de players a serem registrados
+USUARIOS = [
+    {"username": f"player{i:03d}", "password": "senha123"} for i in range(1, 51)
+]
+
+print("📝 Registrando 50 players de teste...")
+
+for usuario in USUARIOS:
+    response = requests.post("http://localhost:5000/auth/registrar", json=usuario)
+    data = response.json()
+    if data.get("success"):
+        print(f"✅ {usuario['username']} registrado com sucesso.")
+    else:
+        # Pode já existir → não é erro
+        if "já existe" in data.get("message", ""):
+            print(f"🔁 {usuario['username']} já registrado.")
+        else:
+            print(f"❌ Falha ao registrar {usuario['username']}: {data['message']}")
+
+================================================================================
+📄 server/core/manager.py
+================================================================================
+# server/manager.py
+import json
+import time
+from pathlib import Path
+from typing import Optional, Tuple
+
+from server.serialization import Serializador
+from server.integrations.aws_loader import AWSLoader
+from shared.world import Mundo
+
+
+class Gerenciador:
+    """
+    Gerencia operações de mundo: criação, serialização, upload S3 e salvamento de metadados no DynamoDB.
+    Nada é salvo localmente.
+    """
+
+    def __init__(self,
+                 aws_loader: AWSLoader,
+                 save_dir: str = "saves",
+                 dynamodb_table_name: str = "GlobalArena"):  # ✅ Adicione o parâmetro
+        self.aws_loader = aws_loader
+        self.save_dir = Path(save_dir)
+        self.save_dir.mkdir(exist_ok=True)
+        self.dynamodb_table_name = dynamodb_table_name  # ✅ Armazena o nome da tabela
+
+    # server/manager.py
+
+    def upload_mundo(self,
+                     mundo: Mundo,
+                     bucket_name: str = "global-arena-tiles",
+                     s3_prefix: str = "planetas/",
+                     dynamodb_table_name: str = "GlobalArena") -> bool:
+        """
+        Faz upload do mundo: dados pesados para S3, metadados leves para DynamoDB.
+        Agora com rollback se falhar no DynamoDB.
+        """
+        try:
+            pk = f"PLANET#{mundo.id_mundo}"
+            sk = "METADATA"
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
+
+            # --- Verificar se já existe no DynamoDB ---
+            dynamodb = self.aws_loader.get_client('dynamodb')
+            response = dynamodb.get_item(
+                TableName=dynamodb_table_name,
+                Key={'PK': {'S': pk}, 'SK': {'S': sk}}
+            )
+            if 'Item' in response:
+                print(f"❌ Mundo com ID {mundo.id_mundo} já existe no DynamoDB.")
+                return False
+
+            # --- Serializar e enviar para S3 ---
+            dados_s3 = Serializador.to_serializable_dict(mundo)
+            dados_json = json.dumps(dados_s3, ensure_ascii=False, indent=2)
+
+            s3 = self.aws_loader.get_client('s3')
+            s3.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=dados_json,
+                ContentType='application/json'
+            )
+            print(f"✅ Upload para S3 concluído: s3://{bucket_name}/{s3_key}")
+
+            # --- Salvar metadados no DynamoDB ---
+            try:
+                bioma_inicial = getattr(mundo.planeta, 'bioma_inicial', 'Desconhecido')
+                vagas = getattr(mundo.planeta, 'numero_de_jogadores', 0)
+
+                dynamodb.put_item(
+                    TableName=dynamodb_table_name,
+                    Item={
+                        'PK': {'S': pk},
+                        'SK': {'S': sk},
+                        'entityType': {'S': 'Planet'},
+                        'fator': {'N': str(mundo.planeta.fator)},
+                        'bioma_inicial': {'S': bioma_inicial},
+                        'vagas': {'N': str(vagas)},
+                        'timestamp': {'N': str(int(time.time()))},
+                        'status': {'S': 'disponivel'}
+                    }
+                )
+                print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")
+                return True
+
+            except Exception as e:
+                print(f"❌ Falha ao salvar no DynamoDB: {e}")
+                print(f"🧹 Removendo arquivo órfão do S3: s3://{bucket_name}/{s3_key}")
+                try:
+                    s3.delete_object(Bucket=bucket_name, Key=s3_key)
+                    print("✅ Arquivo órfão removido com sucesso.")
+                except Exception as del_e:
+                    print(f"⚠️ Falha ao remover arquivo órfão do S3: {del_e}")
+                return False
+
+        except Exception as e:
+            print(f"❌ Erro inesperado durante upload_mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> bool:
+        """
+        Cria um novo mundo com fator e bioma dados, e faz upload direto para S3 + DynamoDB.
+
+        :param fator: Nível de detalhe da grade geográfica (ex: 4)
+        :param bioma: Bioma inicial para escolha de capitais (ex: "Meadow")
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta) no bucket
+        :return: True se sucesso, False caso contrário
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo_com_retorno(
+            self,
+            fator: int,
+            bioma: str,
+            bucket_name: str = "global-arena-tiles",
+            s3_prefix: str = "planetas/",
+            dynamodb_table_name: str = "GlobalArena"
+    ) -> Tuple[bool, Optional[Mundo]]:
+        """
+        Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
+        e retorna sucesso e a instância do mundo.
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(
+                mundo,
+                bucket_name=bucket_name,
+                s3_prefix=s3_prefix,
+                dynamodb_table_name=dynamodb_table_name
+            )
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso, mundo
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            import traceback
+            traceback.print_exc()
+            return False, None
+
+    def criar_mundo(self, fator: int, bioma: str) -> Mundo:
+        """Cria e retorna um novo mundo."""
+        return Mundo(fator=fator, bioma=bioma)
+
+================================================================================
+📄 server/core/interface.py
+================================================================================
+# server/interface.py
+import sys
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
+    QComboBox, QSpinBox, QMessageBox, QFormLayout, QGroupBox,
+    QFileDialog, QTextEdit, QPushButton
+)
+from server.config.signals import WorkerSignals
+from server.serialization import Serializador
+from server.core.manager import Gerenciador
+from server.integrations.aws_loader import AWSLoader
+from server.core.commander import Comandante
+
+
+class Interface(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Gerenciador de Servidor - Global Arena")
+        self.setGeometry(100, 100, 700, 500)
+
+        # === Inicialização de dependências ===
+        try:
+            self.aws_loader = AWSLoader()
+            self.gerenciador = Gerenciador(self.aws_loader)
+            print("✅ Gerenciador inicializado com AWS.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro AWS", f"Não foi possível conectar à AWS:\n{e}")
+            self.gerenciador = None
+
+        # ✅ Inicializa o Comandante
+        try:
+            self.comandante = Comandante(self.gerenciador, self.aws_loader)
+            self.comandante.iniciar()
+            print("✅ Comandante iniciado.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao iniciar o Comandante:\n{e}")
+            self.comandante = None
+
+        # ✅ Cria e conecta os sinais
+        self.setup_signals()
+
+        # ✅ Armazena o último mundo criado
+        self.ultimo_mundo = None
+
+        # Configuração do sistema de abas
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
+
+        # ✅ Cria as abas
+        self.backup_tab = self.create_backup_tab()
+        self.config_tab = QWidget()
+        self.tabs.addTab(self.backup_tab, "Backup & Criação")
+        self.tabs.addTab(self.config_tab, "Configurações")
+
+    def closeEvent(self, event):
+        if self.comandante:
+            self.comandante.parar()
+        event.accept()
+
+    def setup_signals(self):
+        """Cria e conecta os sinais para comunicação segura."""
+        self.signals = WorkerSignals()
+        self.signals.success.connect(self.on_success)
+        self.signals.error.connect(self.on_error)
+        self.signals.finished.connect(self.on_finished)
+
+    def on_success(self, resultado):
+        """Trata diferentes tipos de sucesso: criação de mundo ou mensagens de log."""
+        if isinstance(resultado, tuple):
+            # Caso 1: resultado de upload de mundo (sucesso, mundo)
+            try:
+                sucesso, mundo = resultado
+                if sucesso:
+                    self.ultimo_mundo = mundo
+                    QMessageBox.information(
+                        self, "Sucesso", f"Mundo {mundo.id_mundo} criado e enviado!"
+                    )
+                else:
+                    QMessageBox.critical(self, "Falha", "Upload falhou.")
+            except Exception as e:
+                print(f"❌ Erro ao processar resultado de upload: {e}")
+        else:
+            # Caso 2: mensagem de log (ex: simulação de players)
+            self.log_output.append(f"🟢 {resultado}")  # Exibe no widget de log
+            print(f"🟢 {resultado}")  # Também imprime no terminal
+
+    def on_error(self, mensagem: str):
+        QMessageBox.critical(self, "Erro", f"Falha: {mensagem}")
+
+    def on_finished(self):
+        print("✅ Operação concluída.")
+
+    # ————————————————————————————————
+    # Métodos para construção da UI
+    # ————————————————————————————————
+
+    def create_backup_tab(self):
+        """Cria a aba de operações de backup e criação de mundos"""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # === Grupo: Criar e Upload de Mundo ===
+        group_criar = QGroupBox("Criar e Enviar Novo Mundo")
+        form_layout = QFormLayout()
+
+        self.spin_fator = QSpinBox()
+        self.spin_fator.setMinimum(2)
+        self.spin_fator.setMaximum(8)
+        self.spin_fator.setValue(4)
+        form_layout.addRow("Fator:", self.spin_fator)
+
+        self.combo_bioma = QComboBox()
+        biomas = ["Meadow", "Forest", "Savanna", "Desert", "Hills", "Mountains"]
+        self.combo_bioma.addItems(biomas)
+        self.combo_bioma.setCurrentText("Meadow")
+        form_layout.addRow("Bioma Inicial:", self.combo_bioma)
+
+        group_criar.setLayout(form_layout)
+        layout.addWidget(group_criar)
+
+        btn_upload = QPushButton("🌍 Criar e Enviar Mundo para Nuvem")
+        btn_upload.clicked.connect(self.handle_criar_e_upload)
+        layout.addWidget(btn_upload)
+
+        layout.addSpacing(20)
+
+        # === Grupo: Simulação de Players ===
+        group_sim = QGroupBox("Simulação de Players Online")
+        layout_sim = QVBoxLayout()
+
+        btn_iniciar_sim = QPushButton("▶️ Iniciar Simulação de Players")
+        btn_iniciar_sim.setStyleSheet("""
+            QPushButton { background-color: #27ae60; color: white; font-weight: bold; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #2ecc71; }
+        """)
+        btn_iniciar_sim.clicked.connect(self.handle_iniciar_simulacao)
+        layout_sim.addWidget(btn_iniciar_sim)
+
+        btn_parar_sim = QPushButton("⏹️ Parar Simulação de Players")
+        btn_parar_sim.setStyleSheet("""
+            QPushButton { background-color: #e74c3c; color: white; font-weight: bold; border-radius: 6px; padding: 8px; }
+            QPushButton:hover { background-color: #c0392b; }
+        """)
+        btn_parar_sim.clicked.connect(self.handle_parar_simulacao)
+        layout_sim.addWidget(btn_parar_sim)
+
+        group_sim.setLayout(layout_sim)
+        layout.addWidget(group_sim)
+
+        layout.addSpacing(20)
+
+        # === Grupo: Salvar Localmente ===
+        group_local = QGroupBox("Salvar Estado Localmente")
+        layout_local = QVBoxLayout()
+
+        btn_save = QPushButton("💾 Salvar Estado como JSON (Local)")
+        btn_save.clicked.connect(self.handle_save_json)
+        layout_local.addWidget(btn_save)
+
+        group_local.setLayout(layout_local)
+        layout.addWidget(group_local)
+
+        layout.addSpacing(20)
+
+        # === Botão: Reinicializar Infraestrutura AWS ===
+        btn_reiniciar = QPushButton("⚠️ Reinicializar Infraestrutura AWS")
+        btn_reiniciar.setStyleSheet("""
+            QPushButton {
+                background-color: #a83232;
+                color: white;
+                font-weight: bold;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QPushButton:hover {
+                background-color: #c03939;
+            }
+        """)
+        btn_reiniciar.clicked.connect(self.handle_reinicializar_servidor)
+        layout.addWidget(btn_reiniciar)
+        layout.addSpacing(10)
+
+        # === Log de Atividades ===
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMaximumHeight(150)
+        self.log_output.setPlaceholderText("Log de atividades...")
+        layout.addWidget(self.log_output)
+
+        layout.addStretch()
+        tab.setLayout(layout)
+        return tab
+
+    def handle_iniciar_simulacao(self):
+        """Inicia a simulação de players online."""
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+        self.comandante.iniciar_simulacao_players(signals=self.signals)
+
+    def handle_parar_simulacao(self):
+        """Para a simulação de players online."""
+        if not self.comandante:
+            return
+        self.comandante.parar_simulacao_players()
+        self.signals.success.emit("🛑 Simulação interrompida pelo usuário.")
+
+    def handle_save_json(self):
+        """Salva o último mundo criado (se existir) como JSON local."""
+        if not self.ultimo_mundo:
+            QMessageBox.warning(self, "Aviso", "Nenhum mundo foi criado ainda.")
+            return
+
+        try:
+            mundo = self.ultimo_mundo
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Salvar Mundo como JSON",
+                f"saves/mundo_{mundo.id_mundo}.json",
+                "JSON Files (*.json)"
+            )
+            if not filepath:
+                return  # Cancelado
+
+            caminho_salvo = Serializador.save_mundo(mundo, filepath)
+            if caminho_salvo:
+                QMessageBox.information(
+                    self, "Sucesso", f"Mundo salvo localmente:\n{caminho_salvo}"
+                )
+            else:
+                QMessageBox.critical(self, "Falha", "Erro ao salvar o arquivo.")
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Falha ao salvar: {str(e)}")
+
+    def handle_criar_e_upload(self):
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+
+        fator = self.spin_fator.value()
+        bioma = self.combo_bioma.currentText()
+
+        self.comandante.criar_e_upload_mundo(
+            fator=fator,
+            bioma=bioma,
+            signals=self.signals
+        )
+
+    def handle_reinicializar_servidor(self):
+        if not self.comandante:
+            QMessageBox.critical(self, "Erro", "Comandante não está disponível.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "⚠️ Reinicializar Infraestrutura",
+            "Isso apagará TODOS os mundos e metadados no S3 e DynamoDB.\n"
+            "Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.comandante.reinicializar_infra(
+            confirmar=False,
+            signals=self.signals
+        )
+
+
+# Execução da aplicação
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = Interface()
+    window.show()
+    sys.exit(app.exec())
 
 ================================================================================
 📄 client/main.py
@@ -309,6 +2925,50 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do container:", self.opengl_container.geometry())
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
+
+        self.partida_iniciada = False
+
+    def _iniciar_partida(self, modo: str, **kwargs):
+        """
+        Método centralizado para iniciar qualquer tipo de partida.
+        Garante que flags, overlays e estado sejam tratados de forma consistente.
+        """
+        print(f"🟢 [DEBUG] _iniciar_partida: Iniciando partida {modo}...")
+
+        # ✅ MARCAR QUE A PARTIDA ESTÁ INICIADA
+        self.partida_iniciada = True
+
+        # ✅ Parar render loop antes de mudar UI
+        self.parar_loop()
+
+        # --- Lógica específica por modo ---
+        if modo == "offline":
+            fator = kwargs.get("fator")
+            bioma = kwargs.get("bioma")
+            self._configurar_modo_offline(fator, bioma)
+        elif modo == "online":
+            jogadores = kwargs.get("jogadores", [])
+            self._configurar_modo_online(jogadores)
+
+        # ✅ Esconder overlays de espera
+        self._esconder_overlay_sala_espera()
+
+        # ✅ Ativar modo de jogo no OpenGL
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            self.opengl_widget.ativar_modo_jogo()
+            self.opengl_widget.update()
+
+        print("✅ Transição para partida concluída.")
+
+    def _configurar_modo_offline(self, fator, bioma):
+        try:
+            from shared.world import Mundo
+            self.mundo = Mundo(fator=fator, bioma=bioma)
+            print(
+                f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
+            self.opengl_widget.carregar_mundo(self.mundo)
+        except Exception as e:
+            print(f"❌ Erro ao criar mundo offline: {e}")
 
     def _mostrar_dialogo_modos(self):
         """Exibe um diálogo para escolher entre modo Offline e Online."""
@@ -608,10 +3268,10 @@ class JanelaPrincipal(QMainWindow):
             self._entrar_na_fila()
 
     def on_icone_sair(self):
-        """Action triggered by the 'Exit' icon: cleans server state and closes the app."""
+        """Action triggered by the 'Exit' icon: shows contextual dialog based on current state."""
         print("Action: 'Exit' icon clicked.")
 
-        # ✅ Stop render loop
+        # ✅ Stop render loop (safe to call always)
         self.parar_loop()
 
         username = self._ler_username()
@@ -620,11 +3280,16 @@ class JanelaPrincipal(QMainWindow):
             self.close()
             return
 
-        # ✅ 1. Perguntar se quer sair da sala de espera (se estiver em uma)
+        # 🔥 Caso 1: Jogador está em partida ativa → diálogo avançado
+        if self.partida_iniciada:
+            self._mostrar_dialogo_saida_partida(username)
+            return
+
+        # 🔹 Caso 2: Não está em partida, mas está em sala de espera → perguntar antes de sair
         if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
             reply = QMessageBox.question(
                 self,
-                "Sair da Partida",
+                "Sair da Sala de Espera",
                 "Você está em uma sala de espera. Sair agora cancelará sua participação.\n\n"
                 "Deseja realmente sair?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -633,7 +3298,17 @@ class JanelaPrincipal(QMainWindow):
             if reply == QMessageBox.StandardButton.No:
                 return  # Cancela o fechamento
 
-        # ✅ 2. Sempre limpar o estado do jogador no servidor
+        # ✅ Limpar estado no servidor (em todos os casos)
+        self._limpar_estado_servidor(username)
+
+        # ✅ Limpeza local
+        self._limpeza_local()
+
+        # ✅ Fechar o programa
+        self.close()
+
+    def _limpar_estado_servidor(self, username: str):
+        """Limpa o estado do jogador no servidor."""
         try:
             response = requests.post(
                 "http://localhost:5000/jogo/limpar_usuario",
@@ -643,9 +3318,9 @@ class JanelaPrincipal(QMainWindow):
             print(f"🧹 Estado do usuário '{username}' limpo no servidor ao sair. {response.text}")
         except requests.exceptions.RequestException as e:
             print(f"⚠️ Falha ao limpar estado ao sair: {e}")
-            # Ignora erro — o importante é fechar
 
-        # ✅ 3. Limpeza local: remover overlays e parar polling
+    def _limpeza_local(self):
+        """Remove overlays e para timers."""
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
                 self._esconder_overlay_sala_espera()
@@ -661,7 +3336,72 @@ class JanelaPrincipal(QMainWindow):
         except Exception as e:
             print(f"⚠️ Falha ao parar polling: {e}")
 
-        # ✅ 4. Fechar o programa
+    def _mostrar_dialogo_saida_partida(self, username: str):
+        """Mostra diálogo com Cancel, Main Menu, Quit quando em partida."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Sair do Jogo")
+        dialog.setModal(True)
+        dialog.setFixedSize(320, 150)
+        dialog.setStyleSheet("""
+            QDialog { background-color: #2c3e50; font-family: Arial; }
+            QLabel { color: #ecf0f1; font-size: 14px; }
+            QPushButton {
+                background-color: #3498db; color: white; border: none;
+                padding: 8px 16px; border-radius: 6px; font-size: 13px;
+                min-width: 90px;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+            QPushButton#quit { background-color: #e74c3c; }
+            QPushButton#quit:hover { background-color: #c0392b; }
+        """)
+
+        layout = QVBoxLayout()
+        label = QLabel("O que você gostaria de fazer?")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(label)
+
+        button_layout = QHBoxLayout()
+        btn_cancel = QPushButton("Cancel")
+        btn_menu = QPushButton("Main Menu")
+        btn_quit = QPushButton("Quit")
+        btn_quit.setObjectName("quit")
+
+        button_layout.addWidget(btn_cancel)
+        button_layout.addWidget(btn_menu)
+        button_layout.addWidget(btn_quit)
+        layout.addLayout(button_layout)
+        dialog.setLayout(layout)
+
+        # Ações
+        btn_cancel.clicked.connect(dialog.reject)
+        btn_menu.clicked.connect(lambda: self._sair_para_menu(dialog, username))
+        btn_quit.clicked.connect(lambda: self._sair_do_jogo(dialog, username))
+
+        dialog.exec()
+
+    def _sair_para_menu(self, dialog, username: str):
+        """Volta ao menu principal, limpa estado, mas não fecha o jogo."""
+        dialog.accept()
+
+        self._limpar_estado_servidor(username)
+        self._limpeza_local()
+
+        self.partida_iniciada = False  # ✅ Resetar flag
+
+        # Restaurar overlay inicial
+        if hasattr(self, 'overlay_widget') and self.overlay_widget:
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+
+        print("✅ Retornou ao menu principal.")
+
+    def _sair_do_jogo(self, dialog, username: str):
+        """Fecha o aplicativo após limpar estado."""
+        dialog.accept()
+
+        self._limpar_estado_servidor(username)
+        self._limpeza_local()
+
         self.close()
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
@@ -876,82 +3616,71 @@ class JanelaPrincipal(QMainWindow):
             self.entrando_na_fila = False
 
     def on_partida_iniciada(self):
-        """Chamado quando a partida começa.
-        Realiza limpeza completa de UI e prepara a transição para o modo de jogo.
+        """Chamado quando a partida começa (online ou offline).
+        Realiza limpeza de UI, para polling e marca o estado de partida ativa.
+        A criação do mundo e ativação do OpenGL devem ser feitas antes.
         """
         print("🔵 [DEBUG] on_partida_iniciada: Início da execução")
 
-        # ✅ Verificar se já foi chamado (evitar duplicação)
+        # ✅ Evitar duplicação
         if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
-            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado anteriormente. Ignorando.")
+            print("🟡 [DEBUG] on_partida_iniciada: Já foi chamado. Ignorando.")
             return
         self.partida_iniciada = True
         print("🟢 [DEBUG] on_partida_iniciada: Flag 'partida_iniciada' definido como True")
 
         print("🎮 Partida iniciada: removendo overlays, status e parando polling...")
 
-        # 1. Remover o widget de status da barra lateral (se existir)
+        # 1. Remover widget de status da barra lateral
         try:
             if hasattr(self, 'gerenciador_icones') and self.gerenciador_icones:
                 print("🔵 [DEBUG] on_partida_iniciada: Removendo widget de status da barra lateral")
                 self.gerenciador_icones.remover_status_sala()
-                print("🗑️ Widget de status da sala removido da barra esquerda.")
+                print("🗑️ Widget de status da sala removido.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado ou inexistente")
+                print("🟡 [DEBUG] on_partida_iniciada: gerenciador_icones não encontrado")
         except Exception as e:
             print(f"⚠️ Falha ao remover status da sala: {e}")
 
-        # 2. Esconder e remover o overlay da sala de espera (se existir)
+        # 2. Esconder overlay da sala de espera
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-                print("🔵 [DEBUG] on_partida_iniciada: Overlay da sala de espera detectado. Iniciando remoção...")
-                # Usa o mecanismo de fade_out do overlay, se disponível
+                print("🔵 [DEBUG] on_partida_iniciada: Removendo overlay da sala de espera")
                 if hasattr(self.overlay_sala, 'fade_out'):
-                    print("🎨 [DEBUG] on_partida_iniciada: Aplicando fade_out no overlay")
                     self.overlay_sala.fade_out()
-                    # Após a animação, esconde e remove
                     from PyQt6.QtCore import QTimer
                     QTimer.singleShot(300, self._esconder_overlay_sala_espera)
                 else:
-                    print("🎨 [DEBUG] on_partida_iniciada: Sem fade_out. Escondendo diretamente")
                     self._esconder_overlay_sala_espera()
-                print("🎨 Overlay da sala de espera removido com sucesso.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado ou já removido")
+                print("🟡 [DEBUG] on_partida_iniciada: overlay_sala não encontrado")
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay da sala: {e}")
 
-        # 3. Parar o polling de status (evita chamadas desnecessárias)
+        # 3. Parar polling
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
-                print("⏸️ [DEBUG] on_partida_iniciada: Parando polling_timer")
                 self.polling_timer.stop()
                 self.polling_timer.deleteLater()
                 self.polling_timer = None
                 print("⏸️ Polling de status da sala interrompido.")
             else:
-                print("🟡 [DEBUG] on_partida_iniciada: polling_timer não encontrado ou já parado")
+                print("🟡 [DEBUG] on_partida_iniciada: polling_timer já parado")
         except Exception as e:
-            print(f"⚠️ Falha ao parar o polling: {e}")
+            print(f"⚠️ Falha ao parar polling: {e}")
 
-        # 4. Placeholder: exibir mensagem de partida iniciada
+        # 4. Ativar modo de jogo no OpenGLWidget
         try:
-            print("🟢 [DEBUG] on_partida_iniciada: Exibindo placeholder da partida")
-            # ✅ Compatível com o código atual
-            QMessageBox.information(self, "Game Started", "Loading Planet...")
-            print("🟢 Placeholder de partida exibido: 'Loading Planet...'")
-
-            # ✅ Opcional: ativar modo de jogo no OpenGL (se implementado futuramente)
             if hasattr(self, 'opengl_widget') and self.opengl_widget:
-                # Se no futuro você adicionar o método:
-                # self.opengl_widget.ativar_modo_jogo()
-                # Por enquanto, forçar atualização
+                self.opengl_widget.ativar_modo_jogo()
                 self.opengl_widget.update()
-                print("🔵 [DEBUG] on_partida_iniciada: OpenGL widget atualizado")
+                print("🔵 [DEBUG] OpenGLWidget ativado e atualizado.")
+            else:
+                print("⚠️ [WARN] opengl_widget não encontrado ao ativar modo de jogo.")
         except Exception as e:
-            print(f"⚠️ Falha ao exibir tela de jogo: {e}")
+            print(f"⚠️ Falha ao ativar OpenGLWidget: {e}")
 
-        # 5. Mensagem final de sucesso
+        # 5. Finalização
         print("✅ Transição para partida iniciada com sucesso.")
         print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
@@ -1265,57 +3994,8 @@ class JanelaPrincipal(QMainWindow):
         self.offline_overlay.show()
 
     def on_offline_setup_confirmed(self, fator, bioma):
-        """
-        Chamado quando o usuário confirma as configurações offline.
-        Cria um mundo local e ativa a renderização 3D.
-        """
         print(f"🟢 [DEBUG] on_offline_setup_confirmed: Iniciando partida offline | fator={fator}, bioma='{bioma}'")
-
-        # 1. Esconder overlay atual
-        if hasattr(self, 'offline_overlay') and self.offline_overlay:
-            self.offline_overlay.hide()
-            print("🔵 [DEBUG] Overlay de configuração offline escondido.")
-
-        # 2. Criar mundo
-        try:
-            from shared.world import Mundo
-            self.mundo = Mundo(fator=fator, bioma=bioma)
-            print(
-                f"✅ Mundo criado com sucesso: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}"
-            )
-        except Exception as e:
-            print(f"❌ Falha ao criar mundo: {e}")
-            import traceback
-            traceback.print_exc()
-            # Opcional: mostrar mensagem ao usuário
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Erro", f"Não foi possível criar o mundo: {e}")
-            return
-
-        # 3. Enviar para OpenGLWidget
-        if hasattr(self, 'opengl_widget') and self.opengl_widget:
-            try:
-                # ✅ Resetar câmera com base no fator para garantir que o planeta caiba na tela
-                if hasattr(self.opengl_widget, 'camera'):
-                    self.opengl_widget.camera.resetar(fator)
-                    print(f"🔧 [DEBUG] Câmera reposicionada para fator={fator}")
-
-                # ✅ Carregar mundo e ativar modo 3D
-                self.opengl_widget.carregar_mundo(self.mundo)
-                self.opengl_widget.ativar_modo_jogo()
-                self.opengl_widget.update()  # Força renderização
-                print("🟢 [DEBUG] Mundo enviado para MeuOpenGLWidget. Modo 3D ativado.")
-            except Exception as e:
-                print(f"❌ Erro ao carregar mundo no OpenGLWidget: {e}")
-        else:
-            print("⚠️ [WARN] opengl_widget não encontrado ou não inicializado.")
-            return
-
-        # 4. Esconder outros overlays (ex: sala de espera)
-        self._esconder_overlay_sala_espera()
-
-        # 5. Log final
-        print("✅ Transição para modo offline concluída com sucesso.")
+        self._iniciar_partida("offline", fator=fator, bioma=bioma)
 
     def on_offline_setup_canceled(self):
         """Chamado ao cancelar. Restaura o overlay de boas-vindas."""
@@ -1939,7 +4619,7 @@ class Camera:
         raio_planeta = fator / (2 * glm.sin(glm.pi() / 5))
 
         # Distância do centro: 4× o raio (3× acima da superfície)
-        self.distance = 4.0 * raio_planeta
+        self.distance = 3.0 * raio_planeta
 
         # Ângulos iniciais
         self.theta = 0.0
@@ -2000,8 +4680,8 @@ class MeuOpenGLWidget(QOpenGLWidget):
         gl.glDepthFunc(gl.GL_LESS)  # Z-test padrão
         gl.glEnable(gl.GL_BLEND)  # Blend para transparência
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
-        gl.glEnable(gl.GL_CULL_FACE)  # Otimização: cull back-face
-        gl.glCullFace(gl.GL_BACK)
+        #gl.glEnable(gl.GL_CULL_FACE)  # Otimização: cull back-face
+        #gl.glCullFace(gl.GL_BACK)
 
         print("🎮 Inicializando OpenGL...")
 
@@ -2668,7 +5348,7 @@ class GerenciadorIconesEsquerda(QWidget):
         super().__init__(parent)
         self.caminho_recursos = caminho_recursos
         self.icones = {}  # Dicionário para armazenar referências aos ícones {identificador: IconeInterativo}
-        self.TAMANHO_ICONE = (48, 48)
+        self.TAMANHO_ICONE = (36, 36)
 
         # Layout vertical para os ícones
         layout = QVBoxLayout(self)
@@ -3944,5 +6624,5 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 18 arquivos incluídos.
+✅ Total de 37 arquivos incluídos.
 ================================================================================

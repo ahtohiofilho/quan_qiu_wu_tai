@@ -328,12 +328,23 @@ class MeuOpenGLWidget(QOpenGLWidget):
     def carregar_mundo(self, mundo):
         self.mundo = mundo
         self.modulo_jogo = True
-        self.vaos.clear()  # Limpar qualquer geometria antiga
+        self.vaos.clear()
         self.vbos.clear()
-        self._geometria_necessaria = True  # ✅ Flag: geometria será criada em paintGL
-        self.update()  # Força paintGL
+        self._geometria_necessaria = True
+        self.camera.resetar(mundo.planeta.fator)
+        self.update()
         print(f"🌍 Mundo carregado. Geometria será criada em paintGL.")
 
     def ativar_modo_jogo(self):
         self.modulo_jogo = True
         self.update()
+
+    def limpar_mundo(self):
+        """Limpa o mundo atual, remove geometria OpenGL e para de renderizar o planeta."""
+        self.mundo = None
+        self.modulo_jogo = False  # Desativa modo jogo
+        self.vaos.clear()
+        self.vbos.clear()
+        self._geometria_necessaria = True  # Força recriação futura, se necessário
+        self.update()  # Atualiza a tela (chama paintGL)
+        print("🧹 Mundo limpo: geometria OpenGL removida e modo jogo desativado.")
