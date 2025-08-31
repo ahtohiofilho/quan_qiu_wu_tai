@@ -130,7 +130,7 @@ class GerenciadorIconesEsquerda(QWidget):
         super().__init__(parent)
         self.caminho_recursos = caminho_recursos
         self.icones = {}  # Dicionário para armazenar referências aos ícones {identificador: IconeInterativo}
-        self.TAMANHO_ICONE = (48, 48)
+        self.TAMANHO_ICONE = (36, 36)
 
         # Layout vertical para os ícones
         layout = QVBoxLayout(self)

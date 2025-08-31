@@ -1,169 +1,19 @@
 # client/main.py
 
 import sys
-import os  # Para verificar o arquivo de sessão
-import OpenGL.GL as gl
-import ctypes
-
+import os
 import requests
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
     QSizePolicy, QFrame, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox
 )
-from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QSurfaceFormat, QFont
 from client.components.icon_manager import GerenciadorIconesEsquerda
 from client.dialogs.auth_dialog import DialogoAutenticacao
 from client.widgets.waiting_room_overlay import WaitingRoomOverlay
-from client.widgets.game_placeholder import GamePlaceholder
-
-# --- Componente OpenGL ---
-class MeuOpenGLWidget(QOpenGLWidget):
-    """
-    Widget responsável pela renderização OpenGL Moderna.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.shader_program = None
-        self.VAO = None
-        self.VBO = None
-        # Permitir que o widget receba foco de teclado
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-    def initializeGL(self):
-        """
-        Inicializado uma vez quando o contexto OpenGL é criado.
-        Aqui compilamos shaders, criamos VAOs, VBOs etc.
-        """
-        print("Inicializando contexto OpenGL...")
-        # Define a cor de fundo padrão como PRETO PURO
-        gl.glClearColor(0.0, 0.0, 0.0, 1.0)
-
-        # --- Compilar Shaders para o Triângulo ---
-        vertex_shader_source = """
-        #version 330 core
-        layout (location = 0) in vec3 aPos;
-        layout (location = 1) in vec3 aColor;
-        out vec3 ourColor;
-        void main()
-        {
-            gl_Position = vec4(aPos, 1.0);
-            ourColor = aColor;
-        }
-        """
-
-        fragment_shader_source = """
-        #version 330 core
-        in vec3 ourColor;
-        out vec4 FragColor;
-        void main()
-        {
-            FragColor = vec4(ourColor, 1.0f);
-        }
-        """
-
-        # --- Compilação e Linkagem de Shaders ---
-        try:
-            # Compilação do Vertex Shader
-            vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER)
-            gl.glShaderSource(vertex_shader, vertex_shader_source)
-            gl.glCompileShader(vertex_shader)
-            # Verificação de erros no vertex shader
-            success = gl.glGetShaderiv(vertex_shader, gl.GL_COMPILE_STATUS)
-            if not success:
-                info_log = gl.glGetShaderInfoLog(vertex_shader)
-                raise RuntimeError(f"Erro ao compilar Vertex Shader:\n{info_log.decode('utf-8')}")
-
-            # Compilação do Fragment Shader
-            fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
-            gl.glShaderSource(fragment_shader, fragment_shader_source)
-            gl.glCompileShader(fragment_shader)
-            # Verificação de erros no fragment shader
-            success = gl.glGetShaderiv(fragment_shader, gl.GL_COMPILE_STATUS)
-            if not success:
-                info_log = gl.glGetShaderInfoLog(fragment_shader)
-                raise RuntimeError(f"Erro ao compilar Fragment Shader:\n{info_log.decode('utf-8')}")
-
-            # Linkagem do Programa Shader
-            self.shader_program = gl.glCreateProgram()
-            gl.glAttachShader(self.shader_program, vertex_shader)
-            gl.glAttachShader(self.shader_program, fragment_shader)
-            gl.glLinkProgram(self.shader_program)
-            # Verificação de erros no link
-            success = gl.glGetProgramiv(self.shader_program, gl.GL_LINK_STATUS)
-            if not success:
-                info_log = gl.glGetProgramInfoLog(self.shader_program)
-                raise RuntimeError(f"Erro ao linkar Programa Shader:\n{info_log.decode('utf-8')}")
-
-            # Deletar os shaders já linkados
-            gl.glDeleteShader(vertex_shader)
-            gl.glDeleteShader(fragment_shader)
-
-        except RuntimeError as e:
-            print(f"❌ Erro na inicialização dos shaders: {e}")
-            self.shader_program = None  # Indica falha
-            return  # Aborta a inicialização da geometria se shaders falharem
-
-        # --- Configurar VAO e VBO para um triângulo ---
-        try:
-            # Dados do triângulo (Posição XYZ + Cor RGB)
-            triangle_data = [
-                0.0, 0.5, 0.0, 1.0, 0.0, 0.0,  # Vértice 0: Topo (Vermelho)
-                -0.5, -0.5, 0.0, 0.0, 1.0, 0.0,  # Vértice 1: Esquerda (Verde)
-                0.5, -0.5, 0.0, 0.0, 0.0, 1.0  # Vértice 2: Direita (Azul)
-            ]
-            triangle_data = (gl.GLfloat * len(triangle_data))(*triangle_data)
-
-            # Gerar e vincular VAO
-            self.VAO = gl.glGenVertexArrays(1)
-            gl.glBindVertexArray(self.VAO)
-
-            # Gerar e vincular VBO
-            self.VBO = gl.glGenBuffers(1)
-            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.VBO)
-            gl.glBufferData(gl.GL_ARRAY_BUFFER, ctypes.sizeof(triangle_data), triangle_data, gl.GL_STATIC_DRAW)
-
-            # Definir atributos de vértice
-            stride = 6 * ctypes.sizeof(gl.GLfloat)
-            # Posição (location = 0)
-            gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(0))
-            gl.glEnableVertexAttribArray(0)
-            # Cor (location = 1)
-            gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, stride,
-                                     ctypes.c_void_p(3 * ctypes.sizeof(gl.GLfloat)))
-            gl.glEnableVertexAttribArray(1)
-
-            # Desvincular VAO/VBO
-            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
-            gl.glBindVertexArray(0)
-
-            print("✅ Shaders compilados e geometria do triângulo configurada.")
-
-        except Exception as e:
-            print(f"❌ Erro ao configurar geometria do triângulo: {e}")
-            # Limpar shaders em caso de falha na geometria
-            if self.shader_program:
-                gl.glDeleteProgram(self.shader_program)
-                self.shader_program = None
-            self.VAO = None
-            self.VBO = None
-
-    def resizeGL(self, w, h):
-        """
-        Chamado sempre que o widget é redimensionado.
-        """
-        print(f"Redimensionando OpenGL para {w}x{h}")
-        gl.glViewport(0, 0, w, h)
-        # TODO: Atualizar matriz de projeção se necessário
-
-    def paintGL(self):
-        """
-        Chamado sempre que a cena OpenGL precisa ser redesenhada.
-        """
-        # Limpa o buffer com a cor definida em initializeGL
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+from client.widgets.offline_setup_overlay import OfflineSetupOverlay
+from client.rendering.opengl_widget import MeuOpenGLWidget
 
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
@@ -178,32 +28,31 @@ class JanelaPrincipal(QMainWindow):
         super().__init__()
         self.setWindowTitle("Global Arena - Cliente PyQt6")
 
-        # --- Verificar estado de login ANTES de criar os ícones ---
+        # === Estado e Controle ===
         self.usuario_logado = self._verificar_login()
+        self.loop_ativo = True
+        self.overlay_sala = None
+        self.polling_timer = None
+        self.game_placeholder = None
 
-        # --- Controle do loop de renderização ---
-        self.loop_ativo = True  # Flag para evitar update() em widget deletado
-
-        # --- Obter dimensões da tela para cálculos ---
+        # === Dimensões da Tela ===
         screen_geometry = self.screen().availableGeometry()
         screen_width = screen_geometry.width()
         screen_height = screen_geometry.height()
-
-        # --- Calcular dimensões das barras ---
         bar_height = int(screen_height * 0.05)
         sidebar_width = max(320, int(screen_width * 0.15))
 
         print(f"🎮 Janela PyQt6 criada. Tela: {screen_width}x{screen_height}. "
               f"Barras H: {bar_height}px, Barras V: {sidebar_width}px")
 
-        # --- Configuração do Layout Central ---
+        # === Layout Principal da Janela ===
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_window_layout = QVBoxLayout(central_widget)
         main_window_layout.setContentsMargins(0, 0, 0, 0)
         main_window_layout.setSpacing(0)
 
-        # --- Barra Superior ---
+        # === Barra Superior ===
         self.barra_superior = self._criar_barra(bar_height, is_horizontal=True, object_name="BarraSuperior")
         layout_barra_superior = QHBoxLayout(self.barra_superior)
         layout_barra_superior.setContentsMargins(10, 5, 10, 5)
@@ -211,19 +60,30 @@ class JanelaPrincipal(QMainWindow):
         layout_barra_superior.addWidget(label_status)
         layout_barra_superior.addStretch()
 
-        # --- Conteúdo Principal ---
+        # === Conteúdo Principal (Barra Esquerda + Área Central + Barra Direita) ===
         conteudo_principal_widget = QWidget()
         conteudo_principal_layout = QHBoxLayout(conteudo_principal_widget)
         conteudo_principal_layout.setContentsMargins(0, 0, 0, 0)
         conteudo_principal_layout.setSpacing(0)
 
-        # --- Barra Esquerda com Ícones Interativos ---
+        # --- Barra Esquerda (com transparência) ---
         self.barra_esquerda = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraEsquerda")
+        self.barra_esquerda.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.barra_esquerda.setStyleSheet("""
+            #BarraEsquerda {
+                background-color: rgba(25, 25, 35, 180);
+                border-right: 1px solid #3498db;
+            }
+            QLabel {
+                color: #ecf0f1;
+            }
+        """)
+        layout_esquerda = QVBoxLayout(self.barra_esquerda)
+        layout_esquerda.setContentsMargins(0, 0, 0, 0)
 
-        # Criar gerenciador de ícones
         self.gerenciador_icones = GerenciadorIconesEsquerda(caminho_recursos="client/resources")
+        self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
 
-        # --- Atualizar ícone e nome de login com base no estado ---
         if self.usuario_logado:
             try:
                 with open("session.txt", "r") as f:
@@ -237,44 +97,37 @@ class JanelaPrincipal(QMainWindow):
         else:
             self.gerenciador_icones.atualizar_estado_login(False)
 
-        # Conectar sinal de clique
-        self.gerenciador_icones.icone_clicado.connect(self._ao_clicar_icone_lateral)
-
-        # Layout da barra esquerda
-        layout_esquerda = QVBoxLayout(self.barra_esquerda)
-        layout_esquerda.setContentsMargins(0, 0, 0, 0)
         layout_esquerda.addWidget(self.gerenciador_icones)
 
-        # --- Área Central (OpenGL + Barra Direita) ---
+        # --- Área Central (OpenGL + Overlay) ---
         area_central_widget = QWidget()
         area_central_layout = QHBoxLayout(area_central_widget)
         area_central_layout.setContentsMargins(0, 0, 0, 0)
         area_central_layout.setSpacing(0)
 
-        # --- Criar o Container para OpenGL e Overlay do Título ---
+        # Container OpenGL
         self.opengl_container = QWidget()
         container_layout = QVBoxLayout(self.opengl_container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
 
-        # --- Widget OpenGL ---
+        # Widget OpenGL
         self.opengl_widget = MeuOpenGLWidget()
         self.opengl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        container_layout.addWidget(self.opengl_widget)
 
-        # --- Criar o Overlay Widget para o Título ---
+        # Overlay de Boas-Vindas (centralizado)
         self.overlay_widget = QWidget(self.opengl_container)
-        self.overlay_widget.setWindowFlags(Qt.WindowType.Widget)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.overlay_widget.setStyleSheet("background: transparent; border: none;")
+        self.overlay_widget.setStyleSheet("background-color: rgba(0, 0, 0, 120); border: none;")
 
-        # --- Layout do Overlay para o Título e Subtítulo ---
         overlay_layout = QVBoxLayout(self.overlay_widget)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
         overlay_layout.setSpacing(10)
         overlay_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: "Welcome to" ---
+        # Labels (mantidos como antes)
         self.label_welcome = QLabel("Welcome to")
         font_welcome = QFont()
         font_welcome.setPointSize(14)
@@ -284,7 +137,6 @@ class JanelaPrincipal(QMainWindow):
         self.label_welcome.setStyleSheet("color: #aaaaaa; background: transparent; border: none;")
         self.label_welcome.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: "Global Arena" ---
         self.label_titulo = QLabel("Global Arena")
         font_titulo = QFont()
         font_titulo.setPointSize(48)
@@ -299,7 +151,6 @@ class JanelaPrincipal(QMainWindow):
         """)
         self.label_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Label: Subtítulo ---
         self.label_subtitulo = QLabel("the only one for non-flat-earthers")
         font_subtitulo = QFont()
         font_subtitulo.setPointSize(16)
@@ -313,48 +164,59 @@ class JanelaPrincipal(QMainWindow):
         """)
         self.label_subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # --- Adicionar ao layout na ordem correta ---
         overlay_layout.addWidget(self.label_welcome)
         overlay_layout.addWidget(self.label_titulo)
         overlay_layout.addWidget(self.label_subtitulo)
 
-        # --- Adicionar Widgets ao Container OpenGL ---
-        container_layout.addWidget(self.opengl_widget)
-
-        # --- Correção robusta do resizeEvent ---
+        # --- Ajuste de Tamanho e Posição do Overlay ---
         def _safe_resize_event(event):
-            # Ajustar overlay de boas-vindas
             self.overlay_widget.setGeometry(self.opengl_container.rect())
             self.overlay_widget.raise_()
-
-            # Ajustar overlay da sala, se existir
             if hasattr(self, 'overlay_sala') and self.overlay_sala:
                 self._ajustar_overlay_sala()
                 self.overlay_sala.raise_()
-
             QWidget.resizeEvent(self.opengl_container, event)
 
         self.opengl_container.resizeEvent = _safe_resize_event
 
-        # --- FORÇAR O OVERLAY A APARECER IMEDIATAMENTE ---
+        # Mostrar overlay imediatamente
         self.overlay_widget.setGeometry(self.opengl_container.rect())
         self.overlay_widget.raise_()
         self.overlay_widget.show()
 
-        # --- Fallback pós-show: Garante posicionamento após renderização inicial ---
         QTimer.singleShot(50, lambda: [
             self.overlay_widget.setGeometry(self.opengl_container.rect()),
             self.overlay_widget.raise_(),
             self.overlay_widget.show()
         ])
 
-        # --- Barra Direita ---
+        # Adicionar OpenGL ao layout central
+        area_central_layout.addWidget(self.opengl_container)
+
+        # --- Barra Direita (com transparência, mesma aparência da esquerda) ---
         self.barra_direita = self._criar_barra(sidebar_width, is_horizontal=False, object_name="BarraDireita")
+        self.barra_direita.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.barra_direita.setStyleSheet("""
+            #BarraDireita {
+                background-color: rgba(25, 25, 35, 180);
+                border-left: 1px solid #3498db;
+            }
+            QLabel {
+                color: #ecf0f1;
+            }
+        """)
+
         layout_direita = QVBoxLayout(self.barra_direita)
         layout_direita.addStretch()
         banner_placeholder = QLabel("Banner\n300x600")
         banner_placeholder.setFixedSize(300, 600)
-        banner_placeholder.setStyleSheet("background-color: #333; color: white; border: 1px solid gray;")
+        banner_placeholder.setStyleSheet("""
+            background-color: rgba(30, 30, 40, 200);
+            color: white;
+            border: 1px solid #555;
+            border-radius: 8px;
+            font-size: 14px;
+        """)
         banner_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout_direita.addWidget(banner_placeholder, alignment=Qt.AlignmentFlag.AlignCenter)
         layout_direita.addStretch()
@@ -363,35 +225,40 @@ class JanelaPrincipal(QMainWindow):
         area_central_layout.addWidget(self.opengl_container)
         area_central_layout.addWidget(self.barra_direita)
 
-        # --- Adicionar widgets ao conteúdo principal ---
+        # --- Adicionar barra esquerda e área central ao conteúdo principal ---
         conteudo_principal_layout.addWidget(self.barra_esquerda)
         conteudo_principal_layout.addWidget(area_central_widget)
 
-        # --- Barra Inferior ---
+        # === Barra Inferior ===
         self.barra_inferior = self._criar_barra(bar_height, is_horizontal=True, object_name="BarraInferior")
+        self.barra_inferior.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.barra_inferior.setStyleSheet("""
+            #BarraInferior {
+                background-color: rgba(25, 25, 35, 180);
+                border-top: 1px solid #3498db;
+            }
+            QLabel {
+                color: #ecf0f1;
+            }
+        """)
         layout_barra_inferior = QHBoxLayout(self.barra_inferior)
         layout_barra_inferior.addWidget(QLabel("Barra Inferior"))
 
-        # --- Adicionar todos os componentes ao layout da janela ---
+        # === Montagem Final da Janela ===
         main_window_layout.addWidget(self.barra_superior)
         main_window_layout.addWidget(conteudo_principal_widget)
         main_window_layout.addWidget(self.barra_inferior)
 
-        # --- Timer para o Loop Principal ---
+        # === Loop de Atualização (60 FPS) ===
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.atualizar_logica)
-        self.timer.start(16)  # ~60 FPS
+        self.timer.start(16)
 
-        # --- Mostrar e aplicar fullscreen ---
+        # === Exibição ===
         self.show()
         self.setWindowState(Qt.WindowState.WindowFullScreen)
 
-        # --- Inicializar variáveis de estado ---
-        self.overlay_sala = None
-        self.polling_timer = None
-        self.game_placeholder = None
-
-        # --- Debug final ---
+        # === Debug Final ===
         print("✅ Janela exibida. Overlay forçado a aparecer.")
         print("🔍 Geometria do container:", self.opengl_container.geometry())
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
@@ -442,6 +309,10 @@ class JanelaPrincipal(QMainWindow):
 
         # Botões
         btn_offline = QPushButton("🎮 Offline")
+        btn_offline.clicked.connect(lambda: [
+            modo_dialog.accept(),
+            self._mostrar_overlay_offline()
+        ])
         btn_online = QPushButton("🌐 Online")
 
         layout.addWidget(btn_offline)
@@ -686,9 +557,9 @@ class JanelaPrincipal(QMainWindow):
 
     def _ir_para_tela_pre_jogo(self, offline: bool):
         if offline:
-            QMessageBox.information(self, "Pre-Game Lobby", "Offline Mode Coming Soon.")
+            self._mostrar_overlay_offline()  # ✅ Mostra o overlay de configuração
         else:
-            self._entrar_na_fila()  # ✅ Redireciona para o matchmaking
+            self._entrar_na_fila()
 
     def on_icone_sair(self):
         """Action triggered by the 'Exit' icon: cleans server state and closes the app."""
@@ -1122,45 +993,33 @@ class JanelaPrincipal(QMainWindow):
         print("🟢 [DEBUG] _mostrar_overlay_sala_espera: Execução concluída")
 
     def _esconder_overlay_sala_espera(self):
-        """Remove o overlay da sala de espera, para timers e limpa a referência."""
+        """Esconde o overlay da sala de espera e restaura o estado inicial."""
         print("🔵 [DEBUG] _esconder_overlay_sala_espera: Início da execução")
 
-        # 1. Parar o polling_timer (evita atualizações desnecessárias)
+        # 1. Parar polling
         if hasattr(self, 'polling_timer') and self.polling_timer:
-            print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando polling_timer")
             self.polling_timer.stop()
-            self.polling_timer.deleteLater()
             self.polling_timer = None
-            print("✅ [DEBUG] _esconder_overlay_sala_espera: polling_timer parado e removido")
-        else:
             print("🟡 [DEBUG] _esconder_overlay_sala_espera: polling_timer já parado ou inexistente")
 
-        # 2. Verificar se o overlay existe
-        if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
-            print(f"🎨 [DEBUG] _esconder_overlay_sala_espera: Removendo overlay_sala de {self.overlay_sala.parent()}")
-
-            # 3. Parar o timer interno do overlay (se existir)
-            if hasattr(self.overlay_sala, 'timer') and self.overlay_sala.timer:
-                print("⏸️ [DEBUG] _esconder_overlay_sala_espera: Parando timer do overlay_sala")
-                self.overlay_sala.timer.stop()
-
-            # 4. Remover do container e deletar
-            # Importante: setParent(None) antes de deleteLater()
+        # 2. Remover overlay da sala
+        if hasattr(self, 'overlay_sala') and self.overlay_sala:
             self.overlay_sala.setParent(None)
             self.overlay_sala.deleteLater()
-            self.overlay_sala = None  # 👈 Muito importante!
+            self.overlay_sala = None
+            print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_sala já removido ou inexistente")
 
-            print("🟢 [DEBUG] _esconder_overlay_sala_espera: overlay_sala removido e referência limpa")
+        # 3. ✅ Mostrar overlay_widget (boas-vindas) só se NÃO estiver em modo jogo
+        if hasattr(self, 'opengl_widget') and not self.opengl_widget.modulo_jogo:
+            if hasattr(self, 'overlay_widget') and self.overlay_widget:
+                self.overlay_widget.show()
+                self.overlay_widget.raise_()
+                print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_widget (boas-vindas) restaurado")
         else:
-            print("🟡 [DEBUG] _esconder_overlay_sala_espera: overlay_sala já removido ou inexistente")
-
-        # 5. Garantir que o overlay de boas-vindas volte a aparecer (se necessário)
-        if hasattr(self, 'overlay_widget') and not self.overlay_widget.isVisible():
-            self.overlay_widget.show()
-            self.overlay_widget.raise_()
-            print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_widget (boas-vindas) restaurado")
-        else:
-            print("🟢 [DEBUG] _esconder_overlay_sala_espera: overlay_widget já visível ou inexistente")
+            # ✅ Se estiver em modo jogo, NÃO mostre o overlay de boas-vindas
+            if hasattr(self, 'overlay_widget') and self.overlay_widget:
+                self.overlay_widget.hide()
+                print("🎨 [DEBUG] _esconder_overlay_sala_espera: overlay_widget escondido (modo jogo ativo)")
 
         print("🟢 [DEBUG] _esconder_overlay_sala_espera: Execução concluída")
 
@@ -1313,23 +1172,148 @@ class JanelaPrincipal(QMainWindow):
             print(f"❌ Erro ao ler session.txt: {e}")
             return ""
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        # Ajustar overlay de boas-vindas
+        if hasattr(self, 'overlay_widget') and self.overlay_widget:
+            self.overlay_widget.setGeometry(self.opengl_container.rect())
+            self.overlay_widget.raise_()
+
+        # Ajustar overlay da sala de espera (se existir)
+        if hasattr(self, 'overlay_sala') and self.overlay_sala:
+            self._ajustar_overlay_sala()  # Este método já existe
+            self.overlay_sala.raise_()
+
+        # Ajustar barra direita (se for flutuante)
+        if hasattr(self, 'barra_direita') and self.barra_direita.parent() == self.opengl_container:
+            w = self.barra_direita.width()
+            h = self.opengl_container.height()
+            self.barra_direita.setGeometry(self.opengl_container.width() - w, 0, w, h)
+            self.barra_direita.raise_()
+
+        # Forçar atualização do OpenGL
+        if hasattr(self, 'opengl_widget'):
+            self.opengl_widget.update()
+
+    def _mostrar_overlay_offline(self):
+        """Mostra o overlay de configuração offline sobre o OpenGL."""
+        print("🔵 [DEBUG] _mostrar_overlay_offline: Exibindo overlay de configuração offline")
+
+        # ✅ Esconder overlay de boas-vindas ANTES de mostrar o offline
+        if hasattr(self, 'overlay_widget') and self.overlay_widget:
+            self.overlay_widget.hide()
+
+        # Criar ou reutilizar overlay
+        if not hasattr(self, 'offline_overlay'):
+            self.offline_overlay = OfflineSetupOverlay(parent=self.opengl_container)
+            self.offline_overlay.setParent(self.opengl_container)
+
+            # 🔥 CONECTAR O SINAL AQUI, logo após a criação
+            self.offline_overlay.on_start.connect(self.on_offline_setup_confirmed)
+            print("✅ [DEBUG] Sinal 'on_start' conectado a 'on_offline_setup_confirmed'")
+        else:
+            self.offline_overlay.show()
+
+        self.offline_overlay.raise_()
+        self.offline_overlay.show()
+
+    def on_offline_setup_confirmed(self, fator, bioma):
+        """
+        Chamado quando o usuário confirma as configurações offline.
+        Cria um mundo local e ativa a renderização 3D.
+        """
+        print(f"🟢 [DEBUG] on_offline_setup_confirmed: Iniciando partida offline | fator={fator}, bioma='{bioma}'")
+
+        # 1. Esconder overlay atual
+        if hasattr(self, 'offline_overlay') and self.offline_overlay:
+            self.offline_overlay.hide()
+            print("🔵 [DEBUG] Overlay de configuração offline escondido.")
+
+        # 2. Criar mundo
+        try:
+            from shared.world import Mundo
+            self.mundo = Mundo(fator=fator, bioma=bioma)
+            print(
+                f"✅ Mundo criado com sucesso: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}"
+            )
+        except Exception as e:
+            print(f"❌ Falha ao criar mundo: {e}")
+            import traceback
+            traceback.print_exc()
+            # Opcional: mostrar mensagem ao usuário
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Erro", f"Não foi possível criar o mundo: {e}")
+            return
+
+        # 3. Enviar para OpenGLWidget
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            try:
+                # ✅ Resetar câmera com base no fator para garantir que o planeta caiba na tela
+                if hasattr(self.opengl_widget, 'camera'):
+                    self.opengl_widget.camera.resetar(fator)
+                    print(f"🔧 [DEBUG] Câmera reposicionada para fator={fator}")
+
+                # ✅ Carregar mundo e ativar modo 3D
+                self.opengl_widget.carregar_mundo(self.mundo)
+                self.opengl_widget.ativar_modo_jogo()
+                self.opengl_widget.update()  # Força renderização
+                print("🟢 [DEBUG] Mundo enviado para MeuOpenGLWidget. Modo 3D ativado.")
+            except Exception as e:
+                print(f"❌ Erro ao carregar mundo no OpenGLWidget: {e}")
+        else:
+            print("⚠️ [WARN] opengl_widget não encontrado ou não inicializado.")
+            return
+
+        # 4. Esconder outros overlays (ex: sala de espera)
+        self._esconder_overlay_sala_espera()
+
+        # 5. Log final
+        print("✅ Transição para modo offline concluída com sucesso.")
+
+    def on_offline_setup_canceled(self):
+        """Chamado ao cancelar. Restaura o overlay de boas-vindas."""
+        print("🟡 [DEBUG] Modo offline cancelado. Restaurando overlay de boas-vindas.")
+
+        # Esconder o overlay offline
+        if hasattr(self, 'offline_overlay') and self.offline_overlay:
+            self.offline_overlay.hide()
+
+        # Mostrar e trazer para frente o overlay de boas-vindas
+        if hasattr(self, 'overlay_widget') and self.overlay_widget:
+            self.overlay_widget.show()
+            self.overlay_widget.raise_()
+
+        # Opcional: forçar update do OpenGL (para garantir render)
+        if hasattr(self, 'opengl_widget'):
+            self.opengl_widget.update()
+
 
 # --- Ponto de Entrada da Aplicação ---
 def main():
     print("🎮 Inicializando cliente gráfico com PyQt6...")
-    app = QApplication(sys.argv)
 
     # Configurar o formato OpenGL padrão globalmente
     fmt = QSurfaceFormat()
     fmt.setVersion(3, 3)
     fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
-    # fmt.setDepthBufferSize(24)
-    # fmt.setSamples(4)
+    fmt.setDepthBufferSize(24)  # ✅ Ativado: necessário para 3D
+    fmt.setStencilBufferSize(8)  # ✅ Adicionado: útil para efeitos futuros
+    fmt.setSamples(4)  # ✅ Ativado: 4x MSAA para suavização
+    fmt.setSwapBehavior(QSurfaceFormat.SwapBehavior.DoubleBuffer)
+    fmt.setAlphaBufferSize(8)
+    fmt.setRedBufferSize(8)
+    fmt.setGreenBufferSize(8)
+    fmt.setBlueBufferSize(8)
+
     QSurfaceFormat.setDefaultFormat(fmt)
+
+    app = QApplication(sys.argv)
 
     try:
         janela = JanelaPrincipal()
-        print("✅ Janela principal exibida em fullscreen.")
+        janela.show()  # Garante que a janela será exibida
+        print("✅ Janela principal exibida.")
         sys.exit(app.exec())
     except Exception as e:
         print(f"❌ Erro ao criar/iniciar a janela: {e}")

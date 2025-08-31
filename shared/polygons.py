@@ -468,3 +468,69 @@ def dicionario_poligonos(fator):
         return coord_vert
     
     return dic_pol()
+
+if __name__ == "__main__":
+    import numpy as np
+    import json
+    import os
+
+    # === CONFIGURE AQUI OS PARÂMETROS ===
+    fator_teste = 4
+    # ====================================
+
+    print(f"\n🔧 Gerando dicionário de polígonos com fator={fator_teste}...")
+    poligonos = dicionario_poligonos(fator_teste)
+
+    print(f"✅ Gerado: {len(poligonos)} polígonos.")
+    print("\n🔍 Exibindo as primeiras 5 coordenadas e seus vértices:")
+    for i, (coords, vertices) in enumerate(poligonos.items()):
+        if i >= 5:
+            break
+        print(f"   {coords}: {vertices.shape}")
+        print(f"     {np.round(vertices, 3).tolist()}")
+
+    # === SALVAR EM ARQUIVO ===
+
+    # 1. Salvar como .npy (seguro, eficiente)
+    npy_file = f"poligonos_fator{fator_teste}.npy"
+    np.save(npy_file, poligonos)
+    print(f"\n💾 Dados salvos em: {os.path.abspath(npy_file)}")
+
+    # 2. Preparar dicionário para JSON (chaves como string, valores convertidos)
+    def convert_for_json(obj):
+        if isinstance(obj, np.ndarray):
+            return np.round(obj, 6).tolist()
+        if isinstance(obj, tuple):
+            return f"{obj[0]},{obj[1]}"  # (x,y) → "x,y"
+        if isinstance(obj, (np.integer, int)):
+            return int(obj)
+        if isinstance(obj, (np.floating, float)):
+            return round(float(obj), 6)
+        raise TypeError(f"Tipo {type(obj)} não serializável")
+
+    print("📝 Convertendo dados para JSON...")
+    try:
+        # Conversão explícita
+        poligonos_json = {}
+        for k, v in poligonos.items():
+            key = convert_for_json(k)
+            value = convert_for_json(v)
+            poligonos_json[key] = value
+
+        # Testar serialização (sem salvar)
+        json_string = json.dumps(poligonos_json, ensure_ascii=False, indent=2)
+        print(f"✅ Conversão para JSON bem-sucedida! Tamanho: {len(json_string)} caracteres")
+
+        # Salvar
+        json_file = f"poligonos_fator{fator_teste}.json"
+        with open(json_file, 'w', encoding='utf-8') as f:
+            f.write(json_string)
+        print(f"📄 Dados salvos em: {os.path.abspath(json_file)}")
+
+    except Exception as e:
+        print(f"❌ Falha ao gerar JSON: {e}")
+        print("💡 Dica: Verifique se todos os dados são serializáveis.")
+        raise
+
+    print("\n🎉 Geração e salvamento concluídos!")
+    print("💡 Dica: Abra o arquivo .json em qualquer editor de texto para inspeção.")

@@ -6,7 +6,10 @@ class Planeta:
     def __init__(self, fator, bioma):
         self.fator = fator
         self.bioma_inicial = bioma
-        self.geografia, self.capitais_players = definir_geografia(dicionario_poligonos(fator), fator, bioma) # capitais = [(int, int), ...]
+        self.poligonos = dicionario_poligonos(fator)
+        print(f"🌍 [DEBUG] Planeta criado: {len(self.poligonos)} polígonos")
+        print(f"   Exemplo: chave={list(self.poligonos.keys())[0]}, shape={list(self.poligonos.values())[0].shape}")
+        self.geografia, self.capitais_players = definir_geografia(self.poligonos, fator, bioma) # capitais = [(int, int), ...]
         random.shuffle(self.capitais_players)
         self.numero_de_jogadores = len(self.capitais_players)
         biomas_invalidos = {"Ice", "Sea", "Ocean", "Coast", bioma}
