@@ -310,6 +310,13 @@ class JanelaPrincipal(QMainWindow):
 
         print("✅ Transição para partida concluída.")
 
+    def mudar_modo_mapa(self, modo: str):
+        """Recebe o comando do overlay e repassa ao OpenGLWidget"""
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            self.opengl_widget.definir_modo_renderizacao(modo)
+        else:
+            print("⚠️ OpenGLWidget não disponível para mudar modo de mapa")
+
     def _configurar_modo_offline(self, fator, bioma):
         try:
             from shared.world import Mundo

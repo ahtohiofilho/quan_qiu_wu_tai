@@ -15,7 +15,8 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # --- Estado de Renderização ---
         self.modulo_jogo = False  # Ativa renderização do planeta
         self.mundo = None  # Referência ao mundo atual
-        self._geometria_necessaria = False  # ✅ Flag: geometria precisa ser criada em paintGL
+        self._geometria_necessaria = False  # Flag: geometria precisa ser criada em paintGL
+        self.modo_renderizacao = "fisico"  # Modo de visualização do mapa ('fisico' ou 'politico')
 
         # --- Recursos OpenGL ---
         self.shader_program = None  # Programa de shader ativo
@@ -34,6 +35,13 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
         # --- Debug e Estado Interno ---
         # Pronto para expansão (ex: modo de depuração, FPS, etc)
+
+    def definir_modo_renderizacao(self, modo: str):
+        """Muda o modo de renderização: 'fisico' ou 'politico'"""
+        if modo not in ["fisico", "politico"]:
+            return
+        self.modo_renderizacao = modo
+        self.update()  # força redesenhar
 
     def initializeGL(self):
         """Configuração inicial do contexto OpenGL.
@@ -93,7 +101,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
                 self._criar_geometria_planeta()
             else:
                 # Caso contrário, usamos um triângulo temporário para teste
-                self._criar_geometria_triângulo()
+                self._criar_geometria_triangulo()
 
             print("✅ OpenGL inicializado com sucesso: shaders e geometria prontos.")
         except Exception as e:
@@ -102,7 +110,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
             self.VAO = None
             self.VBO = None
 
-    def _criar_geometria_triângulo(self):
+    def _criar_geometria_triangulo(self):
         vertices = np.array([
             -0.5, -0.5, 0.0,  1.0, 0.0, 0.0,
              0.5, -0.5, 0.0,  0.0, 1.0, 0.0,
@@ -134,6 +142,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
     def paintGL(self):
         """Renderiza o frame atual.
         - Modo jogo: renderiza o planeta com MVP e câmera orbital
+            → Escolhe entre modo físico ou político com base em self.modo_renderizacao
         - Modo espera: apenas limpa o fundo (overlay está por cima)
         """
         # === 1. Limpar buffers ===
@@ -144,7 +153,8 @@ class MeuOpenGLWidget(QOpenGLWidget):
             try:
                 # Depuração: estado atual
                 print(f"🔧 [DEBUG] paintGL: modulo_jogo={self.modulo_jogo}, mundo={self.mundo is not None}, "
-                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}")
+                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}, "
+                      f"modo_renderizacao='{self.modo_renderizacao}'")
 
                 # Atualizar aspecto da câmera
                 if self.width() > 0 and self.height() > 0:
@@ -167,8 +177,14 @@ class MeuOpenGLWidget(QOpenGLWidget):
                     self._geometria_necessaria = False
                     print(f"✅ Geometria criada: {len(self.vaos)} polígonos")
 
-                # Renderizar o planeta
-                self._renderizar_planeta()
+                # --- 🔁 DECISÃO DE ROTEAMENTO DE RENDERIZAÇÃO ---
+                if self.modo_renderizacao == "fisico":
+                    self._renderizar_planeta_fisico()
+                elif self.modo_renderizacao == "politico":
+                    self._renderizar_planeta_politico()
+                else:
+                    # Modo desconhecido: renderiza como físico (fallback seguro)
+                    self._renderizar_planeta_fisico()
 
                 # Desativar shader
                 self.shader_program.limpar()
@@ -185,7 +201,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
             gl.glClearColor(0.1, 0.1, 0.1, 1.0)
             gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-    def _renderizar_planeta(self):
+    def _renderizar_planeta_fisico(self):
         """Renderiza o planeta usando os polígonos e biomas."""
         print("🎨 [DEBUG] Iniciando _renderizar_planeta")
 
@@ -244,29 +260,42 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self.shader_program.limpar()
         print("🎨 [DEBUG] Renderização do planeta concluída")
 
-    def _desenhar_triângulo_temporario(self):
-        """Desenha um triângulo de teste no modo espera, usando o shader corretamente."""
-        if not self.shader_program or not self.shader_program.program_id:
+    def _renderizar_planeta_politico(self):
+        """Renderiza o planeta no modo político: cada província com a cor da civilização que a controla."""
+        if not self.mundo or not self.mundo.planeta or not self.shader_program:
+            print("❌ [DEBUG] _renderizar_planeta_politico: Dados insuficientes (mundo, planeta ou shader)")
             return
 
-        # Matriz MVP para visualização
-        aspect = self.width() / self.height() if self.height() > 0 else 1.0
-        mvp = glm.perspective(glm.radians(45), aspect, 0.1, 100.0) * \
-              glm.lookAt(glm.vec3(0, 0, 3), glm.vec3(0, 0, 0), glm.vec3(0, 1, 0)) * \
-              glm.mat4(1.0)
+        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
 
-        # ✅ Usa a abstração da classe ShaderProgram
-        self.shader_program.usar()
-        self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
+        try:
+            # Iterar por todas as civilizações
+            for civ in self.mundo.civs:
+                # Definir cor do shader com base na cor da civilização
+                cor = civ.cor  # Espera-se que seja uma tupla (r, g, b) em [0, 1]
+                r, g, b = cor[0] / 255.0, cor[1] / 255.0, cor[2] / 255.0
 
-        # Desenha
-        if self.VAO:
-            gl.glBindVertexArray(self.VAO)
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
+                # Enviar cor uniforme para o shader
+                self.shader_program.set_uniform_vec3("cor_uniforme", (r, g, b))
+
+                # Renderizar cada província da civilização
+                for provincia in civ.provincias:
+                    coords = provincia.coordenadas
+                    if coords in self.vaos:
+                        vao = self.vaos[coords]
+                        gl.glBindVertexArray(vao)
+                        num_vertices = len(self.mundo.planeta.poligonos[coords])
+                        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    else:
+                        print(f"🟡 [DEBUG] VAO não encontrado para província {coords}")
+
+            # Desativar VAO
             gl.glBindVertexArray(0)
 
-        # ✅ Desativa o shader de forma segura
-        self.shader_program.limpar()
+            print("✅ [DEBUG] Renderização política concluída")
+
+        except Exception as e:
+            print(f"❌ Erro ao renderizar modo político: {e}")
 
     def _criar_geometria_planeta(self):
         """Gera VAOs/VBOs para todos os polígonos do planeta."""

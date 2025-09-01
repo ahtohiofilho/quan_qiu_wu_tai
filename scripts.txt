@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-31 21:28:16
+Gerado em: 2025-08-31 23:30:33
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -2940,7 +2940,7 @@ class JanelaPrincipal(QMainWindow):
         print(f"🟢 [DEBUG] _iniciar_partida: Iniciando partida {modo}...")
 
         # ✅ MARCAR QUE A PARTIDA ESTÁ INICIADA
-        self.partida_iniciada = True
+        #self.partida_iniciada = True
 
         # ✅ Parar render loop antes de mudar UI
         self.parar_loop()
@@ -2971,6 +2971,13 @@ class JanelaPrincipal(QMainWindow):
         self.on_partida_iniciada()
 
         print("✅ Transição para partida concluída.")
+
+    def mudar_modo_mapa(self, modo: str):
+        """Recebe o comando do overlay e repassa ao OpenGLWidget"""
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            self.opengl_widget.definir_modo_renderizacao(modo)
+        else:
+            print("⚠️ OpenGLWidget não disponível para mudar modo de mapa")
 
     def _configurar_modo_offline(self, fator, bioma):
         try:
@@ -4099,7 +4106,10 @@ class JanelaPrincipal(QMainWindow):
         self.offline_overlay.show()
 
     def on_offline_setup_confirmed(self, fator, bioma):
+        """Configuração confirmada. Inicia a partida offline."""
         print(f"🟢 [DEBUG] on_offline_setup_confirmed: Iniciando partida offline | fator={fator}, bioma='{bioma}'")
+        # ❌ REMOVA: self.on_partida_iniciada()
+        # ✅ APENAS inicia a partida
         self._iniciar_partida("offline", fator=fator, bioma=bioma)
 
     def on_offline_setup_canceled(self):
@@ -4162,51 +4172,113 @@ if __name__ == "__main__":
 ================================================================================
 📄 client/widgets/match_overlay.py
 ================================================================================
-#client/widgets/match_overlay.py
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+# client/widgets/match_overlay.py
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox
 from PyQt6.QtCore import Qt
 
 
 class OverlayPartida(QWidget):
     """Overlay flutuante dentro da barra esquerda, exibido apenas durante a partida.
-    Centralizado verticalmente, com fundo translúcido e largura quase total da barra."""
+    Contém controles de ação e um seletor para alternar entre modo de mapa físico e político.
+    Centralizado verticalmente, com fundo translúcido e largura ajustada à barra.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent_widget = parent  # Referência ao widget pai (barra_esquerda)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("""
-            background-color: rgba(40, 40, 55, 200);
+            background-color: rgba(40, 40, 55, 220);
             border-radius: 12px;
             border: 1px solid #3498db;
+            color: #ecf0f1;
+            font-family: Arial, sans-serif;
         """)
         self.setup_ui()
+        self.update_position()  # Posiciona inicialmente
 
     def setup_ui(self):
+        """Configura a interface com título e seletor de modo de mapa."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 15, 10, 15)
-        layout.setSpacing(8)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(12)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Exemplo: título
-        titulo = QLabel("Ações")
-        titulo.setStyleSheet("color: #ecf0f1; font-weight: bold; font-size: 14px;")
+        # Título do overlay
+        titulo = QLabel("🎮 Ações da Partida")
+        titulo.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(titulo)
 
-        # Aqui você adiciona os botões/ícones de ação da partida
-        # Ex: botão de construir, atacar, etc.
-        # Exemplo:
-        # btn_construir = QPushButton("🏗️ Construir")
+        # Separador visual
+        linha = QWidget()
+        linha.setFixedHeight(1)
+        linha.setStyleSheet("background-color: #3498db; margin: 5px 0;")
+        layout.addWidget(linha)
+
+        # Seletor de modo de mapa
+        self.combo_mapa = QComboBox()
+        self.combo_mapa.addItems(["🌍 Mapa Físico", "🏛️ Mapa Político"])
+        self.combo_mapa.setCurrentIndex(0)  # Padrão: Físico
+        self.combo_mapa.setStyleSheet("""
+            QComboBox {
+                background-color: #2c3e50;
+                border: 1px solid #3498db;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 14px;
+                color: #ffffff;
+            }
+            QComboBox:hover {
+                border-color: #1abc9c;
+            }
+            QComboBox::drop-down {
+                border: 0;
+                width: 30px;
+            }
+            QComboBox::down-arrow {
+                image: url(client/resources/icons/down-arrow.png);
+                width: 12px;
+                height: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2c3e50;
+                color: #ffffff;
+                selection-background-color: #3498db;
+                border: 1px solid #3498db;
+                padding: 5px;
+            }
+        """)
+        self.combo_mapa.currentIndexChanged.connect(self.on_mudanca_modo)
+        layout.addWidget(self.combo_mapa)
+
+        # Espaço para futuros botões (ex: construir, diplomacia, etc.)
+        # Exemplo comentado:
+        # btn_construir = QPushButton("🏗️ Construir Cidade")
+        # btn_construir.setStyleSheet("padding: 8px; font-size: 13px;")
         # layout.addWidget(btn_construir)
 
+        self.setLayout(layout)
+
+    def on_mudanca_modo(self):
+        """Emite o comando de mudança de modo para a janela principal."""
+        modo = "fisico" if self.combo_mapa.currentIndex() == 0 else "politico"
+        print(f"🔄 OverlayPartida: Modo de mapa alterado para '{modo}'")
+
+        # Envia o sinal para a JanelaPrincipal via método direto
+        if hasattr(self.parent_widget, 'mudar_modo_mapa'):
+            self.parent_widget.mudar_modo_mapa(modo)
+        else:
+            print("⚠️ OverlayPartida: Não foi possível encontrar 'mudar_modo_mapa' no pai.")
+
     def update_position(self):
-        """Atualiza posição e tamanho com base no pai (barra_esquerda)"""
+        """Atualiza posição e tamanho com base no widget pai (barra_esquerda)."""
         if not self.parent():
             return
 
         parent_rect = self.parent().rect()
         width = int(parent_rect.width() * 0.85)  # 85% da largura da barra
-        height = min(200, parent_rect.height() * 0.5)  # Máx 50% da altura
+        height = min(200, int(parent_rect.height() * 0.45))  # Máx 45% da altura
 
         x = (parent_rect.width() - width) // 2
         y = (parent_rect.height() - height) // 2
@@ -4748,7 +4820,8 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # --- Estado de Renderização ---
         self.modulo_jogo = False  # Ativa renderização do planeta
         self.mundo = None  # Referência ao mundo atual
-        self._geometria_necessaria = False  # ✅ Flag: geometria precisa ser criada em paintGL
+        self._geometria_necessaria = False  # Flag: geometria precisa ser criada em paintGL
+        self.modo_renderizacao = "fisico"  # Modo de visualização do mapa ('fisico' ou 'politico')
 
         # --- Recursos OpenGL ---
         self.shader_program = None  # Programa de shader ativo
@@ -4767,6 +4840,13 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
         # --- Debug e Estado Interno ---
         # Pronto para expansão (ex: modo de depuração, FPS, etc)
+
+    def definir_modo_renderizacao(self, modo: str):
+        """Muda o modo de renderização: 'fisico' ou 'politico'"""
+        if modo not in ["fisico", "politico"]:
+            return
+        self.modo_renderizacao = modo
+        self.update()  # força redesenhar
 
     def initializeGL(self):
         """Configuração inicial do contexto OpenGL.
@@ -4826,7 +4906,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
                 self._criar_geometria_planeta()
             else:
                 # Caso contrário, usamos um triângulo temporário para teste
-                self._criar_geometria_triângulo()
+                self._criar_geometria_triangulo()
 
             print("✅ OpenGL inicializado com sucesso: shaders e geometria prontos.")
         except Exception as e:
@@ -4835,7 +4915,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
             self.VAO = None
             self.VBO = None
 
-    def _criar_geometria_triângulo(self):
+    def _criar_geometria_triangulo(self):
         vertices = np.array([
             -0.5, -0.5, 0.0,  1.0, 0.0, 0.0,
              0.5, -0.5, 0.0,  0.0, 1.0, 0.0,
@@ -4867,6 +4947,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
     def paintGL(self):
         """Renderiza o frame atual.
         - Modo jogo: renderiza o planeta com MVP e câmera orbital
+            → Escolhe entre modo físico ou político com base em self.modo_renderizacao
         - Modo espera: apenas limpa o fundo (overlay está por cima)
         """
         # === 1. Limpar buffers ===
@@ -4877,7 +4958,8 @@ class MeuOpenGLWidget(QOpenGLWidget):
             try:
                 # Depuração: estado atual
                 print(f"🔧 [DEBUG] paintGL: modulo_jogo={self.modulo_jogo}, mundo={self.mundo is not None}, "
-                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}")
+                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}, "
+                      f"modo_renderizacao='{self.modo_renderizacao}'")
 
                 # Atualizar aspecto da câmera
                 if self.width() > 0 and self.height() > 0:
@@ -4900,8 +4982,14 @@ class MeuOpenGLWidget(QOpenGLWidget):
                     self._geometria_necessaria = False
                     print(f"✅ Geometria criada: {len(self.vaos)} polígonos")
 
-                # Renderizar o planeta
-                self._renderizar_planeta()
+                # --- 🔁 DECISÃO DE ROTEAMENTO DE RENDERIZAÇÃO ---
+                if self.modo_renderizacao == "fisico":
+                    self._renderizar_planeta_fisico()
+                elif self.modo_renderizacao == "politico":
+                    self._renderizar_planeta_politico()
+                else:
+                    # Modo desconhecido: renderiza como físico (fallback seguro)
+                    self._renderizar_planeta_fisico()
 
                 # Desativar shader
                 self.shader_program.limpar()
@@ -4918,7 +5006,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
             gl.glClearColor(0.1, 0.1, 0.1, 1.0)
             gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-    def _renderizar_planeta(self):
+    def _renderizar_planeta_fisico(self):
         """Renderiza o planeta usando os polígonos e biomas."""
         print("🎨 [DEBUG] Iniciando _renderizar_planeta")
 
@@ -4977,29 +5065,42 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self.shader_program.limpar()
         print("🎨 [DEBUG] Renderização do planeta concluída")
 
-    def _desenhar_triângulo_temporario(self):
-        """Desenha um triângulo de teste no modo espera, usando o shader corretamente."""
-        if not self.shader_program or not self.shader_program.program_id:
+    def _renderizar_planeta_politico(self):
+        """Renderiza o planeta no modo político: cada província com a cor da civilização que a controla."""
+        if not self.mundo or not self.mundo.planeta or not self.shader_program:
+            print("❌ [DEBUG] _renderizar_planeta_politico: Dados insuficientes (mundo, planeta ou shader)")
             return
 
-        # Matriz MVP para visualização
-        aspect = self.width() / self.height() if self.height() > 0 else 1.0
-        mvp = glm.perspective(glm.radians(45), aspect, 0.1, 100.0) * \
-              glm.lookAt(glm.vec3(0, 0, 3), glm.vec3(0, 0, 0), glm.vec3(0, 1, 0)) * \
-              glm.mat4(1.0)
+        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
 
-        # ✅ Usa a abstração da classe ShaderProgram
-        self.shader_program.usar()
-        self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
+        try:
+            # Iterar por todas as civilizações
+            for civ in self.mundo.civs:
+                # Definir cor do shader com base na cor da civilização
+                cor = civ.cor  # Espera-se que seja uma tupla (r, g, b) em [0, 1]
+                r, g, b = cor[0] / 255.0, cor[1] / 255.0, cor[2] / 255.0
 
-        # Desenha
-        if self.VAO:
-            gl.glBindVertexArray(self.VAO)
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
+                # Enviar cor uniforme para o shader
+                self.shader_program.set_uniform_vec3("cor_uniforme", (r, g, b))
+
+                # Renderizar cada província da civilização
+                for provincia in civ.provincias:
+                    coords = provincia.coordenadas
+                    if coords in self.vaos:
+                        vao = self.vaos[coords]
+                        gl.glBindVertexArray(vao)
+                        num_vertices = len(self.mundo.planeta.poligonos[coords])
+                        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    else:
+                        print(f"🟡 [DEBUG] VAO não encontrado para província {coords}")
+
+            # Desativar VAO
             gl.glBindVertexArray(0)
 
-        # ✅ Desativa o shader de forma segura
-        self.shader_program.limpar()
+            print("✅ [DEBUG] Renderização política concluída")
+
+        except Exception as e:
+            print(f"❌ Erro ao renderizar modo político: {e}")
 
     def _criar_geometria_planeta(self):
         """Gera VAOs/VBOs para todos os polígonos do planeta."""
