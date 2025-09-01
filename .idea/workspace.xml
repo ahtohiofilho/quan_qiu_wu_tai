@@ -5,9 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/client/widgets/match_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/rendering/opengl_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/opengl_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/widgets/game_placeholder.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -48,22 +49,22 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.consolidar.executor": "Run",
-    "Python.interface.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.polygons.executor": "Run",
-    "Python.registrar_players.executor": "Run",
-    "Python.sei_la_o_que.executor": "Run",
-    "Python.window.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.consolidar.executor&quot;: &quot;Run&quot;,
+    &quot;Python.interface.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.polygons.executor&quot;: &quot;Run&quot;,
+    &quot;Python.registrar_players.executor&quot;: &quot;Run&quot;,
+    &quot;Python.sei_la_o_que.executor&quot;: &quot;Run&quot;,
+    &quot;Python.window.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/client/rendering" />

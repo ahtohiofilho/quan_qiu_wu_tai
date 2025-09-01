@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-31 00:50:55
+Gerado em: 2025-08-31 21:28:16
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -51,7 +51,7 @@ Conteúdo dos scripts principais reunidos.
 │   ├── states
 │   │   └── waiting_room.py
 │   ├── widgets
-│   │   ├── game_placeholder.py
+│   │   ├── match_overlay.py
 │   │   ├── offline_setup_overlay.py
 │   │   └── waiting_room_overlay.py
 │   └── main.py
@@ -2676,6 +2676,7 @@ from client.dialogs.auth_dialog import DialogoAutenticacao
 from client.widgets.waiting_room_overlay import WaitingRoomOverlay
 from client.widgets.offline_setup_overlay import OfflineSetupOverlay
 from client.rendering.opengl_widget import MeuOpenGLWidget
+from client.widgets.match_overlay import OverlayPartida
 
 # --- Componente Janela Principal ---
 class JanelaPrincipal(QMainWindow):
@@ -2928,6 +2929,9 @@ class JanelaPrincipal(QMainWindow):
 
         self.partida_iniciada = False
 
+        self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
+        self.overlay_partida.hide()  # Começa escondido
+
     def _iniciar_partida(self, modo: str, **kwargs):
         """
         Método centralizado para iniciar qualquer tipo de partida.
@@ -2947,8 +2951,11 @@ class JanelaPrincipal(QMainWindow):
             bioma = kwargs.get("bioma")
             self._configurar_modo_offline(fator, bioma)
         elif modo == "online":
-            jogadores = kwargs.get("jogadores", [])
-            self._configurar_modo_online(jogadores)
+            # ❌ REMOVIDO: self._configurar_modo_online não existe no código
+            # Adicione lógica específica aqui no futuro, se necessário
+            print("🟡 [DEBUG] _iniciar_partida: Modo online selecionado. Lógica será tratada por outros componentes.")
+            # Ex: entrar na fila, iniciar polling, etc.
+            pass  # ← Por enquanto, não faz nada aqui
 
         # ✅ Esconder overlays de espera
         self._esconder_overlay_sala_espera()
@@ -2957,6 +2964,11 @@ class JanelaPrincipal(QMainWindow):
         if hasattr(self, 'opengl_widget') and self.opengl_widget:
             self.opengl_widget.ativar_modo_jogo()
             self.opengl_widget.update()
+
+        # ✅ CHAMADA ESSENCIAL: Executa a limpeza final e mostra overlays de ação
+        # Inclui: parar polling, remover status, mostrar OverlayPartida
+        print("🔵 [DEBUG] _iniciar_partida: Chamando on_partida_iniciada() para finalizar transição")
+        self.on_partida_iniciada()
 
         print("✅ Transição para partida concluída.")
 
@@ -3320,21 +3332,74 @@ class JanelaPrincipal(QMainWindow):
             print(f"⚠️ Falha ao limpar estado ao sair: {e}")
 
     def _limpeza_local(self):
-        """Remove overlays e para timers."""
+        """Remove overlays, para timers, limpa o estado do OpenGL e restaura UI ao voltar ao menu."""
+        print("🧹 [DEBUG] _limpeza_local: Iniciando limpeza completa...")
+
+        # 1. Esconder overlay da sala de espera (se existir)
         try:
             if hasattr(self, 'overlay_sala') and self.overlay_sala is not None:
+                print("🔵 [DEBUG] _limpeza_local: Escondendo overlay da sala de espera")
                 self._esconder_overlay_sala_espera()
+            else:
+                print("🟡 [DEBUG] _limpeza_local: overlay_sala já removido ou inexistente")
         except Exception as e:
-            print(f"⚠️ Falha ao remover overlay local: {e}")
+            print(f"⚠️ Falha ao remover overlay da sala: {e}")
 
+        # 2. Parar e limpar polling_timer
         try:
             if hasattr(self, 'polling_timer') and self.polling_timer:
                 self.polling_timer.stop()
                 self.polling_timer.deleteLater()
                 self.polling_timer = None
-            print("⏸️ Polling de status da sala interrompido.")
+                print("⏸️ Polling de status da sala interrompido.")
+            else:
+                print("🟡 [DEBUG] _limpeza_local: polling_timer já parado ou inexistente")
         except Exception as e:
             print(f"⚠️ Falha ao parar polling: {e}")
+
+        # 3. Limpar o mundo do OpenGLWidget (planeta, VAOs, VBOs)
+        try:
+            if hasattr(self, 'opengl_widget') and self.opengl_widget is not None:
+                print("🧹 [DEBUG] _limpeza_local: Limpando mundo do OpenGLWidget")
+                self.opengl_widget.limpar_mundo()  # Remove geometria, desativa modo jogo
+            else:
+                print("🟡 [DEBUG] _limpeza_local: opengl_widget não encontrado ou já destruído")
+        except Exception as e:
+            print(f"⚠️ Falha ao limpar opengl_widget: {e}")
+
+        # 4. Esconder overlay de ações da partida (se existir)
+        try:
+            if hasattr(self, 'overlay_partida') and self.overlay_partida is not None:
+                self.overlay_partida.hide()
+                # Opcional: se quiser deletar completamente
+                # self.overlay_partida.setParent(None)
+                # self.overlay_partida.deleteLater()
+                print("✅ [DEBUG] _limpeza_local: overlay_partida escondido.")
+            else:
+                print("🟡 [DEBUG] _limpeza_local: overlay_partida já removido ou inexistente")
+        except Exception as e:
+            print(f"⚠️ Falha ao esconder overlay_partida: {e}")
+
+        # 5. Restaurar overlay de boas-vindas (se não estiver em modo jogo)
+        try:
+            if hasattr(self, 'overlay_widget') and self.overlay_widget is not None:
+                # Mostrar apenas se NÃO estamos em uma partida
+                if not (hasattr(self, 'partida_iniciada') and self.partida_iniciada):
+                    self.overlay_widget.show()
+                    self.overlay_widget.raise_()
+                    print("✅ [DEBUG] _limpeza_local: Overlay de boas-vindas restaurado")
+                else:
+                    print("🟡 [DEBUG] _limpeza_local: Partida ainda ativa, não restaura overlay")
+            else:
+                print("🟡 [DEBUG] _limpeza_local: overlay_widget não encontrado")
+        except Exception as e:
+            print(f"⚠️ Falha ao restaurar overlay de boas-vindas: {e}")
+
+        # 6. Resetar estado de partida
+        self.partida_iniciada = False
+        print("✅ [DEBUG] _limpeza_local: Estado de partida resetado (partida_iniciada = False)")
+
+        print("✅ [DEBUG] _limpeza_local: Limpeza concluída com sucesso.")
 
     def _mostrar_dialogo_saida_partida(self, username: str):
         """Mostra diálogo com Cancel, Main Menu, Quit quando em partida."""
@@ -3617,7 +3682,8 @@ class JanelaPrincipal(QMainWindow):
 
     def on_partida_iniciada(self):
         """Chamado quando a partida começa (online ou offline).
-        Realiza limpeza de UI, para polling e marca o estado de partida ativa.
+        Realiza limpeza de UI, para polling, mostra overlay de ações
+        e marca o estado de partida ativa.
         A criação do mundo e ativação do OpenGL devem ser feitas antes.
         """
         print("🔵 [DEBUG] on_partida_iniciada: Início da execução")
@@ -3680,7 +3746,46 @@ class JanelaPrincipal(QMainWindow):
         except Exception as e:
             print(f"⚠️ Falha ao ativar OpenGLWidget: {e}")
 
-        # 5. Finalização
+        # 5. ✅ CRIAR/MOSTRAR OVERLAY DE AÇÕES NA BARRA ESQUERDA
+        try:
+            # ✅ Importação correta com nome em inglês
+            from client.widgets.match_overlay import OverlayPartida
+
+            if not hasattr(self, 'overlay_partida'):
+                # Cria o overlay como filho da barra_esquerda
+                self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
+                self.overlay_partida.hide()  # Inicialmente escondido
+                print("🟢 [DEBUG] OverlayPartida criado e anexado à barra_esquerda.")
+            else:
+                # Se já existe, atualiza posição
+                self.overlay_partida.update_position()
+
+            # Mostrar e trazer para frente
+            self.overlay_partida.show()
+            self.overlay_partida.raise_()
+            print("✅ Overlay de ações de partida exibido e elevado na barra esquerda.")
+
+            # ✅ Conectar resizeEvent para ajuste automático
+            if not hasattr(self.barra_esquerda, '_original_resize'):
+                self.barra_esquerda._original_resize = self.barra_esquerda.resizeEvent
+
+                def _new_resize(event):
+                    self.barra_esquerda._original_resize(event)
+                    if hasattr(self, 'overlay_partida'):
+                        self.overlay_partida.update_position()
+
+                self.barra_esquerda.resizeEvent = _new_resize
+
+        except ImportError as e:
+            print(f"❌ Falha ao importar OverlayPartida: {e}")
+            print(
+                "💡 Verifique se o arquivo 'client/widgets/match_overlay.py' existe e contém a classe 'OverlayPartida'.")
+        except Exception as e:
+            print(f"❌ Falha ao criar ou exibir OverlayPartida: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # 6. Finalização
         print("✅ Transição para partida iniciada com sucesso.")
         print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
@@ -4055,6 +4160,60 @@ if __name__ == "__main__":
     main()
 
 ================================================================================
+📄 client/widgets/match_overlay.py
+================================================================================
+#client/widgets/match_overlay.py
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt6.QtCore import Qt
+
+
+class OverlayPartida(QWidget):
+    """Overlay flutuante dentro da barra esquerda, exibido apenas durante a partida.
+    Centralizado verticalmente, com fundo translúcido e largura quase total da barra."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet("""
+            background-color: rgba(40, 40, 55, 200);
+            border-radius: 12px;
+            border: 1px solid #3498db;
+        """)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 15, 10, 15)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Exemplo: título
+        titulo = QLabel("Ações")
+        titulo.setStyleSheet("color: #ecf0f1; font-weight: bold; font-size: 14px;")
+        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(titulo)
+
+        # Aqui você adiciona os botões/ícones de ação da partida
+        # Ex: botão de construir, atacar, etc.
+        # Exemplo:
+        # btn_construir = QPushButton("🏗️ Construir")
+        # layout.addWidget(btn_construir)
+
+    def update_position(self):
+        """Atualiza posição e tamanho com base no pai (barra_esquerda)"""
+        if not self.parent():
+            return
+
+        parent_rect = self.parent().rect()
+        width = int(parent_rect.width() * 0.85)  # 85% da largura da barra
+        height = min(200, parent_rect.height() * 0.5)  # Máx 50% da altura
+
+        x = (parent_rect.width() - width) // 2
+        y = (parent_rect.height() - height) // 2
+
+        self.setGeometry(x, y, width, height)
+
+================================================================================
 📄 client/widgets/waiting_room_overlay.py
 ================================================================================
 # client/widgets/waiting_room_overlay.py
@@ -4162,65 +4321,6 @@ class WaitingRoomOverlay(QWidget):
         """Conecta o botão Cancelar a uma função."""
         if callable(callback):
             self.btn_cancel.clicked.connect(callback)
-
-================================================================================
-📄 client/widgets/game_placeholder.py
-================================================================================
-# client/widgets/game_placeholder.py
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
-from PyQt6.QtCore import Qt
-
-class GamePlaceholder(QWidget):
-    """Tela temporária que simula o jogo em andamento."""
-    def __init__(self, username: str, parent=None):
-        super().__init__(parent)
-        self.username = username
-        self.setup_ui()
-
-    def setup_ui(self):
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setLayout(layout)
-
-        # Fundo escuro
-        self.setStyleSheet("background-color: #1e1e2e; color: white;")
-
-        # Título
-        titulo = QLabel("🌍 Partida em Andamento")
-        titulo.setStyleSheet("font-size: 28px; font-weight: bold; margin-bottom: 20px;")
-        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Informações
-        info = QLabel(f"Jogador: {self.username}\nModo: Online\nMundo: Global Sphere")
-        info.setStyleSheet("font-size: 18px; margin-bottom: 30px;")
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Botão para sair
-        btn_sair = QPushButton("🚪 Sair da Partida")
-        btn_sair.setStyleSheet("""
-            QPushButton {
-                background-color: #d22d72;
-                color: white;
-                font-size: 16px;
-                padding: 10px;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background-color: #ff3c8e;
-            }
-        """)
-        btn_sair.clicked.connect(self.on_sair)
-
-        layout.addWidget(titulo)
-        layout.addWidget(info)
-        layout.addWidget(btn_sair)
-
-    def on_sair(self):
-        """Chamado quando o jogador clica em 'Sair'."""
-        if hasattr(self.parent(), 'sair_da_partida'):
-            self.parent().sair_da_partida()
-        else:
-            self.hide()
 
 ================================================================================
 📄 client/widgets/offline_setup_overlay.py
@@ -4961,15 +5061,26 @@ class MeuOpenGLWidget(QOpenGLWidget):
     def carregar_mundo(self, mundo):
         self.mundo = mundo
         self.modulo_jogo = True
-        self.vaos.clear()  # Limpar qualquer geometria antiga
+        self.vaos.clear()
         self.vbos.clear()
-        self._geometria_necessaria = True  # ✅ Flag: geometria será criada em paintGL
-        self.update()  # Força paintGL
+        self._geometria_necessaria = True
+        self.camera.resetar(mundo.planeta.fator)
+        self.update()
         print(f"🌍 Mundo carregado. Geometria será criada em paintGL.")
 
     def ativar_modo_jogo(self):
         self.modulo_jogo = True
         self.update()
+
+    def limpar_mundo(self):
+        """Limpa o mundo atual, remove geometria OpenGL e para de renderizar o planeta."""
+        self.mundo = None
+        self.modulo_jogo = False  # Desativa modo jogo
+        self.vaos.clear()
+        self.vbos.clear()
+        self._geometria_necessaria = True  # Força recriação futura, se necessário
+        self.update()  # Atualiza a tela (chama paintGL)
+        print("🧹 Mundo limpo: geometria OpenGL removida e modo jogo desativado.")
 
 ================================================================================
 📄 client/rendering/shader.py
