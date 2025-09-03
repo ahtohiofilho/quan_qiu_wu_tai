@@ -745,10 +745,12 @@ class JanelaPrincipal(QMainWindow):
         try:
             if hasattr(self, 'overlay_partida') and self.overlay_partida is not None:
                 self.overlay_partida.hide()
-                # Opcional: se quiser deletar completamente
-                # self.overlay_partida.setParent(None)
-                # self.overlay_partida.deleteLater()
-                print("✅ [DEBUG] _limpeza_local: overlay_partida escondido.")
+                # ✅ Resetar exibição do overlay
+                if hasattr(self.overlay_partida, 'label_turno'):
+                    self.overlay_partida.label_turno.setText("Turno: 0")
+                if hasattr(self.overlay_partida, 'label_pop'):
+                    self.overlay_partida.label_pop.setText("Pop: 0")
+                print("✅ [DEBUG] _limpeza_local: overlay_partida escondido e resetado.")
             else:
                 print("🟡 [DEBUG] _limpeza_local: overlay_partida já removido ou inexistente")
         except Exception as e:
@@ -771,7 +773,10 @@ class JanelaPrincipal(QMainWindow):
 
         # 6. Resetar estado de partida
         self.partida_iniciada = False
+        self.mundo = None  # ✅ Nova linha
+        self.civ_jogador = None  # ✅ Nova linha
         print("✅ [DEBUG] _limpeza_local: Estado de partida resetado (partida_iniciada = False)")
+        print("✅ [DEBUG] _limpeza_local: Referências ao mundo e jogador local limpas.")
 
         print("✅ [DEBUG] _limpeza_local: Limpeza concluída com sucesso.")
 

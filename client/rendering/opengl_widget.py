@@ -438,14 +438,26 @@ class MeuOpenGLWidget(QOpenGLWidget):
         print(f"✅ Geometria do planeta criada: {len(self.vaos)} polígonos")
 
     def carregar_mundo(self, mundo):
+        """
+        Carrega um novo mundo e prepara o OpenGL para renderizá-lo.
+        Reseta estado visual e força recriação da geometria.
+        """
         self.mundo = mundo
         self.modulo_jogo = True
         self.vaos.clear()
         self.vbos.clear()
         self._geometria_necessaria = True
+
+        # ✅ Resetar câmera com base no fator do novo mundo
         self.camera.resetar(mundo.planeta.fator)
+
+        # ✅ Sincronizar modo de renderização com o mundo
+        self.modo_renderizacao = mundo.modo_renderizacao
+
+        # ✅ Forçar redraw
         self.update()
-        print(f"🌍 Mundo carregado. Geometria será criada em paintGL.")
+
+        print(f"🌍 Mundo carregado. Modo: {self.modo_renderizacao}, Geometria será criada em paintGL.")
 
     def ativar_modo_jogo(self):
         self.modulo_jogo = True

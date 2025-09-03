@@ -38,6 +38,9 @@ class Mundo:
         # ✅ Inicializa o sistema de turnos
         self.turno = Turno()
 
+        # ✅ Estado visual vinculado ao mundo (evita vazamento entre partidas)
+        self.modo_renderizacao = "fisico"  # Pode ser "fisico" ou "politico"
+
     def get_populacao_global(self):
         """
         Retorna a população total do mundo.
