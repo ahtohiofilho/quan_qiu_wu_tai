@@ -21,3 +21,11 @@ python server/app.py
 
 # Iniciar o simulador de players
 python start.py simulador
+
+def produtividade_agricola(unidades):
+    if unidades <= ponto_otimo:
+        return unidades * fator_base
+    else:
+        excesso = unidades - ponto_otimo
+        retorno_extra = excesso * fator_base * penalidade_marginal
+        return (ponto_otimo * fator_base) + retorno_extra

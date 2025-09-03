@@ -460,3 +460,59 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self._geometria_necessaria = True  # Força recriação futura, se necessário
         self.update()  # Atualiza a tela (chama paintGL)
         print("🧹 Mundo limpo: geometria OpenGL removida e modo jogo desativado.")
+
+    def centralizar_em(self, coords):
+        """
+        Reposiciona a câmera para olhar diretamente para um hexágono.
+        - Mantém o centro orbital em (0,0,0)
+        - Usa a mesma distância definida em `resetar()`
+        - Ajusta theta e phi para focar no tile
+        """
+        if not hasattr(self, 'mundo') or not self.mundo:
+            print(f"❌ [centralizar_em] Mundo não carregado. Não é possível centralizar em {coords}")
+            return
+
+        planeta = self.mundo.planeta
+
+        if coords not in planeta.poligonos:
+            print(f"❌ [centralizar_em] Coordenada {coords} não encontrada em poligonos.")
+            return
+
+        vertices = planeta.poligonos[coords]
+        if len(vertices) == 0:
+            print(f"❌ [centralizar_em] Polígono {coords} sem vértices.")
+            return
+
+        # === 1. Calcular centro 3D do hexágono ===
+        centro = [sum(v[i] for v in vertices) / len(vertices) for i in range(3)]
+        cx, cy, cz = float(centro[0]), float(centro[1]), float(centro[2])
+
+        # Normalizar para direção unitária
+        norm = (cx ** 2 + cy ** 2 + cz ** 2) ** 0.5
+        if norm == 0:
+            print("❌ [centralizar_em] Norma zero, impossível calcular direção.")
+            return
+
+        dx, dy, dz = cx / norm, cy / norm, cz / norm
+
+        # === 2. Calcular theta e phi ===
+        import math
+        theta = math.atan2(dz, dx)  # Rotação horizontal
+        phi = math.acos(dy)  # Rotação vertical
+
+        # === 3. Calcular distância igual à do `resetar()` ===
+        fator = self.mundo.planeta.fator
+        raio_planeta = fator / (2 * math.sin(math.pi / 5))  # mesma fórmula de resetar()
+        distance = 3.0 * raio_planeta  # mesma distância
+
+        # === 4. Aplicar na câmera ===
+        camera = self.camera
+        camera.center = glm.vec3(0.0, 0.0, 0.0)  # orbita ainda é no centro do planeta
+        camera.distance = distance
+        camera.theta = theta
+        camera.phi = phi
+        camera.update_position()
+        self.update()
+
+        print(f"📍 Câmera reposicionada para olhar {coords}")
+        print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")

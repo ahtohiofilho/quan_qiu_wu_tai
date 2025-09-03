@@ -5,6 +5,7 @@ from shared.references import Referencias
 from shared.planet import Planeta
 from shared.civilization import Civilizacao
 from shared.province import Provincia
+from shared.turn import Turno  # ✅ Importa a classe Turno
 
 
 class Mundo:
@@ -33,3 +34,21 @@ class Mundo:
         for civ in self.civs:
             provincia = Provincia(civ, civ.ponto_inicial)
             civ.provincias.append(provincia)
+
+        # ✅ Inicializa o sistema de turnos
+        self.turno = Turno()
+
+    def get_populacao_global(self):
+        """
+        Retorna a população total do mundo.
+        :return: (homens, mulheres, total)
+        """
+        homens = sum(p.homens for civ in self.civs for p in civ.provincias)
+        mulheres = sum(p.mulheres for civ in self.civs for p in civ.provincias)
+        total = homens + mulheres
+        return homens, mulheres, total
+
+    def __repr__(self):
+        h, m, t = self.get_populacao_global()
+        return (f"<Mundo(id={self.id_mundo}, turno={self.turno.numero}, "
+                f"Civilizações={len(self.civs)}, População={t} → H={h}, M={m})>")

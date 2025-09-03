@@ -277,34 +277,51 @@ class JanelaPrincipal(QMainWindow):
         """
         print(f"🟢 [DEBUG] _iniciar_partida: Iniciando partida {modo}...")
 
-        # ✅ MARCAR QUE A PARTIDA ESTÁ INICIADA
-        #self.partida_iniciada = True
+        # ✅ Evitar múltiplas chamadas (evita bugs de duplo clique)
+        if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
+            print("🟡 [DEBUG] _iniciar_partida: Partida já iniciada. Ignorando nova chamada.")
+            return
 
-        # ✅ Parar render loop antes de mudar UI
+        # ✅ Parar o loop de renderização antes de alterar a UI
         self.parar_loop()
+        print("⏸️ [DEBUG] Render loop parado.")
 
-        # --- Lógica específica por modo ---
-        if modo == "offline":
-            fator = kwargs.get("fator")
-            bioma = kwargs.get("bioma")
-            self._configurar_modo_offline(fator, bioma)
-        elif modo == "online":
-            # ❌ REMOVIDO: self._configurar_modo_online não existe no código
-            # Adicione lógica específica aqui no futuro, se necessário
-            print("🟡 [DEBUG] _iniciar_partida: Modo online selecionado. Lógica será tratada por outros componentes.")
-            # Ex: entrar na fila, iniciar polling, etc.
-            pass  # ← Por enquanto, não faz nada aqui
+        # --- Configuração específica por modo ---
+        try:
+            if modo == "offline":
+                fator = kwargs.get("fator", 4)
+                bioma = kwargs.get("bioma", "Meadow")
+                print(f"🎮 [DEBUG] Modo offline: fator={fator}, bioma='{bioma}'")
+                self._configurar_modo_offline(fator, bioma)
 
-        # ✅ Esconder overlays de espera
+            elif modo == "online":
+                # Lógica será tratada pelo sistema de fila e polling
+                print("🌐 [DEBUG] Modo online: a lógica será gerenciada pelo MatchmakingService.")
+                # Aqui pode-se adicionar: entrar_na_fila(), iniciar_polling(), etc.
+                pass
+
+            else:
+                print(f"❌ [ERRO] Modo desconhecido: {modo}")
+                return
+
+        except Exception as e:
+            print(f"❌ Erro ao configurar modo '{modo}': {e}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        # ✅ Esconder overlays de espera (sala, boas-vindas, etc.)
         self._esconder_overlay_sala_espera()
 
         # ✅ Ativar modo de jogo no OpenGL
         if hasattr(self, 'opengl_widget') and self.opengl_widget:
             self.opengl_widget.ativar_modo_jogo()
             self.opengl_widget.update()
+            print("🎮 [DEBUG] OpenGLWidget ativado e atualizado.")
+        else:
+            print("❌ [ERRO] opengl_widget não disponível para ativação.")
 
-        # ✅ CHAMADA ESSENCIAL: Executa a limpeza final e mostra overlays de ação
-        # Inclui: parar polling, remover status, mostrar OverlayPartida
+        # ✅ Chamar o método de finalização (limpeza, overlay de ações, etc.)
         print("🔵 [DEBUG] _iniciar_partida: Chamando on_partida_iniciada() para finalizar transição")
         self.on_partida_iniciada()
 
@@ -317,6 +334,25 @@ class JanelaPrincipal(QMainWindow):
             print(
                 f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
             self.opengl_widget.carregar_mundo(self.mundo)
+
+            # --- 🔁 Forçar reset da câmera para enxergar o planeta ---
+            self.opengl_widget.camera.resetar(fator)
+
+            # --- 🔹 DEFINIR CIVILIZAÇÃO DO JOGADOR HUMANO ---
+            civilizacoes_player = [civ for civ in self.mundo.civs if civ.player]
+            if civilizacoes_player:
+                import random
+                civ_jogador = random.choice(civilizacoes_player)
+                civ_jogador.eh_jogador_local = True
+                self.civ_jogador = civ_jogador
+                print(f"🎮 Jogador humano definido: {civ_jogador.nome}")
+
+                # --- 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) ---
+                if civ_jogador.provincias:
+                    provincia_inicial = civ_jogador.provincias[0]
+                    self.opengl_widget.centralizar_em(provincia_inicial.coordenadas)
+                    print(f"📍 Câmera centralizada na província do jogador: {provincia_inicial.coordenadas}")
+
         except Exception as e:
             print(f"❌ Erro ao criar mundo offline: {e}")
 
@@ -1086,22 +1122,21 @@ class JanelaPrincipal(QMainWindow):
 
         # 5. ✅ CRIAR/MOSTRAR OVERLAY DE AÇÕES NA BARRA ESQUERDA
         try:
-            # ✅ Importação correta com nome em inglês
             from client.widgets.match_overlay import OverlayPartida
-
             if not hasattr(self, 'overlay_partida'):
-                # Cria o overlay como filho da barra_esquerda
                 self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
-                self.overlay_partida.hide()  # Inicialmente escondido
+                self.overlay_partida.hide()
                 print("🟢 [DEBUG] OverlayPartida criado e anexado à barra_esquerda.")
             else:
-                # Se já existe, atualiza posição
                 self.overlay_partida.update_position()
 
-            # Mostrar e trazer para frente
             self.overlay_partida.show()
             self.overlay_partida.raise_()
             print("✅ Overlay de ações de partida exibido e elevado na barra esquerda.")
+
+            # 🔗 Conectar o mundo ao overlay
+            self.overlay_partida.conectar_mundo(self.mundo)
+            print("🔗 OverlayPartida conectado ao mundo.")
 
             # ✅ Conectar resizeEvent para ajuste automático
             if not hasattr(self.barra_esquerda, '_original_resize'):

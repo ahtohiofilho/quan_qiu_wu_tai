@@ -49,10 +49,10 @@ def main():
 
         elif args.command == 'interface':
             print("🔧 Abrindo interface de administração do servidor...")
-            from server.core.interface import Interface
+            from server.core.admin_gui import ServerAdminGUI
             from PyQt6.QtWidgets import QApplication
             app = QApplication(sys.argv)
-            window = Interface()
+            window = ServerAdminGUI()
             window.show()
             print("✅ Interface de administração carregada.")
             sys.exit(app.exec())

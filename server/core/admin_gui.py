@@ -1,4 +1,4 @@
-# server/interface.py
+# server/admin_gui.py
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
@@ -12,7 +12,7 @@ from server.integrations.aws_loader import AWSLoader
 from server.core.commander import Comandante
 
 
-class Interface(QMainWindow):
+class ServerAdminGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gerenciador de Servidor - Global Arena")
@@ -270,6 +270,6 @@ class Interface(QMainWindow):
 # Execução da aplicação
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = Interface()
+    window = ServerAdminGUI()
     window.show()
     sys.exit(app.exec())

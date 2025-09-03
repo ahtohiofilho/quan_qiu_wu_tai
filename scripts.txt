@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-02 21:10:23
+Gerado em: 2025-09-03 13:19:29
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -17,8 +17,8 @@ Conteúdo dos scripts principais reunidos.
 │   │   ├── initializer.py
 │   │   └── signals.py
 │   ├── core
+│   │   ├── admin_gui.py
 │   │   ├── commander.py
-│   │   ├── interface.py
 │   │   ├── manager.py
 │   │   ├── registrar_players.py
 │   │   └── simulador_players.py
@@ -67,6 +67,7 @@ Conteúdo dos scripts principais reunidos.
 │   ├── polygons.py
 │   ├── province.py
 │   ├── references.py
+│   ├── turn.py
 │   └── world.py
 
 ================================================================================
@@ -2206,187 +2207,9 @@ for usuario in USUARIOS:
             print(f"❌ Falha ao registrar {usuario['username']}: {data['message']}")
 
 ================================================================================
-📄 server/core/manager.py
+📄 server/core/admin_gui.py
 ================================================================================
-# server/manager.py
-import json
-import time
-from pathlib import Path
-from typing import Optional, Tuple
-
-from server.serialization import Serializador
-from server.integrations.aws_loader import AWSLoader
-from shared.world import Mundo
-
-
-class Gerenciador:
-    """
-    Gerencia operações de mundo: criação, serialização, upload S3 e salvamento de metadados no DynamoDB.
-    Nada é salvo localmente.
-    """
-
-    def __init__(self,
-                 aws_loader: AWSLoader,
-                 save_dir: str = "saves",
-                 dynamodb_table_name: str = "GlobalArena"):  # ✅ Adicione o parâmetro
-        self.aws_loader = aws_loader
-        self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(exist_ok=True)
-        self.dynamodb_table_name = dynamodb_table_name  # ✅ Armazena o nome da tabela
-
-    # server/manager.py
-
-    def upload_mundo(self,
-                     mundo: Mundo,
-                     bucket_name: str = "global-arena-tiles",
-                     s3_prefix: str = "planetas/",
-                     dynamodb_table_name: str = "GlobalArena") -> bool:
-        """
-        Faz upload do mundo: dados pesados para S3, metadados leves para DynamoDB.
-        Agora com rollback se falhar no DynamoDB.
-        """
-        try:
-            pk = f"PLANET#{mundo.id_mundo}"
-            sk = "METADATA"
-            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
-
-            # --- Verificar se já existe no DynamoDB ---
-            dynamodb = self.aws_loader.get_client('dynamodb')
-            response = dynamodb.get_item(
-                TableName=dynamodb_table_name,
-                Key={'PK': {'S': pk}, 'SK': {'S': sk}}
-            )
-            if 'Item' in response:
-                print(f"❌ Mundo com ID {mundo.id_mundo} já existe no DynamoDB.")
-                return False
-
-            # --- Serializar e enviar para S3 ---
-            dados_s3 = Serializador.to_serializable_dict(mundo)
-            dados_json = json.dumps(dados_s3, ensure_ascii=False, indent=2)
-
-            s3 = self.aws_loader.get_client('s3')
-            s3.put_object(
-                Bucket=bucket_name,
-                Key=s3_key,
-                Body=dados_json,
-                ContentType='application/json'
-            )
-            print(f"✅ Upload para S3 concluído: s3://{bucket_name}/{s3_key}")
-
-            # --- Salvar metadados no DynamoDB ---
-            try:
-                bioma_inicial = getattr(mundo.planeta, 'bioma_inicial', 'Desconhecido')
-                vagas = getattr(mundo.planeta, 'numero_de_jogadores', 0)
-
-                dynamodb.put_item(
-                    TableName=dynamodb_table_name,
-                    Item={
-                        'PK': {'S': pk},
-                        'SK': {'S': sk},
-                        'entityType': {'S': 'Planet'},
-                        'fator': {'N': str(mundo.planeta.fator)},
-                        'bioma_inicial': {'S': bioma_inicial},
-                        'vagas': {'N': str(vagas)},
-                        'timestamp': {'N': str(int(time.time()))},
-                        'status': {'S': 'disponivel'}
-                    }
-                )
-                print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")
-                return True
-
-            except Exception as e:
-                print(f"❌ Falha ao salvar no DynamoDB: {e}")
-                print(f"🧹 Removendo arquivo órfão do S3: s3://{bucket_name}/{s3_key}")
-                try:
-                    s3.delete_object(Bucket=bucket_name, Key=s3_key)
-                    print("✅ Arquivo órfão removido com sucesso.")
-                except Exception as del_e:
-                    print(f"⚠️ Falha ao remover arquivo órfão do S3: {del_e}")
-                return False
-
-        except Exception as e:
-            print(f"❌ Erro inesperado durante upload_mundo: {e}")
-            return False
-
-    def criar_e_upload_mundo(
-        self,
-        fator: int,
-        bioma: str,
-        bucket_name: str = "global-arena-tiles",
-        s3_prefix: str = "planetas/"
-    ) -> bool:
-        """
-        Cria um novo mundo com fator e bioma dados, e faz upload direto para S3 + DynamoDB.
-
-        :param fator: Nível de detalhe da grade geográfica (ex: 4)
-        :param bioma: Bioma inicial para escolha de capitais (ex: "Meadow")
-        :param bucket_name: Nome do bucket S3
-        :param s3_prefix: Prefixo (pasta) no bucket
-        :return: True se sucesso, False caso contrário
-        """
-        try:
-            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
-            mundo = Mundo(fator=fator, bioma=bioma)
-            print(f"✅ Mundo criado: {mundo.id_mundo}")
-
-            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
-
-            if sucesso:
-                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
-            else:
-                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
-
-            return sucesso
-
-        except Exception as e:
-            print(f"❌ Erro ao criar e upload mundo: {e}")
-            return False
-
-    def criar_e_upload_mundo_com_retorno(
-            self,
-            fator: int,
-            bioma: str,
-            bucket_name: str = "global-arena-tiles",
-            s3_prefix: str = "planetas/",
-            dynamodb_table_name: str = "GlobalArena"
-    ) -> Tuple[bool, Optional[Mundo]]:
-        """
-        Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
-        e retorna sucesso e a instância do mundo.
-        """
-        try:
-            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
-            mundo = Mundo(fator=fator, bioma=bioma)
-            print(f"✅ Mundo criado: {mundo.id_mundo}")
-
-            sucesso = self.upload_mundo(
-                mundo,
-                bucket_name=bucket_name,
-                s3_prefix=s3_prefix,
-                dynamodb_table_name=dynamodb_table_name
-            )
-
-            if sucesso:
-                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
-            else:
-                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
-
-            return sucesso, mundo
-
-        except Exception as e:
-            print(f"❌ Erro ao criar e upload mundo: {e}")
-            import traceback
-            traceback.print_exc()
-            return False, None
-
-    def criar_mundo(self, fator: int, bioma: str) -> Mundo:
-        """Cria e retorna um novo mundo."""
-        return Mundo(fator=fator, bioma=bioma)
-
-================================================================================
-📄 server/core/interface.py
-================================================================================
-# server/interface.py
+# server/admin_gui.py
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
@@ -2400,7 +2223,7 @@ from server.integrations.aws_loader import AWSLoader
 from server.core.commander import Comandante
 
 
-class Interface(QMainWindow):
+class ServerAdminGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gerenciador de Servidor - Global Arena")
@@ -2658,9 +2481,187 @@ class Interface(QMainWindow):
 # Execução da aplicação
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = Interface()
+    window = ServerAdminGUI()
     window.show()
     sys.exit(app.exec())
+
+================================================================================
+📄 server/core/manager.py
+================================================================================
+# server/manager.py
+import json
+import time
+from pathlib import Path
+from typing import Optional, Tuple
+
+from server.serialization import Serializador
+from server.integrations.aws_loader import AWSLoader
+from shared.world import Mundo
+
+
+class Gerenciador:
+    """
+    Gerencia operações de mundo: criação, serialização, upload S3 e salvamento de metadados no DynamoDB.
+    Nada é salvo localmente.
+    """
+
+    def __init__(self,
+                 aws_loader: AWSLoader,
+                 save_dir: str = "saves",
+                 dynamodb_table_name: str = "GlobalArena"):  # ✅ Adicione o parâmetro
+        self.aws_loader = aws_loader
+        self.save_dir = Path(save_dir)
+        self.save_dir.mkdir(exist_ok=True)
+        self.dynamodb_table_name = dynamodb_table_name  # ✅ Armazena o nome da tabela
+
+    # server/manager.py
+
+    def upload_mundo(self,
+                     mundo: Mundo,
+                     bucket_name: str = "global-arena-tiles",
+                     s3_prefix: str = "planetas/",
+                     dynamodb_table_name: str = "GlobalArena") -> bool:
+        """
+        Faz upload do mundo: dados pesados para S3, metadados leves para DynamoDB.
+        Agora com rollback se falhar no DynamoDB.
+        """
+        try:
+            pk = f"PLANET#{mundo.id_mundo}"
+            sk = "METADATA"
+            s3_key = f"{s3_prefix}{mundo.id_mundo}.json"
+
+            # --- Verificar se já existe no DynamoDB ---
+            dynamodb = self.aws_loader.get_client('dynamodb')
+            response = dynamodb.get_item(
+                TableName=dynamodb_table_name,
+                Key={'PK': {'S': pk}, 'SK': {'S': sk}}
+            )
+            if 'Item' in response:
+                print(f"❌ Mundo com ID {mundo.id_mundo} já existe no DynamoDB.")
+                return False
+
+            # --- Serializar e enviar para S3 ---
+            dados_s3 = Serializador.to_serializable_dict(mundo)
+            dados_json = json.dumps(dados_s3, ensure_ascii=False, indent=2)
+
+            s3 = self.aws_loader.get_client('s3')
+            s3.put_object(
+                Bucket=bucket_name,
+                Key=s3_key,
+                Body=dados_json,
+                ContentType='application/json'
+            )
+            print(f"✅ Upload para S3 concluído: s3://{bucket_name}/{s3_key}")
+
+            # --- Salvar metadados no DynamoDB ---
+            try:
+                bioma_inicial = getattr(mundo.planeta, 'bioma_inicial', 'Desconhecido')
+                vagas = getattr(mundo.planeta, 'numero_de_jogadores', 0)
+
+                dynamodb.put_item(
+                    TableName=dynamodb_table_name,
+                    Item={
+                        'PK': {'S': pk},
+                        'SK': {'S': sk},
+                        'entityType': {'S': 'Planet'},
+                        'fator': {'N': str(mundo.planeta.fator)},
+                        'bioma_inicial': {'S': bioma_inicial},
+                        'vagas': {'N': str(vagas)},
+                        'timestamp': {'N': str(int(time.time()))},
+                        'status': {'S': 'disponivel'}
+                    }
+                )
+                print(f"✅ Metadados do mundo {mundo.id_mundo} salvos no DynamoDB.")
+                return True
+
+            except Exception as e:
+                print(f"❌ Falha ao salvar no DynamoDB: {e}")
+                print(f"🧹 Removendo arquivo órfão do S3: s3://{bucket_name}/{s3_key}")
+                try:
+                    s3.delete_object(Bucket=bucket_name, Key=s3_key)
+                    print("✅ Arquivo órfão removido com sucesso.")
+                except Exception as del_e:
+                    print(f"⚠️ Falha ao remover arquivo órfão do S3: {del_e}")
+                return False
+
+        except Exception as e:
+            print(f"❌ Erro inesperado durante upload_mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo(
+        self,
+        fator: int,
+        bioma: str,
+        bucket_name: str = "global-arena-tiles",
+        s3_prefix: str = "planetas/"
+    ) -> bool:
+        """
+        Cria um novo mundo com fator e bioma dados, e faz upload direto para S3 + DynamoDB.
+
+        :param fator: Nível de detalhe da grade geográfica (ex: 4)
+        :param bioma: Bioma inicial para escolha de capitais (ex: "Meadow")
+        :param bucket_name: Nome do bucket S3
+        :param s3_prefix: Prefixo (pasta) no bucket
+        :return: True se sucesso, False caso contrário
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(mundo, bucket_name=bucket_name, s3_prefix=s3_prefix)
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            return False
+
+    def criar_e_upload_mundo_com_retorno(
+            self,
+            fator: int,
+            bioma: str,
+            bucket_name: str = "global-arena-tiles",
+            s3_prefix: str = "planetas/",
+            dynamodb_table_name: str = "GlobalArena"
+    ) -> Tuple[bool, Optional[Mundo]]:
+        """
+        Cria um novo mundo com fator e bioma dados, faz upload para S3 + DynamoDB,
+        e retorna sucesso e a instância do mundo.
+        """
+        try:
+            print(f"🌍 Criando mundo com fator={fator}, bioma='{bioma}'...")
+            mundo = Mundo(fator=fator, bioma=bioma)
+            print(f"✅ Mundo criado: {mundo.id_mundo}")
+
+            sucesso = self.upload_mundo(
+                mundo,
+                bucket_name=bucket_name,
+                s3_prefix=s3_prefix,
+                dynamodb_table_name=dynamodb_table_name
+            )
+
+            if sucesso:
+                print(f"🎉 Mundo {mundo.id_mundo} enviado com sucesso para a nuvem!")
+            else:
+                print(f"❌ Falha no upload do mundo {mundo.id_mundo}")
+
+            return sucesso, mundo
+
+        except Exception as e:
+            print(f"❌ Erro ao criar e upload mundo: {e}")
+            import traceback
+            traceback.print_exc()
+            return False, None
+
+    def criar_mundo(self, fator: int, bioma: str) -> Mundo:
+        """Cria e retorna um novo mundo."""
+        return Mundo(fator=fator, bioma=bioma)
 
 ================================================================================
 📄 client/main.py
@@ -2944,34 +2945,51 @@ class JanelaPrincipal(QMainWindow):
         """
         print(f"🟢 [DEBUG] _iniciar_partida: Iniciando partida {modo}...")
 
-        # ✅ MARCAR QUE A PARTIDA ESTÁ INICIADA
-        #self.partida_iniciada = True
+        # ✅ Evitar múltiplas chamadas (evita bugs de duplo clique)
+        if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
+            print("🟡 [DEBUG] _iniciar_partida: Partida já iniciada. Ignorando nova chamada.")
+            return
 
-        # ✅ Parar render loop antes de mudar UI
+        # ✅ Parar o loop de renderização antes de alterar a UI
         self.parar_loop()
+        print("⏸️ [DEBUG] Render loop parado.")
 
-        # --- Lógica específica por modo ---
-        if modo == "offline":
-            fator = kwargs.get("fator")
-            bioma = kwargs.get("bioma")
-            self._configurar_modo_offline(fator, bioma)
-        elif modo == "online":
-            # ❌ REMOVIDO: self._configurar_modo_online não existe no código
-            # Adicione lógica específica aqui no futuro, se necessário
-            print("🟡 [DEBUG] _iniciar_partida: Modo online selecionado. Lógica será tratada por outros componentes.")
-            # Ex: entrar na fila, iniciar polling, etc.
-            pass  # ← Por enquanto, não faz nada aqui
+        # --- Configuração específica por modo ---
+        try:
+            if modo == "offline":
+                fator = kwargs.get("fator", 4)
+                bioma = kwargs.get("bioma", "Meadow")
+                print(f"🎮 [DEBUG] Modo offline: fator={fator}, bioma='{bioma}'")
+                self._configurar_modo_offline(fator, bioma)
 
-        # ✅ Esconder overlays de espera
+            elif modo == "online":
+                # Lógica será tratada pelo sistema de fila e polling
+                print("🌐 [DEBUG] Modo online: a lógica será gerenciada pelo MatchmakingService.")
+                # Aqui pode-se adicionar: entrar_na_fila(), iniciar_polling(), etc.
+                pass
+
+            else:
+                print(f"❌ [ERRO] Modo desconhecido: {modo}")
+                return
+
+        except Exception as e:
+            print(f"❌ Erro ao configurar modo '{modo}': {e}")
+            import traceback
+            traceback.print_exc()
+            return
+
+        # ✅ Esconder overlays de espera (sala, boas-vindas, etc.)
         self._esconder_overlay_sala_espera()
 
         # ✅ Ativar modo de jogo no OpenGL
         if hasattr(self, 'opengl_widget') and self.opengl_widget:
             self.opengl_widget.ativar_modo_jogo()
             self.opengl_widget.update()
+            print("🎮 [DEBUG] OpenGLWidget ativado e atualizado.")
+        else:
+            print("❌ [ERRO] opengl_widget não disponível para ativação.")
 
-        # ✅ CHAMADA ESSENCIAL: Executa a limpeza final e mostra overlays de ação
-        # Inclui: parar polling, remover status, mostrar OverlayPartida
+        # ✅ Chamar o método de finalização (limpeza, overlay de ações, etc.)
         print("🔵 [DEBUG] _iniciar_partida: Chamando on_partida_iniciada() para finalizar transição")
         self.on_partida_iniciada()
 
@@ -2984,6 +3002,25 @@ class JanelaPrincipal(QMainWindow):
             print(
                 f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
             self.opengl_widget.carregar_mundo(self.mundo)
+
+            # --- 🔁 Forçar reset da câmera para enxergar o planeta ---
+            self.opengl_widget.camera.resetar(fator)
+
+            # --- 🔹 DEFINIR CIVILIZAÇÃO DO JOGADOR HUMANO ---
+            civilizacoes_player = [civ for civ in self.mundo.civs if civ.player]
+            if civilizacoes_player:
+                import random
+                civ_jogador = random.choice(civilizacoes_player)
+                civ_jogador.eh_jogador_local = True
+                self.civ_jogador = civ_jogador
+                print(f"🎮 Jogador humano definido: {civ_jogador.nome}")
+
+                # --- 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) ---
+                if civ_jogador.provincias:
+                    provincia_inicial = civ_jogador.provincias[0]
+                    self.opengl_widget.centralizar_em(provincia_inicial.coordenadas)
+                    print(f"📍 Câmera centralizada na província do jogador: {provincia_inicial.coordenadas}")
+
         except Exception as e:
             print(f"❌ Erro ao criar mundo offline: {e}")
 
@@ -3753,22 +3790,21 @@ class JanelaPrincipal(QMainWindow):
 
         # 5. ✅ CRIAR/MOSTRAR OVERLAY DE AÇÕES NA BARRA ESQUERDA
         try:
-            # ✅ Importação correta com nome em inglês
             from client.widgets.match_overlay import OverlayPartida
-
             if not hasattr(self, 'overlay_partida'):
-                # Cria o overlay como filho da barra_esquerda
                 self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
-                self.overlay_partida.hide()  # Inicialmente escondido
+                self.overlay_partida.hide()
                 print("🟢 [DEBUG] OverlayPartida criado e anexado à barra_esquerda.")
             else:
-                # Se já existe, atualiza posição
                 self.overlay_partida.update_position()
 
-            # Mostrar e trazer para frente
             self.overlay_partida.show()
             self.overlay_partida.raise_()
             print("✅ Overlay de ações de partida exibido e elevado na barra esquerda.")
+
+            # 🔗 Conectar o mundo ao overlay
+            self.overlay_partida.conectar_mundo(self.mundo)
+            print("🔗 OverlayPartida conectado ao mundo.")
 
             # ✅ Conectar resizeEvent para ajuste automático
             if not hasattr(self.barra_esquerda, '_original_resize'):
@@ -4193,14 +4229,20 @@ if __name__ == "__main__":
 📄 client/widgets/match_overlay.py
 ================================================================================
 # client/widgets/match_overlay.py
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
+)
 from PyQt6.QtCore import Qt
+from client.utils.scaling import scale, scale_font  # Importa as funções de escala
 
 
 class OverlayPartida(QWidget):
-    """Overlay flutuante dentro da barra esquerda, exibido apenas durante a partida.
-    Contém controles de ação e um seletor para alternar entre modo de mapa físico e político.
-    Centralizado verticalmente, com fundo translúcido e largura ajustada à barra.
+    """
+    Overlay flutuante dentro da barra esquerda, exibido apenas durante a partida.
+    Contém:
+    - Botão para avançar o turno
+    - Exibição de turno e população
+    - Botão para alternar modo de mapa (físico/político)
     """
 
     def __init__(self, parent=None):
@@ -4213,9 +4255,109 @@ class OverlayPartida(QWidget):
             border: 1px solid #3498db;
             color: #ecf0f1;
             font-family: Arial, sans-serif;
+            font-size: 13px;
         """)
         self.setup_ui()
-        self.update_position()  # Posiciona inicialmente
+        self.update_position()
+
+    def setup_ui(self):
+        """Configura a interface com botões e labels."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(scale(15), scale(15), scale(15), scale(15))
+        layout.setSpacing(scale(12))
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # --- Título ---
+        titulo = QLabel("🕹️ Ações da Partida")
+        titulo.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
+        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(titulo)
+
+        # --- Display de Turno ---
+        self.label_turno = QLabel("Turno: 0")
+        self.label_turno.setStyleSheet("font-size: 14px; color: #cccccc; font-weight: bold;")
+        self.label_turno.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_turno)
+
+        # --- Display de População ---
+        self.label_pop = QLabel("População: 0")
+        self.label_pop.setStyleSheet("font-size: 13px; color: #aaaaaa;")
+        self.label_pop.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_pop)
+
+        # --- Botão de Avançar Turno ---
+        self.botao_turno = QPushButton("⏭️ Avançar Turno")
+        self.botao_turno.setStyleSheet(self._estilo_botao("#4CAF50", "#45a049", "#3d8b40"))
+        self.botao_turno.clicked.connect(self.on_avancar_turno)
+        layout.addWidget(self.botao_turno)
+
+        # --- Botão de Modo de Mapa ---
+        self.btn_modo_mapa = QPushButton("🌍")  # Começa no modo físico
+        self.btn_modo_mapa.setFixedSize(scale(60), scale(40))
+        self.btn_modo_mapa.setToolTip("Alternar modo de mapa (Físico/Político)")
+        self.btn_modo_mapa.setStyleSheet(self._estilo_botao("#2c3e50", "#34495e", "#1abc9c"))
+        self.btn_modo_mapa.clicked.connect(self.alternar_modo_mapa)
+        layout.addWidget(self.btn_modo_mapa, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.setLayout(layout)
+
+    def _estilo_botao(self, bg, hover, pressed):
+        """Retorna string de estilo para botões com cores personalizadas."""
+        return f"""
+            QPushButton {{
+                background-color: {bg};
+                color: white;
+                border: 1px solid #3498db;
+                border-radius: {scale(8)}px;
+                padding: {scale(8)}px;
+                font-size: {scale_font(13)}px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {hover};
+                border-color: #1abc9c;
+            }}
+            QPushButton:pressed {{
+                background-color: {pressed};
+            }}
+        """
+
+    def on_avancar_turno(self):
+        """Avança o turno no mundo atual."""
+        print("🟢 [OverlayPartida] Botão 'Avançar Turno' clicado.")
+
+        # Buscar JanelaPrincipal subindo na hierarquia
+        janela_principal = self._obter_janela_principal()
+        if not janela_principal:
+            print("❌ [OverlayPartida] JanelaPrincipal não encontrada.")
+            return
+
+        if not hasattr(janela_principal, 'mundo') or not janela_principal.mundo:
+            print("⚠️ [OverlayPartida] Mundo não disponível.")
+            return
+
+        mundo = janela_principal.mundo
+
+        # Avança o turno
+        try:
+            mundo.turno.avancar(mundo)
+            self.atualizar_display(mundo)
+            print(f"✅ Turno {mundo.turno.numero} avançado com sucesso.")
+        except Exception as e:
+            print(f"❌ Erro ao avançar turno: {e}")
+
+    def atualizar_display(self, mundo):
+        """Atualiza os labels de turno e população."""
+        self.label_turno.setText(f"Turno: {mundo.turno.numero}")
+        h, m, t = mundo.get_populacao_global()
+        pop_formatada = self._formatar_numero(t)
+        homens_formatado = self._formatar_numero(h)
+        mulheres_formatado = self._formatar_numero(m)
+        self.label_pop.setText(f"Pop: {pop_formatada} (H={homens_formatado}, M={mulheres_formatado})")
+
+    def conectar_mundo(self, mundo):
+        """Conecta o overlay a um mundo e atualiza o display inicial."""
+        self.atualizar_display(mundo)
 
     def alternar_modo_mapa(self):
         """Alterna entre modo físico e político e atualiza o ícone do botão."""
@@ -4224,7 +4366,6 @@ class OverlayPartida(QWidget):
 
         self.btn_modo_mapa.setText(novo_icone)
         self.btn_modo_mapa.setToolTip(f"Modo: {'Político' if novo_modo == 'politico' else 'Físico'}")
-
         print(f"🔄 Modo de mapa alterado para: {novo_modo}")
 
         # === NAVEGAR PELA HIERARQUIA ATÉ A JANELA PRINCIPAL ===
@@ -4235,54 +4376,10 @@ class OverlayPartida(QWidget):
                 return
             widget_atual = widget_atual.parent()
 
-        # Se chegou aqui, não encontrou ninguém com o método
         print("⚠️ OverlayPartida: 'mudar_modo_mapa' não encontrado em nenhum ancestral.")
 
-    def setup_ui(self):
-        """Configura a interface com apenas o botão toggle para alternar entre modo físico e político."""
-        from client.utils.scaling import scale, scale_font  # Importa as funções de escala
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            scale(10), scale(12), scale(10), scale(12)
-        )
-        layout.setSpacing(scale(6))
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Botão de alternância de modo (toggle entre físico e político)
-        self.btn_modo_mapa = QPushButton("🌍")  # Começa no modo físico
-        self.btn_modo_mapa.setFixedSize(scale(60), scale(40))
-        self.btn_modo_mapa.setToolTip("Alternar modo de mapa (Físico/Político)")
-
-        # Estilo com valores escalonados via f-string
-        estilo = f"""
-            QPushButton {{
-                background-color: #2c3e50;
-                border: 1px solid #3498db;
-                border-radius: {scale(8)}px;
-                font-size: {scale_font(18)}px;
-                font-weight: bold;
-                color: white;
-            }}
-            QPushButton:hover {{
-                background-color: #34495e;
-                border-color: #1abc9c;
-            }}
-            QPushButton:pressed {{
-                background-color: #1abc9c;
-                border-color: #16a085;
-            }}
-        """
-        self.btn_modo_mapa.setStyleSheet(estilo)
-        self.btn_modo_mapa.clicked.connect(self.alternar_modo_mapa)
-        layout.addWidget(self.btn_modo_mapa)
-
-        self.setLayout(layout)
-
     def update_position(self):
-        """Atualiza posição e tamanho com base no widget pai (barra_esquerda),
-        respeitando os limites de 320px e 15% da largura da tela.
-        """
+        """Atualiza posição e tamanho com base no widget pai (barra_esquerda)."""
         if not self.parent():
             return
 
@@ -4290,27 +4387,47 @@ class OverlayPartida(QWidget):
         parent_width = parent_rect.width()
         parent_height = parent_rect.height()
 
-        # --- Calcular largura do overlay: 85% da largura da barra ---
+        # Largura: 85% da barra
         width = int(parent_width * 0.85)
 
-        # --- Calcular altura: até 45% da altura da barra, com limite mínimo e máximo (com escala) ---
-        from client.utils.scaling import scale
-
-        max_height = scale(200)  # Altura máxima escalonada (ex: 200 → 300 em 150% DPI)
-        min_height = scale(80)  # Altura mínima (para não sumir)
-        height = min(max_height, int(parent_height * 0.45))
+        # Altura: até 50% da altura da barra, com limites
+        max_height = scale(300)
+        min_height = scale(120)
+        height = min(max_height, int(parent_height * 0.5))
         height = max(min_height, height)
 
-        # --- Centralizar no pai ---
+        # Centralizar verticalmente
         x = (parent_width - width) // 2
         y = (parent_height - height) // 2
 
-        # --- Aplicar geometria ---
         self.setGeometry(x, y, width, height)
-
-        # Opcional: forçar atualização de layout interno, se necessário
         self.setFixedWidth(width)
         self.setFixedHeight(height)
+
+    def _obter_janela_principal(self):
+        """Obtém a instância de JanelaPrincipal subindo na hierarquia."""
+        widget_atual = self.parent_widget
+        while widget_atual is not None:
+            if hasattr(widget_atual, 'mudar_modo_mapa'):  # Assumindo que é único da JanelaPrincipal
+                return widget_atual
+            widget_atual = widget_atual.parent()
+        return None
+
+    def _formatar_numero(self, valor: int) -> str:
+        """
+        Formata número grande com sufixos: K (mil), M (milhão), B (bilhão), T (trilhão)
+        Ex: 1500 → "1.5k", 2300000 → "2.3m"
+        """
+        if valor < 1000:
+            return str(valor)
+        elif valor < 1_000_000:
+            return f"{valor / 1000:.1f}k"
+        elif valor < 1_000_000_000:
+            return f"{valor / 1_000_000:.1f}m"
+        elif valor < 1_000_000_000_000:
+            return f"{valor / 1_000_000_000:.1f}b"
+        else:
+            return f"{valor / 1_000_000_000_000:.1f}t"
 
 ================================================================================
 📄 client/widgets/waiting_room_overlay.py
@@ -4959,26 +5076,10 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
         # === 2. Compilar Shader Program ===
         try:
-            vertex_source = """
-            #version 330 core
-            uniform mat4 MVP;
-            layout (location = 0) in vec3 aPos;
-            layout (location = 1) in vec3 aColor;
-            out vec3 vColor;
-            void main() {
-                vColor = aColor;
-                gl_Position = MVP * vec4(aPos, 1.0);
-            }
-            """
-
-            fragment_source = """
-            #version 330 core
-            in vec3 vColor;
-            out vec4 FragColor;
-            void main() {
-                FragColor = vec4(vColor, 1.0);
-            }
-            """
+            with open("client/shaders/basic.vert", "r") as f:
+                vertex_source = f.read()
+            with open("client/shaders/basic.frag", "r") as f:
+                fragment_source = f.read()
 
             from client.rendering.shader import ShaderProgram
             self.shader_program = ShaderProgram(vertex_source, fragment_source)
@@ -5222,7 +5323,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
         desenhadas = set()  # Polígonos já renderizados
 
         # === 6. Desenhar OCEANOS (prioridade alta) ===
-        cor_oceano = (0.13, 0.13, 0.13)
+        cor_oceano = (0.2, 0.2, 0.2)
         self.shader_program.set_uniform_vec3("cor_uniforme", cor_oceano)
         print("🌊 [DEBUG] Renderizando oceanos, mares e costas...")
 
@@ -5262,7 +5363,7 @@ class MeuOpenGLWidget(QOpenGLWidget):
                 print(f"❌ [DEBUG] Erro ao processar civilização {civ.nome}: {e}")
 
         # === 8. Desenhar TERRA NEUTRA (apenas o que sobrou) ===
-        cor_neutra = (0.7, 0.7, 0.7)
+        cor_neutra = (0.6, 0.6, 0.6)
         self.shader_program.set_uniform_vec3("cor_uniforme", cor_neutra)
         print("🟨 [DEBUG] Renderizando terra neutra...")
 
@@ -5365,6 +5466,49 @@ class MeuOpenGLWidget(QOpenGLWidget):
         self._geometria_necessaria = True  # Força recriação futura, se necessário
         self.update()  # Atualiza a tela (chama paintGL)
         print("🧹 Mundo limpo: geometria OpenGL removida e modo jogo desativado.")
+
+    def centralizar_em(self, coords):
+        """
+        Centraliza a câmera em um hexágono do mapa.
+        Usa a média dos vértices 3D do polígono como centro.
+
+        :param coords: tupla (q, r) da coordenada axial
+        """
+        if not hasattr(self, 'mundo') or not self.mundo:
+            print(f"❌ [centralizar_em] Mundo não carregado. Não é possível centralizar em {coords}")
+            return
+
+        planeta = self.mundo.planeta
+
+        if coords not in planeta.poligonos:
+            print(f"❌ [centralizar_em] Coordenada {coords} não encontrada em poligonos.")
+            return
+
+        # === 1. Obter vértices 3D do polígono ===
+        vertices = planeta.poligonos[coords]  # List[List[float]] → [[x,y,z], ...]
+
+        # === 2. Verificar se há vértices (correção do erro) ===
+        if len(vertices) == 0:  # ✅ Correto para listas
+            print(f"❌ [centralizar_em] Polígono {coords} sem vértices.")
+            return
+
+        # === 3. Calcular centro como média dos vértices ===
+        soma_x = soma_y = soma_z = 0.0
+        for v in vertices:
+            soma_x += v[0]
+            soma_y += v[1]
+            soma_z += v[2]
+
+        n = len(vertices)
+        centro_3d = (soma_x / n, soma_y / n, soma_z / n)
+
+        # === 4. Atualizar câmera ===
+        x, y, z = centro_3d
+        self.camera.center = glm.vec3(x, y, z)
+        self.camera.update_position()
+        self.update()
+
+        print(f"📍 Câmera centralizada em {coords} → ({x:.2f}, {y:.2f}, {z:.2f})")
 
 ================================================================================
 📄 client/rendering/shader.py
@@ -6873,8 +7017,10 @@ def definir_geografia(poligonos, fator, bioma):
 ================================================================================
 📄 shared/civilization.py
 ================================================================================
+# shared/civilization.py
 import random
 from shared.flags import bandeira
+
 
 class Civilizacao:
     def __init__(self, ref, indice, nome, player=False, ponto_inicial=None):
@@ -6887,17 +7033,77 @@ class Civilizacao:
         self.ponto_inicial = ponto_inicial
         self.provincias = []
         self.unidades = []
+        self.eh_jogador_local = False
+
+        # ❌ Removido: população agora é por província
+
+    def get_populacao_total(self):
+        """Calcula a população total somando todas as províncias."""
+        return sum(p.get_populacao_total() for p in self.provincias)
+
+    def get_genero_counts(self):
+        """Retorna o total de homens e mulheres na civilização."""
+        homens = sum(p.homens for p in self.provincias)
+        mulheres = sum(p.mulheres for p in self.provincias)
+        return homens, mulheres
+
+    def __repr__(self):
+        h, m = self.get_genero_counts()
+        return (f"Civilização('{self.nome}', províncias={len(self.provincias)}, "
+                f"H={h}, M={m}, Total={h + m})")
 
 ================================================================================
 📄 shared/province.py
 ================================================================================
+# shared/province.py
 from shared.naming import formar_nome
+
 
 class Provincia:
     def __init__(self, civilizacao, coordenadas):
         self.civilizacao = civilizacao
         self.coordenadas = coordenadas
         self.nome = formar_nome(civilizacao.cultura)
+
+        # 👉 População inicial: 1 homem e 1 mulher por província
+        self.homens = 1
+        self.mulheres = 1
+
+    def get_populacao_total(self):
+        """Retorna a população total da província."""
+        return self.homens + self.mulheres
+
+    def aumentar_populacao(self):
+        """
+        Aumenta a população da província com base no número de mulheres.
+        Regra: nascimentos = número de mulheres na província.
+        Distribuição:
+        - O gênero menos numeroso recebe o extra em caso de ímpar.
+        - Se iguais, mulheres têm preferência.
+        """
+        nascimentos = self.mulheres
+        if nascimentos == 0:
+            return
+
+        if self.homens < self.mulheres:
+            # Homens são minoria → recebem a maioria
+            homens_novos = (nascimentos + 1) // 2
+            mulheres_novas = nascimentos // 2
+        elif self.mulheres < self.homens:
+            # Mulheres são minoria → recebem a maioria
+            mulheres_novas = (nascimentos + 1) // 2
+            homens_novos = nascimentos // 2
+        else:
+            # Quantidades iguais → mulheres levam o extra
+            mulheres_novas = (nascimentos + 1) // 2
+            homens_novos = nascimentos // 2
+
+        self.homens += homens_novos
+        self.mulheres += mulheres_novas
+
+    def __repr__(self):
+        return (f"Provincia({self.nome}, H={self.homens}, M={self.mulheres}, "
+                f"Total={self.get_populacao_total()})")
 
 ================================================================================
 📄 shared/world.py
@@ -6909,6 +7115,7 @@ from shared.references import Referencias
 from shared.planet import Planeta
 from shared.civilization import Civilizacao
 from shared.province import Provincia
+from shared.turn import Turno  # ✅ Importa a classe Turno
 
 
 class Mundo:
@@ -6937,6 +7144,86 @@ class Mundo:
         for civ in self.civs:
             provincia = Provincia(civ, civ.ponto_inicial)
             civ.provincias.append(provincia)
+
+        # ✅ Inicializa o sistema de turnos
+        self.turno = Turno()
+
+    def get_populacao_global(self):
+        """
+        Retorna a população total do mundo.
+        :return: (homens, mulheres, total)
+        """
+        homens = sum(p.homens for civ in self.civs for p in civ.provincias)
+        mulheres = sum(p.mulheres for civ in self.civs for p in civ.provincias)
+        total = homens + mulheres
+        return homens, mulheres, total
+
+    def __repr__(self):
+        h, m, t = self.get_populacao_global()
+        return (f"<Mundo(id={self.id_mundo}, turno={self.turno.numero}, "
+                f"Civilizações={len(self.civs)}, População={t} → H={h}, M={m})>")
+
+================================================================================
+📄 shared/turn.py
+================================================================================
+# shared/turn.py
+"""
+Módulo: shared/turn.py
+Responsável por gerenciar a lógica de cada turno do jogo.
+Atualmente: crescimento populacional por província.
+Futuramente: pode incluir produção, eventos, IA, etc.
+"""
+
+
+class Turno:
+    def __init__(self):
+        self.numero = 0  # Turno atual (0 = pré-jogo)
+        self.historico = []  # Histórico de eventos por turno
+
+    def avancar(self, mundo):
+        """
+        Avança um turno no mundo.
+        Aplica todas as regras do jogo: crescimento populacional, etc.
+
+        :param mundo: Instância de Mundo
+        """
+        self.numero += 1
+        total_nascimentos = 0
+
+        # Aplicar crescimento populacional em todas as províncias
+        for civ in mundo.civs:
+            for provincia in civ.provincias:
+                antes = provincia.get_populacao_total()
+                provincia.aumentar_populacao()
+                depois = provincia.get_populacao_total()
+                total_nascimentos += (depois - antes)
+
+        # Registrar no histórico
+        registro = {
+            "turno": self.numero,
+            "nascimentos": total_nascimentos,
+            "populacao_total": mundo.get_populacao_global()[2]
+        }
+        self.historico.append(registro)
+
+        # Log opcional (pode ser removido ou controlado por DEBUG)
+        # from shared.debug import DEBUG  # opcional
+        # if DEBUG:
+        print(f"\n--- Turno {self.numero} concluído ---")
+        print(f"📊 +{total_nascimentos} nascimentos | População total: {registro['populacao_total']}")
+
+    def resetar(self):
+        """Reseta o contador de turnos (sem afetar o mundo)."""
+        self.numero = 0
+        self.historico.clear()
+        print("🔁 Turnos resetados.")
+
+    def get_ultimo_registro(self):
+        """Retorna o último registro do histórico, ou None."""
+        return self.historico[-1] if self.historico else None
+
+    def __repr__(self):
+        return f"<Turno {self.numero} | Histórico: {len(self.historico)} turnos>"
 
 ================================================================================
 📄 shared/references.py
@@ -6968,6 +7255,20 @@ class Referencias:
         self.tons_de_pele = [(245, 212, 205), (212, 160, 147), (163, 106, 95), (101, 61, 53)]
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
+        self.produtividade_base = {
+            'Meadow':     1.0,
+            'Forest':     0.9,
+            'Hills':      0.7,
+            'Savanna':    0.6,
+            'Coast':      0.5,
+            'Desert':     0.3,
+            'Mountains':  0.2,
+            'Ice':        0.0,
+            'Ocean':      0.0,
+            'Sea':        0.0
+        }
+
+
 ================================================================================
-✅ Total de 40 arquivos incluídos.
+✅ Total de 41 arquivos incluídos.
 ================================================================================
