@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-08-31 23:30:33
+Gerado em: 2025-09-02 21:10:23
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -48,8 +48,13 @@ Conteúdo dos scripts principais reunidos.
 │   │   ├── planet_renderer.py
 │   │   └── shader.py
 │   ├── resources
+│   ├── shaders
+│   │   ├── basic.frag
+│   │   └── basic.vert
 │   ├── states
 │   │   └── waiting_room.py
+│   ├── utils
+│   │   └── scaling.py
 │   ├── widgets
 │   │   ├── match_overlay.py
 │   │   ├── offline_setup_overlay.py
@@ -2972,13 +2977,6 @@ class JanelaPrincipal(QMainWindow):
 
         print("✅ Transição para partida concluída.")
 
-    def mudar_modo_mapa(self, modo: str):
-        """Recebe o comando do overlay e repassa ao OpenGLWidget"""
-        if hasattr(self, 'opengl_widget') and self.opengl_widget:
-            self.opengl_widget.definir_modo_renderizacao(modo)
-        else:
-            print("⚠️ OpenGLWidget não disponível para mudar modo de mapa")
-
     def _configurar_modo_offline(self, fator, bioma):
         try:
             from shared.world import Mundo
@@ -3796,6 +3794,21 @@ class JanelaPrincipal(QMainWindow):
         print("✅ Transição para partida iniciada com sucesso.")
         print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
+    def mudar_modo_mapa(self, modo: str):
+        """
+        Recebe o comando do OverlayPartida e repassa ao OpenGLWidget.
+        Este método precisa estar aqui porque o OverlayPartida usa 'parent_widget' como referência.
+        """
+        print(f"🔁 [DEBUG] JanelaPrincipal.mudar_modo_mapa chamado com modo='{modo}'")
+
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            if modo in ["fisico", "politico"]:
+                self.opengl_widget.mudar_modo_mapa(modo)
+            else:
+                print(f"❌ Modo desconhecido: {modo}")
+        else:
+            print("❌ [ERRO] opengl_widget não disponível em JanelaPrincipal")
+
     def _mostrar_overlay_sala_espera(self, username: str, max_jogadores: int):
         """
         Mostra o overlay da sala de espera como sobreposição flutuante sobre o OpenGL,
@@ -4164,16 +4177,23 @@ def main():
 
 
 if __name__ == "__main__":
-    # Cria um arquivo session.txt de placeholder para testar o ícone "logado"
+    # 🔥 Ativar suporte a alto DPI ANTES de criar QApplication
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    # (Opcional) Para testar o ícone de login logado
     # with open("session.txt", "w") as f:
     #     f.write("usuario_teste_logado")
-    main()
+
+    main()  # Chama a função principal
 
 ================================================================================
 📄 client/widgets/match_overlay.py
 ================================================================================
 # client/widgets/match_overlay.py
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt
 
 
@@ -4197,93 +4217,100 @@ class OverlayPartida(QWidget):
         self.setup_ui()
         self.update_position()  # Posiciona inicialmente
 
+    def alternar_modo_mapa(self):
+        """Alterna entre modo físico e político e atualiza o ícone do botão."""
+        novo_modo = "politico" if self.btn_modo_mapa.text() == "🌍" else "fisico"
+        novo_icone = "🏛️" if novo_modo == "politico" else "🌍"
+
+        self.btn_modo_mapa.setText(novo_icone)
+        self.btn_modo_mapa.setToolTip(f"Modo: {'Político' if novo_modo == 'politico' else 'Físico'}")
+
+        print(f"🔄 Modo de mapa alterado para: {novo_modo}")
+
+        # === NAVEGAR PELA HIERARQUIA ATÉ A JANELA PRINCIPAL ===
+        widget_atual = self.parent_widget
+        while widget_atual is not None:
+            if hasattr(widget_atual, 'mudar_modo_mapa'):
+                widget_atual.mudar_modo_mapa(novo_modo)
+                return
+            widget_atual = widget_atual.parent()
+
+        # Se chegou aqui, não encontrou ninguém com o método
+        print("⚠️ OverlayPartida: 'mudar_modo_mapa' não encontrado em nenhum ancestral.")
+
     def setup_ui(self):
-        """Configura a interface com título e seletor de modo de mapa."""
+        """Configura a interface com apenas o botão toggle para alternar entre modo físico e político."""
+        from client.utils.scaling import scale, scale_font  # Importa as funções de escala
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            scale(10), scale(12), scale(10), scale(12)
+        )
+        layout.setSpacing(scale(6))
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Título do overlay
-        titulo = QLabel("🎮 Ações da Partida")
-        titulo.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
-        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(titulo)
+        # Botão de alternância de modo (toggle entre físico e político)
+        self.btn_modo_mapa = QPushButton("🌍")  # Começa no modo físico
+        self.btn_modo_mapa.setFixedSize(scale(60), scale(40))
+        self.btn_modo_mapa.setToolTip("Alternar modo de mapa (Físico/Político)")
 
-        # Separador visual
-        linha = QWidget()
-        linha.setFixedHeight(1)
-        linha.setStyleSheet("background-color: #3498db; margin: 5px 0;")
-        layout.addWidget(linha)
-
-        # Seletor de modo de mapa
-        self.combo_mapa = QComboBox()
-        self.combo_mapa.addItems(["🌍 Mapa Físico", "🏛️ Mapa Político"])
-        self.combo_mapa.setCurrentIndex(0)  # Padrão: Físico
-        self.combo_mapa.setStyleSheet("""
-            QComboBox {
+        # Estilo com valores escalonados via f-string
+        estilo = f"""
+            QPushButton {{
                 background-color: #2c3e50;
                 border: 1px solid #3498db;
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 14px;
-                color: #ffffff;
-            }
-            QComboBox:hover {
+                border-radius: {scale(8)}px;
+                font-size: {scale_font(18)}px;
+                font-weight: bold;
+                color: white;
+            }}
+            QPushButton:hover {{
+                background-color: #34495e;
                 border-color: #1abc9c;
-            }
-            QComboBox::drop-down {
-                border: 0;
-                width: 30px;
-            }
-            QComboBox::down-arrow {
-                image: url(client/resources/icons/down-arrow.png);
-                width: 12px;
-                height: 12px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2c3e50;
-                color: #ffffff;
-                selection-background-color: #3498db;
-                border: 1px solid #3498db;
-                padding: 5px;
-            }
-        """)
-        self.combo_mapa.currentIndexChanged.connect(self.on_mudanca_modo)
-        layout.addWidget(self.combo_mapa)
-
-        # Espaço para futuros botões (ex: construir, diplomacia, etc.)
-        # Exemplo comentado:
-        # btn_construir = QPushButton("🏗️ Construir Cidade")
-        # btn_construir.setStyleSheet("padding: 8px; font-size: 13px;")
-        # layout.addWidget(btn_construir)
+            }}
+            QPushButton:pressed {{
+                background-color: #1abc9c;
+                border-color: #16a085;
+            }}
+        """
+        self.btn_modo_mapa.setStyleSheet(estilo)
+        self.btn_modo_mapa.clicked.connect(self.alternar_modo_mapa)
+        layout.addWidget(self.btn_modo_mapa)
 
         self.setLayout(layout)
 
-    def on_mudanca_modo(self):
-        """Emite o comando de mudança de modo para a janela principal."""
-        modo = "fisico" if self.combo_mapa.currentIndex() == 0 else "politico"
-        print(f"🔄 OverlayPartida: Modo de mapa alterado para '{modo}'")
-
-        # Envia o sinal para a JanelaPrincipal via método direto
-        if hasattr(self.parent_widget, 'mudar_modo_mapa'):
-            self.parent_widget.mudar_modo_mapa(modo)
-        else:
-            print("⚠️ OverlayPartida: Não foi possível encontrar 'mudar_modo_mapa' no pai.")
-
     def update_position(self):
-        """Atualiza posição e tamanho com base no widget pai (barra_esquerda)."""
+        """Atualiza posição e tamanho com base no widget pai (barra_esquerda),
+        respeitando os limites de 320px e 15% da largura da tela.
+        """
         if not self.parent():
             return
 
         parent_rect = self.parent().rect()
-        width = int(parent_rect.width() * 0.85)  # 85% da largura da barra
-        height = min(200, int(parent_rect.height() * 0.45))  # Máx 45% da altura
+        parent_width = parent_rect.width()
+        parent_height = parent_rect.height()
 
-        x = (parent_rect.width() - width) // 2
-        y = (parent_rect.height() - height) // 2
+        # --- Calcular largura do overlay: 85% da largura da barra ---
+        width = int(parent_width * 0.85)
 
+        # --- Calcular altura: até 45% da altura da barra, com limite mínimo e máximo (com escala) ---
+        from client.utils.scaling import scale
+
+        max_height = scale(200)  # Altura máxima escalonada (ex: 200 → 300 em 150% DPI)
+        min_height = scale(80)  # Altura mínima (para não sumir)
+        height = min(max_height, int(parent_height * 0.45))
+        height = max(min_height, height)
+
+        # --- Centralizar no pai ---
+        x = (parent_width - width) // 2
+        y = (parent_height - height) // 2
+
+        # --- Aplicar geometria ---
         self.setGeometry(x, y, width, height)
+
+        # Opcional: forçar atualização de layout interno, se necessário
+        self.setFixedWidth(width)
+        self.setFixedHeight(height)
 
 ================================================================================
 📄 client/widgets/waiting_room_overlay.py
@@ -4505,6 +4532,39 @@ class OfflineSetupOverlay(QWidget):
             self.move(x, y)
 
 ================================================================================
+📄 client/shaders/basic.frag
+================================================================================
+#version 330 core
+in vec3 fragColor;
+out vec4 FragColor;
+
+void main() {
+    FragColor = vec4(fragColor, 1.0);
+}
+
+================================================================================
+📄 client/shaders/basic.vert
+================================================================================
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aColor;
+
+uniform mat4 MVP;
+uniform bool modo_politico;
+uniform vec3 cor_uniforme;
+
+out vec3 fragColor;
+
+void main() {
+    gl_Position = MVP * vec4(aPos, 1.0);
+    if (modo_politico) {
+        fragColor = cor_uniforme;
+    } else {
+        fragColor = aColor;
+    }
+}
+
+================================================================================
 📄 client/states/waiting_room.py
 ================================================================================
 # client/states/waiting_room.py
@@ -4705,6 +4765,30 @@ class OverlaySalaEspera(QWidget):
             self.move(x, y)
 
 ================================================================================
+📄 client/utils/scaling.py
+================================================================================
+# utils/scaling.py
+from PyQt6.QtWidgets import QApplication
+
+# Base DPI (assumimos 96 como padrão)
+BASE_DPI = 96
+
+# Fator de escala global
+def get_scale_factor():
+    screen = QApplication.primaryScreen()
+    dpi = screen.logicalDotsPerInch()
+    return dpi / BASE_DPI
+
+# Funções de ajuda para dimensionamento
+def scale(value: int) -> int:
+    """Escalona um valor em pixels com base no DPI."""
+    return int(value * get_scale_factor())
+
+def scale_font(size: int) -> int:
+    """Escalona tamanho de fonte (opcional: pode ser mais suave)."""
+    return int(size * get_scale_factor())
+
+================================================================================
 📄 client/rendering/planet_renderer.py
 ================================================================================
 pass
@@ -4841,6 +4925,14 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # --- Debug e Estado Interno ---
         # Pronto para expansão (ex: modo de depuração, FPS, etc)
 
+    def mudar_modo_mapa(self, modo: str):
+        if modo in ["fisico", "politico"]:
+            self.modo_renderizacao = modo
+            self.update()
+            print(f"✅ [DEBUG] Modo alterado para '{modo}' e update() chamado")
+        else:
+            print(f"❌ [DEBUG] Modo inválido: {modo}")
+
     def definir_modo_renderizacao(self, modo: str):
         """Muda o modo de renderização: 'fisico' ou 'politico'"""
         if modo not in ["fisico", "politico"]:
@@ -4956,47 +5048,61 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # === 2. Modo Jogo: Renderizar o planeta ===
         if self.modulo_jogo and self.mundo and self.shader_program and self.shader_program.program_id:
             try:
-                # Depuração: estado atual
-                print(f"🔧 [DEBUG] paintGL: modulo_jogo={self.modulo_jogo}, mundo={self.mundo is not None}, "
-                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}, "
-                      f"modo_renderizacao='{self.modo_renderizacao}'")
+                print(f"🔧 [DEBUG] paintGL: Iniciando renderização. Modo='{self.modo_renderizacao}'")
 
-                # Atualizar aspecto da câmera
+                # --- Atualizar câmera ---
                 if self.width() > 0 and self.height() > 0:
                     self.camera.set_aspect(self.width() / self.height())
+                else:
+                    print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+                    return
 
-                # Calcular matrizes MVP
+                # --- Calcular MVP ---
                 view = self.camera.view_matrix()
                 proj = self.camera.projection_matrix()
-                model = glm.mat4(1.0)  # Pode ser rotacionado (ex: auto-rotação)
+                model = glm.mat4(1.0)
                 mvp = proj * view * model
 
-                # Ativar shader e enviar uniform
+                # --- Ativar shader e enviar uniforms ---
                 self.shader_program.usar()
                 self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
 
-                # ✅ Criar geometria do planeta no contexto ativo, se necessário
+                # --- Criar geometria, se necessário ---
                 if self._geometria_necessaria:
-                    print("🔧 [DEBUG] Criando geometria do planeta em paintGL...")
+                    print("🔧 [DEBUG] Criando geometria do planeta...")
                     self._criar_geometria_planeta()
                     self._geometria_necessaria = False
                     print(f"✅ Geometria criada: {len(self.vaos)} polígonos")
 
-                # --- 🔁 DECISÃO DE ROTEAMENTO DE RENDERIZAÇÃO ---
+                # --- 🔁 ROTEAMENTO DE RENDERIZAÇÃO ---
                 if self.modo_renderizacao == "fisico":
-                    self._renderizar_planeta_fisico()
-                elif self.modo_renderizacao == "politico":
-                    self._renderizar_planeta_politico()
-                else:
-                    # Modo desconhecido: renderiza como físico (fallback seguro)
+                    # Desativar modo político no shader
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", False)
                     self._renderizar_planeta_fisico()
 
-                # Desativar shader
+                elif self.modo_renderizacao == "politico":
+                    # Ativar modo político no shader
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", True)
+                    else:
+                        print("❌ [DEBUG] set_uniform_bool não disponível no shader_program")
+                    self._renderizar_planeta_politico()
+
+                else:
+                    print(f"⚠️ [DEBUG] Modo desconhecido: '{self.modo_renderizacao}'. Usando 'fisico' como fallback.")
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", False)
+                    self._renderizar_planeta_fisico()
+
+                # --- Limpeza final ---
                 self.shader_program.limpar()
 
             except Exception as e:
-                print(f"❌ Erro ao renderizar o planeta: {e}")
-                # Fundo vermelho para indicar falha crítica
+                print(f"❌ Erro crítico em paintGL: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fundo vermelho para indicar falha
                 gl.glClearColor(0.2, 0.0, 0.0, 1.0)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
@@ -5007,15 +5113,16 @@ class MeuOpenGLWidget(QOpenGLWidget):
             gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
     def _renderizar_planeta_fisico(self):
-        """Renderiza o planeta usando os polígonos e biomas."""
-        print("🎨 [DEBUG] Iniciando _renderizar_planeta")
+        """Renderiza o planeta no modo físico, usando cores por vértice (biomas, altitude, etc)."""
+        print("🎨 [DEBUG] Iniciando renderização FÍSICA do planeta")
 
         # === 1. Atualizar câmera ===
         if self.width() > 0 and self.height() > 0:
             self.camera.set_aspect(self.width() / self.height())
             print(f"🔧 [DEBUG] Aspecto da câmera atualizado: {self.width()}x{self.height()} → {self.camera.aspect:.3f}")
         else:
-            print("⚠️ [DEBUG] Tamanho do widget inválido para atualizar câmera")
+            print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+            return
 
         # === 2. Calcular MVP ===
         try:
@@ -5023,32 +5130,35 @@ class MeuOpenGLWidget(QOpenGLWidget):
             proj = self.camera.projection_matrix()
             model = glm.mat4(1.0)
             mvp = proj * view * model
-            print(f"📐 [DEBUG] Matriz MVP calculada. View: pos=({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
+            print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
         except Exception as e:
             print(f"❌ [DEBUG] Falha ao calcular MVP: {e}")
             return
 
-        # === 3. Ativar shader e enviar uniform ===
+        # === 3. Ativar shader e configurar para modo físico ===
         try:
             self.shader_program.usar()
             self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
-            print("✅ [DEBUG] Shader ativado e MVP enviado")
+            self.shader_program.set_uniform_bool("modo_politico", False)  # 🔵 Modo físico ativo
+            print("✅ [DEBUG] Shader ativado, MVP enviado, modo físico definido")
         except Exception as e:
-            print(f"❌ [DEBUG] Erro ao usar shader ou enviar MVP: {e}")
+            print(f"❌ [DEBUG] Erro ao usar shader ou enviar uniform: {e}")
             return
 
-        # === 4. Renderizar cada polígono ===
+        # === 4. Validar geometria ===
         if not self.vaos:
             print("❌ [DEBUG] self.vaos está vazio! Nenhum VAO para desenhar.")
             return
 
-        print(f"📊 [DEBUG] Iterando {len(self.vaos)} polígonos...")
+        print(f"📊 [DEBUG] Renderizando {len(self.vaos)} polígonos no modo físico...")
+
+        # === 5. Iterar e desenhar cada polígono ===
         for i, (coords, vao) in enumerate(self.vaos.items()):
             try:
-                # Mostrar apenas os primeiros 5 polígonos no log
+                # Log detalhado apenas para os primeiros polígonos
                 if i < 5:
-                    print(
-                        f"   → Polígono {coords}: VAO={vao}, num_vertices={len(self.mundo.planeta.poligonos[coords]) // 3}")
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    print(f"   → Polígono {coords}: VAO={vao}, vértices={num_vertices}")
                 elif i == 5:
                     print("   → (mais polígonos...)")
 
@@ -5058,49 +5168,122 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
             except Exception as e:
                 print(f"❌ [DEBUG] Erro ao renderizar polígono {coords}: {e}")
-                continue  # Continua com o próximo
+                continue  # Tenta o próximo
 
-        # === 5. Limpeza final ===
+        # === 6. Limpeza final ===
         gl.glBindVertexArray(0)
         self.shader_program.limpar()
-        print("🎨 [DEBUG] Renderização do planeta concluída")
+        print("✅ [DEBUG] Renderização FÍSICA concluída com sucesso")
 
     def _renderizar_planeta_politico(self):
-        """Renderiza o planeta no modo político: cada província com a cor da civilização que a controla."""
+        """Renderiza o planeta no modo político:
+        - Oceano, mar, costa → cinza escuro
+        - Territórios de civilizações → cor da civilização (RGB convertido)
+        - Terra sem dono → cinza claro
+        """
+        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
+
+        # === 1. Validar estado ===
         if not self.mundo or not self.mundo.planeta or not self.shader_program:
             print("❌ [DEBUG] _renderizar_planeta_politico: Dados insuficientes (mundo, planeta ou shader)")
             return
 
-        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
+        # === 2. Atualizar câmera ===
+        if self.width() > 0 and self.height() > 0:
+            self.camera.set_aspect(self.width() / self.height())
+            print(f"🔧 [DEBUG] Aspecto da câmera atualizado: {self.width()}x{self.height()} → {self.camera.aspect:.3f}")
+        else:
+            print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+            return
 
+        # === 3. Calcular MVP ===
         try:
-            # Iterar por todas as civilizações
-            for civ in self.mundo.civs:
-                # Definir cor do shader com base na cor da civilização
-                cor = civ.cor  # Espera-se que seja uma tupla (r, g, b) em [0, 1]
-                r, g, b = cor[0] / 255.0, cor[1] / 255.0, cor[2] / 255.0
+            view = self.camera.view_matrix()
+            proj = self.camera.projection_matrix()
+            model = glm.mat4(1.0)
+            mvp = proj * view * model
+            print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
+        except Exception as e:
+            print(f"❌ [DEBUG] Falha ao calcular MVP: {e}")
+            return
 
-                # Enviar cor uniforme para o shader
-                self.shader_program.set_uniform_vec3("cor_uniforme", (r, g, b))
+        # === 4. Ativar shader e configurar para modo político ===
+        try:
+            self.shader_program.usar()
+            self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))  # compatível com shader
+            self.shader_program.set_uniform_bool("modo_politico", True)  # 🔵 Ativa modo uniforme
+            print("✅ [DEBUG] Shader ativado, MVP enviado, modo político ativo")
+        except Exception as e:
+            print(f"❌ [DEBUG] Erro ao usar shader ou enviar uniform: {e}")
+            return
 
-                # Renderizar cada província da civilização
+        # === 5. Referências ===
+        G = self.mundo.planeta.geografia
+        desenhadas = set()  # Polígonos já renderizados
+
+        # === 6. Desenhar OCEANOS (prioridade alta) ===
+        cor_oceano = (0.13, 0.13, 0.13)
+        self.shader_program.set_uniform_vec3("cor_uniforme", cor_oceano)
+        print("🌊 [DEBUG] Renderizando oceanos, mares e costas...")
+
+        for coords, dados in G.nodes(data=True):
+            bioma = dados.get("bioma")
+            if bioma in ["Ocean", "Sea", "Coast"] and coords in self.vaos:
+                try:
+                    gl.glBindVertexArray(self.vaos[coords])
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    desenhadas.add(coords)
+                except Exception as e:
+                    print(f"❌ [DEBUG] Erro ao renderizar oceano {coords}: {e}")
+
+        # === 7. Desenhar CIVILIZAÇÕES (tem prioridade sobre terra neutra) ===
+        print(f"🏛️ [DEBUG] Renderizando territórios de {len(self.mundo.civs)} civilizações...")
+        for civ in self.mundo.civs:
+            try:
+                # Converter cor de (0-255) para (0.0-1.0)
+                r, g, b = civ.cor
+                cor_civ = (r / 255.0, g / 255.0, b / 255.0)
+                self.shader_program.set_uniform_vec3("cor_uniforme", cor_civ)
+
+                print(f"   → Renderizando {len(civ.provincias)} províncias de {civ.nome} com cor {cor_civ}")
+
                 for provincia in civ.provincias:
                     coords = provincia.coordenadas
-                    if coords in self.vaos:
-                        vao = self.vaos[coords]
-                        gl.glBindVertexArray(vao)
-                        num_vertices = len(self.mundo.planeta.poligonos[coords])
-                        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
-                    else:
-                        print(f"🟡 [DEBUG] VAO não encontrado para província {coords}")
+                    if coords in self.vaos and coords not in desenhadas:
+                        try:
+                            gl.glBindVertexArray(self.vaos[coords])
+                            num_vertices = len(self.mundo.planeta.poligonos[coords])
+                            gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                            desenhadas.add(coords)
+                        except Exception as e:
+                            print(f"❌ [DEBUG] Erro ao renderizar província {coords} de {civ.nome}: {e}")
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao processar civilização {civ.nome}: {e}")
 
-            # Desativar VAO
-            gl.glBindVertexArray(0)
+        # === 8. Desenhar TERRA NEUTRA (apenas o que sobrou) ===
+        cor_neutra = (0.7, 0.7, 0.7)
+        self.shader_program.set_uniform_vec3("cor_uniforme", cor_neutra)
+        print("🟨 [DEBUG] Renderizando terra neutra...")
 
-            print("✅ [DEBUG] Renderização política concluída")
+        for coords in G.nodes:
+            if coords in desenhadas or coords not in self.vaos:
+                continue
+            try:
+                node_data = G.nodes[coords]
+                bioma = node_data.get("bioma")
+                if bioma not in ["Ocean", "Sea", "Coast"]:  # Apenas terra
+                    gl.glBindVertexArray(self.vaos[coords])
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    desenhadas.add(coords)
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao renderizar terra neutra {coords}: {e}")
 
-        except Exception as e:
-            print(f"❌ Erro ao renderizar modo político: {e}")
+        # === 9. Limpeza final ===
+        gl.glBindVertexArray(0)
+        self.shader_program.limpar()
+        print("✅ [DEBUG] Renderização POLÍTICA concluída com sucesso")
 
     def _criar_geometria_planeta(self):
         """Gera VAOs/VBOs para todos os polígonos do planeta."""
@@ -5286,6 +5469,22 @@ class ShaderProgram:
             gl.glDeleteProgram(self.program_id)
             self.program_id = None
 
+    def set_uniform_bool(self, nome: str, valor: bool):
+        """Envia um booleano para o shader (como int)."""
+        loc = gl.glGetUniformLocation(self.program_id, nome)
+        if loc != -1:
+            gl.glUniform1i(loc, 1 if valor else 0)
+        else:
+            print(f"❌ Uniform '{nome}' não encontrado!")
+
+    def set_uniform_vec3(self, nome: str, valor: tuple):
+        """Envia um vetor 3D (ex: cor RGB) para o shader."""
+        loc = gl.glGetUniformLocation(self.program_id, nome)
+        if loc != -1:
+            gl.glUniform3f(loc, valor[0], valor[1], valor[2])
+        else:
+            print(f"❌ Uniform '{nome}' não encontrado!")
+
 ================================================================================
 📄 client/dialogs/auth_dialog.py
 ================================================================================
@@ -5436,6 +5635,8 @@ from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QCursor
 
+# --- Sistema de Escala para DPI ---
+from client.utils.scaling import scale
 
 class IconeInterativo(QLabel):
     """
@@ -5443,251 +5644,177 @@ class IconeInterativo(QLabel):
     """
     clicado = pyqtSignal(str)  # Sinal emitido ao ser clicado, passando um identificador
 
-    def __init__(self, icone_path, identificador, tamanho=(64, 64), parent=None):
+    def __init__(self, icone_path, identificador, tamanho_base=(64, 64), parent=None):
         """
         :param icone_path: Caminho para o arquivo PNG do ícone.
-        :param identificador: String única para identificar este ícone ("login", "play", "sair").
-        :param tamanho: Tupla (largura, altura) para redimensionar o ícone.
+        :param identificador: String única ("login", "play", "sair").
+        :param tamanho_base: Tamanho base em pixels (será escalonado por DPI).
         :param parent: Widget pai.
         """
         super().__init__(parent)
         self.identificador = identificador
-        self.tamanho = tamanho
+        self.tamanho_base = tamanho_base
+        self.tamanho = (scale(tamanho_base[0]), scale(tamanho_base[1]))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Estilo para feedback visual (opcional)
+        # Estilo para feedback visual
         self.setStyleSheet("""
             IconeInterativo {
-                border: 2px solid transparent; /* Borda invisível por padrão */
-                border-radius: 5px; /* Bordas arredondadas */
+                border: 2px solid transparent;
+                border-radius: 5px;
             }
             IconeInterativo:hover {
-                border: 2px solid #3498db; /* Borda azul ao passar o mouse */
-                background-color: rgba(52, 152, 219, 30); /* Fundo azul claro transparente */
+                border: 2px solid #3498db;
+                background-color: rgba(52, 152, 219, 30);
             }
         """)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Muda o cursor para mãozinha
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         self.carregar_icone(icone_path)
-        # Redimensionar o QLabel para o tamanho desejado
         self.setFixedSize(*self.tamanho)
 
     def carregar_icone(self, caminho):
-        """
-        Carrega e define a imagem do ícone.
-        Inclui verificações detalhadas e logs para facilitar depuração.
-        """
-        print(f"[DEBUG] [IconeInterativo] Tentando carregar ícone '{self.identificador}' de: '{caminho}'")
+        """Carrega e escala a imagem com suporte a placeholder."""
+        print(f"[DEBUG] [IconeInterativo] Carregando ícone '{self.identificador}' de: '{caminho}'")
 
-        # --- Verificações detalhadas do caminho ---
-        caminho_absoluto = os.path.abspath(caminho)
-        existe = os.path.exists(caminho)
-        eh_arquivo = os.path.isfile(caminho) if existe else False
-
-        print(f"[DEBUG] [IconeInterativo] Caminho absoluto resolvido: '{caminho_absoluto}'")
-        print(f"[DEBUG] [IconeInterativo] os.path.exists('{caminho}') = {existe}")
-        print(f"[DEBUG] [IconeInterativo] os.path.isfile('{caminho}') = {eh_arquivo}")
-
-        # --- Determinar se o carregamento pode prosseguir ---
         pixmap = None
-        if not existe:
-            print(
-                f"⚠️ [IconeInterativo] O caminho '{caminho}' NÃO EXISTE. Diretório de execução pode estar incorreto. Usando placeholder.")
-        elif not eh_arquivo:
-            print(
-                f"⚠️ [IconeInterativo] O caminho '{caminho}' EXISTE, mas NÃO É um arquivo (pode ser um diretório). Usando placeholder.")
-        else:
-            # Caminho existe e é um arquivo, tentar carregar com QPixmap
-            print(f"[DEBUG] [IconeInterativo] Caminho válido, tentando QPixmap('{caminho}')...")
+        if caminho and os.path.isfile(caminho):
             try:
                 pixmap = QPixmap(caminho)
-
-                # Verificar se o carregamento foi bem-sucedido
                 if pixmap.isNull():
-                    print(f"⚠️ [IconeInterativo] QPixmap falhou ao carregar o arquivo '{caminho}'. "
-                          f"O arquivo pode estar corrompido ou não ser uma imagem válida. Usando placeholder.")
-                    pixmap = None  # Forçar uso do placeholder
+                    print(f"⚠️ Falha ao carregar QPixmap de '{caminho}'. Usando placeholder.")
+                    pixmap = None
                 else:
-                    print(
-                        f"[DEBUG] [IconeInterativo] QPixmap carregou com sucesso. Tamanho original: {pixmap.width()}x{pixmap.height()}")
-
+                    print(f"[DEBUG] [IconeInterativo] Carregado: {pixmap.width()}x{pixmap.height()}")
             except Exception as e:
-                print(f"❌ [IconeInterativo] Erro inesperado ao carregar QPixmap de '{caminho}': {e}")
-                import traceback
-                traceback.print_exc()  # Imprime o stack trace completo
-                pixmap = None  # Forçar uso do placeholder
-
-        # --- Criar pixmap final (carregada ou placeholder) ---
-        if pixmap is None:
-            # Criar um pixmap de placeholder se a imagem não for carregada
-            pixmap = QPixmap(self.tamanho[0], self.tamanho[1])
-            pixmap.fill(Qt.GlobalColor.gray)  # Cor cinza para placeholder
-            print(f"[DEBUG] [IconeInterativo] Placeholder cinza criado para '{self.identificador}'.")
+                print(f"❌ Erro ao carregar ícone '{caminho}': {e}")
         else:
-            # Redimensionar a pixmap carregada para o tamanho desejado
+            print(f"⚠️ Arquivo não encontrado: '{caminho}'. Usando placeholder.")
+
+        if pixmap is None:
+            # Placeholder
+            pixmap = QPixmap(self.tamanho[0], self.tamanho[1])
+            pixmap.fill(Qt.GlobalColor.gray)
+            print(f"[DEBUG] [IconeInterativo] Placeholder criado para '{self.identificador}'.")
+        else:
+            # Escala com proporção
             pixmap = pixmap.scaled(
                 self.tamanho[0],
                 self.tamanho[1],
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
-            print(
-                f"[DEBUG] [IconeInterativo] Pixmap (carregada) redimensionada para {self.tamanho[0]}x{self.tamanho[1]}.")
 
-        # --- Definir a pixmap (carregada ou placeholder) no QLabel ---
         self.setPixmap(pixmap)
-        print(f"[DEBUG] [IconeInterativo] Pixmap definida para o ícone '{self.identificador}'.")
+        print(f"[DEBUG] [IconeInterativo] Pixmap definida para '{self.identificador}'.")
 
     def mousePressEvent(self, event):
-        """Sobrescreve para emitir o sinal ao ser clicado."""
         if event.button() == Qt.MouseButton.LeftButton:
             print(f"🖱️ Ícone '{self.identificador}' clicado.")
-            self.clicado.emit(self.identificador)  # Emite o sinal com o identificador
-        super().mousePressEvent(event)  # Chama o método da classe base
+            self.clicado.emit(self.identificador)
+        super().mousePressEvent(event)
 
 
 class GerenciadorIconesEsquerda(QWidget):
     """
     Widget que contém e organiza os ícones interativos na barra esquerda.
     """
-    icone_clicado = pyqtSignal(str)  # Re-emite o sinal dos ícones filhos
+    icone_clicado = pyqtSignal(str)
 
     def __init__(self, caminho_recursos="client/resources", parent=None):
-        """
-        :param caminho_recursos: Caminho para a pasta com os ícones PNG.
-        :param parent: Widget pai.
-        """
         super().__init__(parent)
         self.caminho_recursos = caminho_recursos
-        self.icones = {}  # Dicionário para armazenar referências aos ícones {identificador: IconeInterativo}
-        self.TAMANHO_ICONE = (36, 36)
+        self.icones = {}
+        self.TAMANHO_ICONE_BASE = (36, 36)  # Base para escala DPI
 
-        # Layout vertical para os ícones
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)  # Margens internas
-        layout.setSpacing(20)  # Espaço entre os ícones
+        layout.setContentsMargins(
+            scale(10), scale(10), scale(10), scale(10)
+        )
+        layout.setSpacing(scale(20))
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        # --- Criar e adicionar ícones ---
-        # --- Ícone de Login com nome do usuário ---
-        icone_login_path = os.path.join(self.caminho_recursos, "log-in.png")
-        self.icone_login = IconeInterativo(icone_login_path, "login", tamanho=self.TAMANHO_ICONE)
+        # --- Ícone de Login + Nome ---
+        self.icone_login = IconeInterativo(
+            os.path.join(self.caminho_recursos, "log-in.png"),
+            "login",
+            tamanho_base=self.TAMANHO_ICONE_BASE
+        )
         self.icone_login.clicado.connect(self._ao_clicar_icone)
 
-        # Layout horizontal para ícone + nome
-        self.login_layout = QHBoxLayout()
-        self.login_layout.setContentsMargins(0, 0, 0, 0)
-        self.login_layout.setSpacing(8)
-        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # Adicionar ícone
-        self.login_layout.addWidget(self.icone_login)
-
-        # Label para nome do usuário
         self.label_nome_usuario = QLabel()
         self.label_nome_usuario.setStyleSheet("""
             color: #ecf0f1;
             background: transparent;
             border: none;
-            font-size: 14px;
+            font-size: """ + str(scale(14)) + """px;
             font-weight: bold;
         """)
         self.label_nome_usuario.hide()
-        self.login_layout.addWidget(self.label_nome_usuario)
 
-        # Container final
-        self.login_container = QWidget()
-        self.login_container.setLayout(self.login_layout)
-
-        # Adicionar ao layout principal
-        layout.addWidget(self.login_container)
-
-        # Referência
-        self.icones["login"] = self.icone_login
-
-        # Criar um layout horizontal para o ícone + nome
+        # Layout horizontal único
         self.login_layout = QHBoxLayout()
         self.login_layout.setContentsMargins(0, 0, 0, 0)
-        self.login_layout.setSpacing(8)  # Espaço entre ícone e texto
-        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.login_layout.setSpacing(scale(8))
+        self.login_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        # Adicionar ícone
         self.login_layout.addWidget(self.icone_login)
-
-        # Adicionar label de nome (inicialmente oculto)
-        self.label_nome_usuario = QLabel()
-        self.label_nome_usuario.setStyleSheet("""
-            color: #ecf0f1;
-            background: transparent;
-            border: none;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            font-weight: bold;
-        """)
-        self.label_nome_usuario.hide()  # Esconde por padrão
         self.login_layout.addWidget(self.label_nome_usuario)
 
-        # Container widget para o layout horizontal
         self.login_container = QWidget()
         self.login_container.setLayout(self.login_layout)
-
-        # Adicionar o container ao layout principal
         layout.addWidget(self.login_container)
 
-        # Armazenar referência
-        self.icones["login"] = self.icone_login  # Mantém compatibilidade
+        self.icones["login"] = self.icone_login
 
-        # Ícone de Play (Mais abaixo)
-        icone_play_path = os.path.join(self.caminho_recursos, "play.png")
-        self.icone_play = IconeInterativo(icone_play_path, "play", tamanho=self.TAMANHO_ICONE)
+        # --- Ícone de Play ---
+        self.icone_play = IconeInterativo(
+            os.path.join(self.caminho_recursos, "play.png"),
+            "play",
+            tamanho_base=self.TAMANHO_ICONE_BASE
+        )
         self.icone_play.clicado.connect(self._ao_clicar_icone)
         layout.addWidget(self.icone_play)
         self.icones["play"] = self.icone_play
 
-        # Espaço elástico para empurrar o ícone de sair para baixo
+        # --- Espaço para empurrar o ícone de sair para baixo ---
         layout.addStretch()
 
-        # Ícone de Sair (Inferior Esquerdo)
-        icone_sair_path = os.path.join(self.caminho_recursos, "arrow-left.png")
-        self.icone_sair = IconeInterativo(icone_sair_path, "sair", tamanho=self.TAMANHO_ICONE)
+        # --- Ícone de Sair ---
+        self.icone_sair = IconeInterativo(
+            os.path.join(self.caminho_recursos, "arrow-left.png"),
+            "sair",
+            tamanho_base=self.TAMANHO_ICONE_BASE
+        )
         self.icone_sair.clicado.connect(self._ao_clicar_icone)
         layout.addWidget(self.icone_sair)
         self.icones["sair"] = self.icone_sair
 
     def atualizar_estado_login(self, esta_logado: bool, nome_usuario: str = None):
-        """Atualiza o ícone de login e mostra/esconde o nome do usuário."""
         if esta_logado and nome_usuario:
-            # Trocar ícone para o de usuário logado
             caminho = os.path.join(self.caminho_recursos, "smile.png")
             self.icone_login.carregar_icone(caminho)
-            # Mostrar e atualizar nome do usuário
             self.label_nome_usuario.setText(nome_usuario)
-            self.label_nome_usuario.show()  # ✅ Garante que o label apareça
+            self.label_nome_usuario.show()
         else:
-            # Voltar para ícone de login
             caminho = os.path.join(self.caminho_recursos, "log-in.png")
             self.icone_login.carregar_icone(caminho)
-            # Esconder nome do usuário
             self.label_nome_usuario.hide()
 
     def _ao_clicar_icone(self, identificador):
-        """Slot interno para reemitir o sinal do ícone clicado."""
         print(f"📡 GerenciadorIconesEsquerda: Ícone '{identificador}' acionado.")
-        self.icone_clicado.emit(identificador)  # Re-emite o sinal para o consumidor (JanelaPrincipal)
+        self.icone_clicado.emit(identificador)
 
-    # Métodos para atualizar ícones, se necessário (ex: login/logout)
     def atualizar_icone(self, identificador, novo_caminho):
-        """Atualiza a imagem de um ícone existente."""
         if identificador in self.icones:
             self.icones[identificador].carregar_icone(novo_caminho)
         else:
-            print(f"⚠️ GerenciadorIconesEsquerda: Ícone '{identificador}' não encontrado para atualizar.")
+            print(f"⚠️ Ícone '{identificador}' não encontrado.")
 
     def remover_status_sala(self):
-        """Remove o widget de status da sala da barra lateral, se existir."""
         if hasattr(self, 'widget_status_sala') and self.widget_status_sala is not None:
-            layout = self.container.layout()
-            if layout is not None and self.widget_status_sala in layout:
+            layout = self.layout()
+            if layout and self.widget_status_sala in layout:
                 layout.removeWidget(self.widget_status_sala)
             self.widget_status_sala.deleteLater()
             self.widget_status_sala = None
@@ -6248,6 +6375,8 @@ class Planeta:
         print(f"🌍 [DEBUG] Planeta criado: {len(self.poligonos)} polígonos")
         print(f"   Exemplo: chave={list(self.poligonos.keys())[0]}, shape={list(self.poligonos.values())[0].shape}")
         self.geografia, self.capitais_players = definir_geografia(self.poligonos, fator, bioma) # capitais = [(int, int), ...]
+        if len(self.capitais_players) > 24:
+            self.capitais_players = random.sample(self.capitais_players, 24)
         random.shuffle(self.capitais_players)
         self.numero_de_jogadores = len(self.capitais_players)
         biomas_invalidos = {"Ice", "Sea", "Ocean", "Coast", bioma}
@@ -6256,8 +6385,12 @@ class Planeta:
             n for n in self.geografia.nodes()
             if self.geografia.nodes[n]["bioma"] not in biomas_invalidos and n not in capitais_player_set
         ]
-        npn = 27 - len(self.capitais_players)  # Lembrar de evitar npn (países neutros) negativo
-        self.capitais_neutros = random.sample(nodos_validos, npn)
+        npn = 24 - len(self.capitais_players)  # Lembrar de evitar npn (países neutros) negativo
+        npn = min(npn, len(nodos_validos))  # Garante que npn <= len(nodos_validos)
+        print(f"🌍 [DEBUG] Planeta: {len(nodos_validos)} nodos válidos para capitais neutras, solicitados: {npn}")
+        self.capitais_neutros = []
+        if npn > 0:
+            self.capitais_neutros = random.sample(nodos_validos, npn)
         random.shuffle(self.capitais_neutros)
         self.civilizacoes = []
 
@@ -6821,20 +6954,20 @@ class Referencias:
             'Korean', 'Italian', 'German'
         ]
         self.civs_cores = {
-            'Black': (16, 16, 16), 'Midnight Blue': (0, 0, 127), 'Blue': (0, 0, 255),
+            'Midnight Blue': (0, 0, 127), 'Blue': (0, 0, 255),
             'Dark Green': (0, 127, 0), 'Teal': (0, 127, 127), 'Sky Blue': (32, 127, 223),
             'Green': (0, 255, 0), 'Spring Green': (0, 255, 127), 'Cyan': (0, 223, 223),
             'Maroon': (127, 0, 0), 'Purple': (127, 0, 127), 'Violet': (127, 0, 255),
-            'Olive': (127, 127, 0), 'Gray': (127, 127, 127), 'Lavender': (127, 127, 255),
+            'Olive': (127, 127, 0), 'Lavender': (127, 127, 255),
             'Chartreuse': (127, 255, 0), 'Light Green': (127, 223, 127), 'Pale Cyan': (127, 255, 255),
             'Red': (234, 33, 37), 'Rose': (255, 0, 127), 'Magenta': (255, 0, 255),
             'Orange': (223, 127, 32), 'Salmon': (255, 127, 127), 'Orchid': (255, 127, 255),
-            'Yellow': (255, 255, 0), 'Light Yellow': (255, 255, 127), 'White': (250, 255, 253)
+            'Yellow': (255, 255, 0), 'Light Yellow': (255, 255, 127)
         }
 
         self.tons_de_pele = [(245, 212, 205), (212, 160, 147), (163, 106, 95), (101, 61, 53)]
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
 ================================================================================
-✅ Total de 37 arquivos incluídos.
+✅ Total de 40 arquivos incluídos.
 ================================================================================

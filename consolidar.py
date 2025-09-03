@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 
 # ⚙️ CONFIGURAÇÕES
-PROJECT_ROOT = "."                   # Diretório raiz do projeto
-OUTPUT_FILE = "scripts.txt"          # Nome do arquivo de saída
-FILE_EXTENSIONS = {".py"}            # Extensões incluídas no conteúdo
+PROJECT_ROOT = "."                           # Diretório raiz do projeto
+OUTPUT_FILE = "scripts.txt"                  # Nome do arquivo de saída
+FILE_EXTENSIONS = {".py", ".vert", ".frag"}  # Extensões incluídas no conteúdo
 INCLUDE_DIRS = [
     "server",
     "client",

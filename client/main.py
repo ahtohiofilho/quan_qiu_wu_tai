@@ -310,13 +310,6 @@ class JanelaPrincipal(QMainWindow):
 
         print("✅ Transição para partida concluída.")
 
-    def mudar_modo_mapa(self, modo: str):
-        """Recebe o comando do overlay e repassa ao OpenGLWidget"""
-        if hasattr(self, 'opengl_widget') and self.opengl_widget:
-            self.opengl_widget.definir_modo_renderizacao(modo)
-        else:
-            print("⚠️ OpenGLWidget não disponível para mudar modo de mapa")
-
     def _configurar_modo_offline(self, fator, bioma):
         try:
             from shared.world import Mundo
@@ -1134,6 +1127,21 @@ class JanelaPrincipal(QMainWindow):
         print("✅ Transição para partida iniciada com sucesso.")
         print("🟢 [DEBUG] on_partida_iniciada: Execução concluída")
 
+    def mudar_modo_mapa(self, modo: str):
+        """
+        Recebe o comando do OverlayPartida e repassa ao OpenGLWidget.
+        Este método precisa estar aqui porque o OverlayPartida usa 'parent_widget' como referência.
+        """
+        print(f"🔁 [DEBUG] JanelaPrincipal.mudar_modo_mapa chamado com modo='{modo}'")
+
+        if hasattr(self, 'opengl_widget') and self.opengl_widget:
+            if modo in ["fisico", "politico"]:
+                self.opengl_widget.mudar_modo_mapa(modo)
+            else:
+                print(f"❌ Modo desconhecido: {modo}")
+        else:
+            print("❌ [ERRO] opengl_widget não disponível em JanelaPrincipal")
+
     def _mostrar_overlay_sala_espera(self, username: str, max_jogadores: int):
         """
         Mostra o overlay da sala de espera como sobreposição flutuante sobre o OpenGL,
@@ -1502,7 +1510,14 @@ def main():
 
 
 if __name__ == "__main__":
-    # Cria um arquivo session.txt de placeholder para testar o ícone "logado"
+    # 🔥 Ativar suporte a alto DPI ANTES de criar QApplication
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    # (Opcional) Para testar o ícone de login logado
     # with open("session.txt", "w") as f:
     #     f.write("usuario_teste_logado")
-    main()
+
+    main()  # Chama a função principal

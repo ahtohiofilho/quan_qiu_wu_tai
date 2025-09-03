@@ -36,6 +36,14 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # --- Debug e Estado Interno ---
         # Pronto para expansão (ex: modo de depuração, FPS, etc)
 
+    def mudar_modo_mapa(self, modo: str):
+        if modo in ["fisico", "politico"]:
+            self.modo_renderizacao = modo
+            self.update()
+            print(f"✅ [DEBUG] Modo alterado para '{modo}' e update() chamado")
+        else:
+            print(f"❌ [DEBUG] Modo inválido: {modo}")
+
     def definir_modo_renderizacao(self, modo: str):
         """Muda o modo de renderização: 'fisico' ou 'politico'"""
         if modo not in ["fisico", "politico"]:
@@ -62,26 +70,10 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
         # === 2. Compilar Shader Program ===
         try:
-            vertex_source = """
-            #version 330 core
-            uniform mat4 MVP;
-            layout (location = 0) in vec3 aPos;
-            layout (location = 1) in vec3 aColor;
-            out vec3 vColor;
-            void main() {
-                vColor = aColor;
-                gl_Position = MVP * vec4(aPos, 1.0);
-            }
-            """
-
-            fragment_source = """
-            #version 330 core
-            in vec3 vColor;
-            out vec4 FragColor;
-            void main() {
-                FragColor = vec4(vColor, 1.0);
-            }
-            """
+            with open("client/shaders/basic.vert", "r") as f:
+                vertex_source = f.read()
+            with open("client/shaders/basic.frag", "r") as f:
+                fragment_source = f.read()
 
             from client.rendering.shader import ShaderProgram
             self.shader_program = ShaderProgram(vertex_source, fragment_source)
@@ -151,47 +143,61 @@ class MeuOpenGLWidget(QOpenGLWidget):
         # === 2. Modo Jogo: Renderizar o planeta ===
         if self.modulo_jogo and self.mundo and self.shader_program and self.shader_program.program_id:
             try:
-                # Depuração: estado atual
-                print(f"🔧 [DEBUG] paintGL: modulo_jogo={self.modulo_jogo}, mundo={self.mundo is not None}, "
-                      f"shader={self.shader_program is not None}, geometria_necessaria={self._geometria_necessaria}, "
-                      f"modo_renderizacao='{self.modo_renderizacao}'")
+                print(f"🔧 [DEBUG] paintGL: Iniciando renderização. Modo='{self.modo_renderizacao}'")
 
-                # Atualizar aspecto da câmera
+                # --- Atualizar câmera ---
                 if self.width() > 0 and self.height() > 0:
                     self.camera.set_aspect(self.width() / self.height())
+                else:
+                    print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+                    return
 
-                # Calcular matrizes MVP
+                # --- Calcular MVP ---
                 view = self.camera.view_matrix()
                 proj = self.camera.projection_matrix()
-                model = glm.mat4(1.0)  # Pode ser rotacionado (ex: auto-rotação)
+                model = glm.mat4(1.0)
                 mvp = proj * view * model
 
-                # Ativar shader e enviar uniform
+                # --- Ativar shader e enviar uniforms ---
                 self.shader_program.usar()
                 self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
 
-                # ✅ Criar geometria do planeta no contexto ativo, se necessário
+                # --- Criar geometria, se necessário ---
                 if self._geometria_necessaria:
-                    print("🔧 [DEBUG] Criando geometria do planeta em paintGL...")
+                    print("🔧 [DEBUG] Criando geometria do planeta...")
                     self._criar_geometria_planeta()
                     self._geometria_necessaria = False
                     print(f"✅ Geometria criada: {len(self.vaos)} polígonos")
 
-                # --- 🔁 DECISÃO DE ROTEAMENTO DE RENDERIZAÇÃO ---
+                # --- 🔁 ROTEAMENTO DE RENDERIZAÇÃO ---
                 if self.modo_renderizacao == "fisico":
-                    self._renderizar_planeta_fisico()
-                elif self.modo_renderizacao == "politico":
-                    self._renderizar_planeta_politico()
-                else:
-                    # Modo desconhecido: renderiza como físico (fallback seguro)
+                    # Desativar modo político no shader
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", False)
                     self._renderizar_planeta_fisico()
 
-                # Desativar shader
+                elif self.modo_renderizacao == "politico":
+                    # Ativar modo político no shader
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", True)
+                    else:
+                        print("❌ [DEBUG] set_uniform_bool não disponível no shader_program")
+                    self._renderizar_planeta_politico()
+
+                else:
+                    print(f"⚠️ [DEBUG] Modo desconhecido: '{self.modo_renderizacao}'. Usando 'fisico' como fallback.")
+                    if hasattr(self.shader_program, 'set_uniform_bool'):
+                        self.shader_program.set_uniform_bool("modo_politico", False)
+                    self._renderizar_planeta_fisico()
+
+                # --- Limpeza final ---
                 self.shader_program.limpar()
 
             except Exception as e:
-                print(f"❌ Erro ao renderizar o planeta: {e}")
-                # Fundo vermelho para indicar falha crítica
+                print(f"❌ Erro crítico em paintGL: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fundo vermelho para indicar falha
                 gl.glClearColor(0.2, 0.0, 0.0, 1.0)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
@@ -202,15 +208,16 @@ class MeuOpenGLWidget(QOpenGLWidget):
             gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
     def _renderizar_planeta_fisico(self):
-        """Renderiza o planeta usando os polígonos e biomas."""
-        print("🎨 [DEBUG] Iniciando _renderizar_planeta")
+        """Renderiza o planeta no modo físico, usando cores por vértice (biomas, altitude, etc)."""
+        print("🎨 [DEBUG] Iniciando renderização FÍSICA do planeta")
 
         # === 1. Atualizar câmera ===
         if self.width() > 0 and self.height() > 0:
             self.camera.set_aspect(self.width() / self.height())
             print(f"🔧 [DEBUG] Aspecto da câmera atualizado: {self.width()}x{self.height()} → {self.camera.aspect:.3f}")
         else:
-            print("⚠️ [DEBUG] Tamanho do widget inválido para atualizar câmera")
+            print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+            return
 
         # === 2. Calcular MVP ===
         try:
@@ -218,32 +225,35 @@ class MeuOpenGLWidget(QOpenGLWidget):
             proj = self.camera.projection_matrix()
             model = glm.mat4(1.0)
             mvp = proj * view * model
-            print(f"📐 [DEBUG] Matriz MVP calculada. View: pos=({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
+            print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
         except Exception as e:
             print(f"❌ [DEBUG] Falha ao calcular MVP: {e}")
             return
 
-        # === 3. Ativar shader e enviar uniform ===
+        # === 3. Ativar shader e configurar para modo físico ===
         try:
             self.shader_program.usar()
             self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))
-            print("✅ [DEBUG] Shader ativado e MVP enviado")
+            self.shader_program.set_uniform_bool("modo_politico", False)  # 🔵 Modo físico ativo
+            print("✅ [DEBUG] Shader ativado, MVP enviado, modo físico definido")
         except Exception as e:
-            print(f"❌ [DEBUG] Erro ao usar shader ou enviar MVP: {e}")
+            print(f"❌ [DEBUG] Erro ao usar shader ou enviar uniform: {e}")
             return
 
-        # === 4. Renderizar cada polígono ===
+        # === 4. Validar geometria ===
         if not self.vaos:
             print("❌ [DEBUG] self.vaos está vazio! Nenhum VAO para desenhar.")
             return
 
-        print(f"📊 [DEBUG] Iterando {len(self.vaos)} polígonos...")
+        print(f"📊 [DEBUG] Renderizando {len(self.vaos)} polígonos no modo físico...")
+
+        # === 5. Iterar e desenhar cada polígono ===
         for i, (coords, vao) in enumerate(self.vaos.items()):
             try:
-                # Mostrar apenas os primeiros 5 polígonos no log
+                # Log detalhado apenas para os primeiros polígonos
                 if i < 5:
-                    print(
-                        f"   → Polígono {coords}: VAO={vao}, num_vertices={len(self.mundo.planeta.poligonos[coords]) // 3}")
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    print(f"   → Polígono {coords}: VAO={vao}, vértices={num_vertices}")
                 elif i == 5:
                     print("   → (mais polígonos...)")
 
@@ -253,49 +263,122 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
             except Exception as e:
                 print(f"❌ [DEBUG] Erro ao renderizar polígono {coords}: {e}")
-                continue  # Continua com o próximo
+                continue  # Tenta o próximo
 
-        # === 5. Limpeza final ===
+        # === 6. Limpeza final ===
         gl.glBindVertexArray(0)
         self.shader_program.limpar()
-        print("🎨 [DEBUG] Renderização do planeta concluída")
+        print("✅ [DEBUG] Renderização FÍSICA concluída com sucesso")
 
     def _renderizar_planeta_politico(self):
-        """Renderiza o planeta no modo político: cada província com a cor da civilização que a controla."""
+        """Renderiza o planeta no modo político:
+        - Oceano, mar, costa → cinza escuro
+        - Territórios de civilizações → cor da civilização (RGB convertido)
+        - Terra sem dono → cinza claro
+        """
+        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
+
+        # === 1. Validar estado ===
         if not self.mundo or not self.mundo.planeta or not self.shader_program:
             print("❌ [DEBUG] _renderizar_planeta_politico: Dados insuficientes (mundo, planeta ou shader)")
             return
 
-        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
+        # === 2. Atualizar câmera ===
+        if self.width() > 0 and self.height() > 0:
+            self.camera.set_aspect(self.width() / self.height())
+            print(f"🔧 [DEBUG] Aspecto da câmera atualizado: {self.width()}x{self.height()} → {self.camera.aspect:.3f}")
+        else:
+            print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
+            return
 
+        # === 3. Calcular MVP ===
         try:
-            # Iterar por todas as civilizações
-            for civ in self.mundo.civs:
-                # Definir cor do shader com base na cor da civilização
-                cor = civ.cor  # Espera-se que seja uma tupla (r, g, b) em [0, 1]
-                r, g, b = cor[0] / 255.0, cor[1] / 255.0, cor[2] / 255.0
+            view = self.camera.view_matrix()
+            proj = self.camera.projection_matrix()
+            model = glm.mat4(1.0)
+            mvp = proj * view * model
+            print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
+        except Exception as e:
+            print(f"❌ [DEBUG] Falha ao calcular MVP: {e}")
+            return
 
-                # Enviar cor uniforme para o shader
-                self.shader_program.set_uniform_vec3("cor_uniforme", (r, g, b))
+        # === 4. Ativar shader e configurar para modo político ===
+        try:
+            self.shader_program.usar()
+            self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))  # compatível com shader
+            self.shader_program.set_uniform_bool("modo_politico", True)  # 🔵 Ativa modo uniforme
+            print("✅ [DEBUG] Shader ativado, MVP enviado, modo político ativo")
+        except Exception as e:
+            print(f"❌ [DEBUG] Erro ao usar shader ou enviar uniform: {e}")
+            return
 
-                # Renderizar cada província da civilização
+        # === 5. Referências ===
+        G = self.mundo.planeta.geografia
+        desenhadas = set()  # Polígonos já renderizados
+
+        # === 6. Desenhar OCEANOS (prioridade alta) ===
+        cor_oceano = (0.2, 0.2, 0.2)
+        self.shader_program.set_uniform_vec3("cor_uniforme", cor_oceano)
+        print("🌊 [DEBUG] Renderizando oceanos, mares e costas...")
+
+        for coords, dados in G.nodes(data=True):
+            bioma = dados.get("bioma")
+            if bioma in ["Ocean", "Sea", "Coast"] and coords in self.vaos:
+                try:
+                    gl.glBindVertexArray(self.vaos[coords])
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    desenhadas.add(coords)
+                except Exception as e:
+                    print(f"❌ [DEBUG] Erro ao renderizar oceano {coords}: {e}")
+
+        # === 7. Desenhar CIVILIZAÇÕES (tem prioridade sobre terra neutra) ===
+        print(f"🏛️ [DEBUG] Renderizando territórios de {len(self.mundo.civs)} civilizações...")
+        for civ in self.mundo.civs:
+            try:
+                # Converter cor de (0-255) para (0.0-1.0)
+                r, g, b = civ.cor
+                cor_civ = (r / 255.0, g / 255.0, b / 255.0)
+                self.shader_program.set_uniform_vec3("cor_uniforme", cor_civ)
+
+                print(f"   → Renderizando {len(civ.provincias)} províncias de {civ.nome} com cor {cor_civ}")
+
                 for provincia in civ.provincias:
                     coords = provincia.coordenadas
-                    if coords in self.vaos:
-                        vao = self.vaos[coords]
-                        gl.glBindVertexArray(vao)
-                        num_vertices = len(self.mundo.planeta.poligonos[coords])
-                        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
-                    else:
-                        print(f"🟡 [DEBUG] VAO não encontrado para província {coords}")
+                    if coords in self.vaos and coords not in desenhadas:
+                        try:
+                            gl.glBindVertexArray(self.vaos[coords])
+                            num_vertices = len(self.mundo.planeta.poligonos[coords])
+                            gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                            desenhadas.add(coords)
+                        except Exception as e:
+                            print(f"❌ [DEBUG] Erro ao renderizar província {coords} de {civ.nome}: {e}")
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao processar civilização {civ.nome}: {e}")
 
-            # Desativar VAO
-            gl.glBindVertexArray(0)
+        # === 8. Desenhar TERRA NEUTRA (apenas o que sobrou) ===
+        cor_neutra = (0.6, 0.6, 0.6)
+        self.shader_program.set_uniform_vec3("cor_uniforme", cor_neutra)
+        print("🟨 [DEBUG] Renderizando terra neutra...")
 
-            print("✅ [DEBUG] Renderização política concluída")
+        for coords in G.nodes:
+            if coords in desenhadas or coords not in self.vaos:
+                continue
+            try:
+                node_data = G.nodes[coords]
+                bioma = node_data.get("bioma")
+                if bioma not in ["Ocean", "Sea", "Coast"]:  # Apenas terra
+                    gl.glBindVertexArray(self.vaos[coords])
+                    num_vertices = len(self.mundo.planeta.poligonos[coords])
+                    gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
+                    desenhadas.add(coords)
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao renderizar terra neutra {coords}: {e}")
 
-        except Exception as e:
-            print(f"❌ Erro ao renderizar modo político: {e}")
+        # === 9. Limpeza final ===
+        gl.glBindVertexArray(0)
+        self.shader_program.limpar()
+        print("✅ [DEBUG] Renderização POLÍTICA concluída com sucesso")
 
     def _criar_geometria_planeta(self):
         """Gera VAOs/VBOs para todos os polígonos do planeta."""

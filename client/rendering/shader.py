@@ -97,3 +97,19 @@ class ShaderProgram:
         if self.program_id:
             gl.glDeleteProgram(self.program_id)
             self.program_id = None
+
+    def set_uniform_bool(self, nome: str, valor: bool):
+        """Envia um booleano para o shader (como int)."""
+        loc = gl.glGetUniformLocation(self.program_id, nome)
+        if loc != -1:
+            gl.glUniform1i(loc, 1 if valor else 0)
+        else:
+            print(f"❌ Uniform '{nome}' não encontrado!")
+
+    def set_uniform_vec3(self, nome: str, valor: tuple):
+        """Envia um vetor 3D (ex: cor RGB) para o shader."""
+        loc = gl.glGetUniformLocation(self.program_id, nome)
+        if loc != -1:
+            gl.glUniform3f(loc, valor[0], valor[1], valor[2])
+        else:
+            print(f"❌ Uniform '{nome}' não encontrado!")
