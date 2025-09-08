@@ -18,36 +18,58 @@ class Mundo:
         self.planeta = Planeta(fator=fator, bioma=bioma)
         self.civs = []
 
+        # Identificar os 12 pentágonos do poliedro de Goldberg
+        self.pentagonos = self._identificar_pentagonos()
+
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(ref, i, nome, True, capital)
+            civ = Civilizacao(ref, i, nome, True, capital, mundo=self)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(ref, indice, nome, False, capital)
+            civ = Civilizacao(ref, indice, nome, False, capital, mundo=self)
             self.civs.append(civ)
 
-        # Atribuir província inicial usando o ponto_inicial de cada civ
+        # Criar assentamento inicial para cada civilização
         for civ in self.civs:
-            provincia = Assentamento(civ, civ.ponto_inicial)
-            civ.provincias.append(provincia)
+            eh_pentagono = civ.ponto_inicial in self.pentagonos
+            assentamento_inicial = Assentamento(
+                civilizacao=civ,
+                coordenadas=civ.ponto_inicial,
+                indice_parcela=Assentamento.PARCELA_CENTRAL,
+                eh_pentagono=eh_pentagono
+            )
+            civ.assentamentos.append(assentamento_inicial)
 
         # ✅ Inicializa o sistema de turnos
         self.turno = Turno()
 
-        # ✅ Estado visual vinculado ao mundo (evita vazamento entre partidas)
+        # ✅ Estado visual vinculado ao mundo
         self.modo_renderizacao = "fisico"  # Pode ser "fisico" ou "politico"
+
+    def _identificar_pentagonos(self):
+        """
+        Retorna um conjunto com as coordenadas dos 12 pentágonos.
+        Baseado na topologia do icosaedro subdividido: são os tiles com grau 5.
+        """
+        G = self.planeta.geografia
+        pentagonos = {node for node in G.nodes if len(list(G.neighbors(node))) == 5}
+        if len(pentagonos) != 12:
+            # Fallback: usar os 12 menores graus (heurística)
+            graus = sorted(G.nodes, key=lambda n: len(list(G.neighbors(n))))
+            pentagonos = set(graus[:12])
+        return pentagonos
 
     def get_populacao_global(self):
         """
         Retorna a população total do mundo.
         :return: (homens, mulheres, total)
         """
-        homens = sum(p.homens for civ in self.civs for p in civ.provincias)
-        mulheres = sum(p.mulheres for civ in self.civs for p in civ.provincias)
+        homens = sum(a.homens for civ in self.civs for a in civ.assentamentos)
+        mulheres = sum(a.mulheres for civ in self.civs for a in civ.assentamentos)
         total = homens + mulheres
         return homens, mulheres, total
 

@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-07 20:16:18
+Gerado em: 2025-09-08 14:19:18
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -65,8 +65,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── geography.py
 │   ├── planet.py
 │   ├── polygons.py
-│   ├── province.py
 │   ├── references.py
+│   ├── settlement.py
 │   ├── turn.py
 │   └── world.py
 
@@ -3015,11 +3015,13 @@ class JanelaPrincipal(QMainWindow):
                 self.civ_jogador = civ_jogador
                 print(f"🎮 Jogador humano definido: {civ_jogador.nome}")
 
-                # --- 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) ---
-                if civ_jogador.provincias:
-                    provincia_inicial = civ_jogador.provincias[0]
-                    self.opengl_widget.centralizar_em(provincia_inicial.coordenadas)
-                    print(f"📍 Câmera centralizada na província do jogador: {provincia_inicial.coordenadas}")
+                # - 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) -
+                if civ_jogador.assentamentos:  # <-- Agora é 'assentamentos', não 'provincias'
+                    assentamento_inicial = civ_jogador.assentamentos[0]
+                    self.opengl_widget.centralizar_em(assentamento_inicial.coordenadas_tile)  # <-- coordenadas_tile
+                    print(f"📍 Câmera centralizada no assentamento do jogador: {assentamento_inicial.coordenadas_tile}")
+                else:
+                    print("⚠️ [DEBUG] Jogador não tem assentamentos para centralizar.")
 
         except Exception as e:
             print(f"❌ Erro ao criar mundo offline: {e}")
@@ -5282,60 +5284,25 @@ class OpenGLWidget(QOpenGLWidget):
         print("✅ [DEBUG] Renderização FÍSICA concluída com sucesso")
 
     def _renderizar_planeta_politico(self):
-        """Renderiza o planeta no modo político:
-        - Oceano, mar, costa → cinza escuro
-        - Territórios de civilizações → cor da civilização (RGB convertido)
-        - Terra sem dono → cinza claro
-        """
-        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta")
-
-        # === 1. Validar estado ===
+        print("🎨 [DEBUG] Iniciando renderização POLÍTICA do planeta (modo placeholder)")
         if not self.mundo or not self.mundo.planeta or not self.shader_program:
-            print("❌ [DEBUG] _renderizar_planeta_politico: Dados insuficientes (mundo, planeta ou shader)")
+            print("❌ [DEBUG] Dados insuficientes para renderização política")
             return
 
-        # === 2. Atualizar câmera ===
+        # Atualizar câmera
         if self.width() > 0 and self.height() > 0:
             self.camera.set_aspect(self.width() / self.height())
-            print(f"🔧 [DEBUG] Aspecto da câmera atualizado: {self.width()}x{self.height()} → {self.camera.aspect:.3f}")
-        else:
-            print("⚠️ [DEBUG] Tamanho inválido para atualizar câmera")
-            return
 
-        # === 3. Calcular MVP ===
-        try:
-            view = self.camera.view_matrix()
-            proj = self.camera.projection_matrix()
-            model = glm.mat4(1.0)
-            mvp = proj * view * model
-            print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
-        except Exception as e:
-            print(f"❌ [DEBUG] Falha ao calcular MVP: {e}")
-            return
-
-        # === 4. Ativar shader e configurar para modo político ===
-        try:
-            self.shader_program.usar()
-            self.shader_program.set_uniform_mat4("MVP", glm.value_ptr(mvp))  # compatível com shader
-            self.shader_program.set_uniform_bool("modo_politico", True)  # 🔵 Ativa modo uniforme
-            print("✅ [DEBUG] Shader ativado, MVP enviado, modo político ativo")
-        except Exception as e:
-            print(f"❌ [DEBUG] Erro ao usar shader ou enviar uniform: {e}")
-            return
-
-        # === 5. Referências ===
         G = self.mundo.planeta.geografia
-        desenhadas = set()  # Polígonos já renderizados
+        desenhadas = set()
 
-        # === 6. Desenhar OCEANOS (prioridade alta) ===
-        cor_oceano = (0.2, 0.2, 0.2)
-        self.shader_program.set_uniform_vec3("cor_uniforme", cor_oceano)
+        # === 1. Renderizar oceanos, mares e costas ===
         print("🌊 [DEBUG] Renderizando oceanos, mares e costas...")
-
         for coords, dados in G.nodes(data=True):
             bioma = dados.get("bioma")
             if bioma in ["Ocean", "Sea", "Coast"] and coords in self.vaos:
                 try:
+                    self.shader_program.set_uniform_vec3("cor_uniforme", (0.2, 0.2, 0.3))  # Azul escuro acinzentado
                     gl.glBindVertexArray(self.vaos[coords])
                     num_vertices = len(self.mundo.planeta.poligonos[coords])
                     gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
@@ -5343,42 +5310,17 @@ class OpenGLWidget(QOpenGLWidget):
                 except Exception as e:
                     print(f"❌ [DEBUG] Erro ao renderizar oceano {coords}: {e}")
 
-        # === 7. Desenhar CIVILIZAÇÕES (tem prioridade sobre terra neutra) ===
-        print(f"🏛️ [DEBUG] Renderizando territórios de {len(self.mundo.civs)} civilizações...")
-        for civ in self.mundo.civs:
-            try:
-                # Converter cor de (0-255) para (0.0-1.0)
-                r, g, b = civ.cor
-                cor_civ = (r / 255.0, g / 255.0, b / 255.0)
-                self.shader_program.set_uniform_vec3("cor_uniforme", cor_civ)
-
-                print(f"   → Renderizando {len(civ.provincias)} províncias de {civ.nome} com cor {cor_civ}")
-
-                for provincia in civ.provincias:
-                    coords = provincia.coordenadas
-                    if coords in self.vaos and coords not in desenhadas:
-                        try:
-                            gl.glBindVertexArray(self.vaos[coords])
-                            num_vertices = len(self.mundo.planeta.poligonos[coords])
-                            gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
-                            desenhadas.add(coords)
-                        except Exception as e:
-                            print(f"❌ [DEBUG] Erro ao renderizar província {coords} de {civ.nome}: {e}")
-            except Exception as e:
-                print(f"❌ [DEBUG] Erro ao processar civilização {civ.nome}: {e}")
-
-        # === 8. Desenhar TERRA NEUTRA (apenas o que sobrou) ===
+        # === 2. Renderizar terra NEUTRA (sem dono) ===
+        print("🟨 [DEBUG] Renderizando terra neutra...")
         cor_neutra = (0.6, 0.6, 0.6)
         self.shader_program.set_uniform_vec3("cor_uniforme", cor_neutra)
-        print("🟨 [DEBUG] Renderizando terra neutra...")
-
         for coords in G.nodes:
             if coords in desenhadas or coords not in self.vaos:
                 continue
             try:
                 node_data = G.nodes[coords]
                 bioma = node_data.get("bioma")
-                if bioma not in ["Ocean", "Sea", "Coast"]:  # Apenas terra
+                if bioma not in ["Ocean", "Sea", "Coast"]:
                     gl.glBindVertexArray(self.vaos[coords])
                     num_vertices = len(self.mundo.planeta.poligonos[coords])
                     gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, num_vertices)
@@ -5386,10 +5328,15 @@ class OpenGLWidget(QOpenGLWidget):
             except Exception as e:
                 print(f"❌ [DEBUG] Erro ao renderizar terra neutra {coords}: {e}")
 
-        # === 9. Limpeza final ===
+        # === 3. CIVILIZAÇÕES: PLACEHOLDER (sem cor por tile) ===
+        print("🟡 [DEBUG] Renderização política: CIVILIZAÇÕES em modo placeholder (sem cor por tile)")
+        # Futuro: desenhar bandeiras ou marcadores nos assentamentos
+        # Por enquanto: nada aqui
+
+        # === 4. Limpeza final ===
         gl.glBindVertexArray(0)
         self.shader_program.limpar()
-        print("✅ [DEBUG] Renderização POLÍTICA concluída com sucesso")
+        print("✅ [DEBUG] Renderização POLÍTICA concluída (placeholder ativo)")
 
     def _criar_geometria_planeta(self):
         """Gera VAOs/VBOs para todos os polígonos do planeta."""
@@ -7050,10 +6997,24 @@ def definir_geografia(poligonos, fator, bioma):
 # shared/civilization.py
 import random
 from shared.flags import bandeira
+from shared.settlement import Assentamento
 
 
 class Civilizacao:
-    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None):
+    """
+    Representa uma civilização no mundo.
+    Possui nome, cultura, cor, bandeira, ponto inicial e uma lista de assentamentos.
+    """
+
+    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None):
+        """
+        :param ref: Instância de Referencias (culturas, cores, etc)
+        :param indice: Índice para seleção de cultura e cor
+        :param nome: Nome da civilização (ex: "Red", "Blue")
+        :param player: Se é uma civilização controlada por jogador
+        :param ponto_inicial: Coordenadas (q, r) do assentamento inicial
+        :param mundo: Referência ao mundo (para verificar se o tile é pentágono)
+        """
         self.player = player
         self.nome = nome
         self.cultura = ref.culturas[indice % len(ref.culturas)]
@@ -7061,79 +7022,25 @@ class Civilizacao:
         self.modalidade_bandeira = random.randint(0, 82)
         self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira)
         self.ponto_inicial = ponto_inicial
-        self.provincias = []
+        self.assentamentos = []
         self.unidades = []
         self.eh_jogador_local = False
-
-        # ❌ Removido: população agora é por província
+        self.mundo = mundo  # Para consulta de pentágonos
 
     def get_populacao_total(self):
-        """Calcula a população total somando todas as províncias."""
-        return sum(p.get_populacao_total() for p in self.provincias)
+        """Calcula a população total somando todos os assentamentos."""
+        return sum(a.get_populacao_total() for a in self.assentamentos)
 
     def get_genero_counts(self):
         """Retorna o total de homens e mulheres na civilização."""
-        homens = sum(p.homens for p in self.provincias)
-        mulheres = sum(p.mulheres for p in self.provincias)
+        homens = sum(a.homens for a in self.assentamentos)
+        mulheres = sum(a.mulheres for a in self.assentamentos)
         return homens, mulheres
 
     def __repr__(self):
         h, m = self.get_genero_counts()
-        return (f"Civilização('{self.nome}', províncias={len(self.provincias)}, "
+        return (f"Civilização('{self.nome}', assentamentos={len(self.assentamentos)}, "
                 f"H={h}, M={m}, Total={h + m})")
-
-================================================================================
-📄 shared/province.py
-================================================================================
-# shared/province.py
-from shared.naming import formar_nome
-
-
-class Provincia:
-    def __init__(self, civilizacao, coordenadas):
-        self.civilizacao = civilizacao
-        self.coordenadas = coordenadas
-        self.nome = formar_nome(civilizacao.cultura)
-
-        # 👉 População inicial: 1 homem e 1 mulher por província
-        self.homens = 1
-        self.mulheres = 1
-
-    def get_populacao_total(self):
-        """Retorna a população total da província."""
-        return self.homens + self.mulheres
-
-    def aumentar_populacao(self):
-        """
-        Aumenta a população da província com base no número de mulheres.
-        Regra: nascimentos = número de mulheres na província.
-        Distribuição:
-        - O gênero menos numeroso recebe o extra em caso de ímpar.
-        - Se iguais, mulheres têm preferência.
-        """
-        nascimentos = self.mulheres
-        if nascimentos == 0:
-            return
-
-        if self.homens < self.mulheres:
-            # Homens são minoria → recebem a maioria
-            homens_novos = (nascimentos + 1) // 2
-            mulheres_novas = nascimentos // 2
-        elif self.mulheres < self.homens:
-            # Mulheres são minoria → recebem a maioria
-            mulheres_novas = (nascimentos + 1) // 2
-            homens_novos = nascimentos // 2
-        else:
-            # Quantidades iguais → mulheres levam o extra
-            mulheres_novas = (nascimentos + 1) // 2
-            homens_novos = nascimentos // 2
-
-        self.homens += homens_novos
-        self.mulheres += mulheres_novas
-
-    def __repr__(self):
-        return (f"Provincia({self.nome}, H={self.homens}, M={self.mulheres}, "
-                f"Total={self.get_populacao_total()})")
 
 ================================================================================
 📄 shared/world.py
@@ -7144,8 +7051,8 @@ from uuid import uuid4
 from shared.references import Referencias
 from shared.planet import Planeta
 from shared.civilization import Civilizacao
-from shared.province import Provincia
-from shared.turn import Turno  # ✅ Importa a classe Turno
+from shared.settlement import Assentamento
+from shared.turn import Turno
 
 
 class Mundo:
@@ -7158,36 +7065,58 @@ class Mundo:
         self.planeta = Planeta(fator=fator, bioma=bioma)
         self.civs = []
 
+        # Identificar os 12 pentágonos do poliedro de Goldberg
+        self.pentagonos = self._identificar_pentagonos()
+
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(ref, i, nome, True, capital)
+            civ = Civilizacao(ref, i, nome, True, capital, mundo=self)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(ref, indice, nome, False, capital)
+            civ = Civilizacao(ref, indice, nome, False, capital, mundo=self)
             self.civs.append(civ)
 
-        # Atribuir província inicial usando o ponto_inicial de cada civ
+        # Criar assentamento inicial para cada civilização
         for civ in self.civs:
-            provincia = Provincia(civ, civ.ponto_inicial)
-            civ.provincias.append(provincia)
+            eh_pentagono = civ.ponto_inicial in self.pentagonos
+            assentamento_inicial = Assentamento(
+                civilizacao=civ,
+                coordenadas=civ.ponto_inicial,
+                indice_parcela=Assentamento.PARCELA_CENTRAL,
+                eh_pentagono=eh_pentagono
+            )
+            civ.assentamentos.append(assentamento_inicial)
 
         # ✅ Inicializa o sistema de turnos
         self.turno = Turno()
 
-        # ✅ Estado visual vinculado ao mundo (evita vazamento entre partidas)
+        # ✅ Estado visual vinculado ao mundo
         self.modo_renderizacao = "fisico"  # Pode ser "fisico" ou "politico"
+
+    def _identificar_pentagonos(self):
+        """
+        Retorna um conjunto com as coordenadas dos 12 pentágonos.
+        Baseado na topologia do icosaedro subdividido: são os tiles com grau 5.
+        """
+        G = self.planeta.geografia
+        pentagonos = {node for node in G.nodes if len(list(G.neighbors(node))) == 5}
+        if len(pentagonos) != 12:
+            # Fallback: usar os 12 menores graus (heurística)
+            graus = sorted(G.nodes, key=lambda n: len(list(G.neighbors(n))))
+            pentagonos = set(graus[:12])
+        return pentagonos
 
     def get_populacao_global(self):
         """
         Retorna a população total do mundo.
         :return: (homens, mulheres, total)
         """
-        homens = sum(p.homens for civ in self.civs for p in civ.provincias)
-        mulheres = sum(p.mulheres for civ in self.civs for p in civ.provincias)
+        homens = sum(a.homens for civ in self.civs for a in civ.assentamentos)
+        mulheres = sum(a.mulheres for civ in self.civs for a in civ.assentamentos)
         total = homens + mulheres
         return homens, mulheres, total
 
@@ -7195,6 +7124,123 @@ class Mundo:
         h, m, t = self.get_populacao_global()
         return (f"<Mundo(id={self.id_mundo}, turno={self.turno.numero}, "
                 f"Civilizações={len(self.civs)}, População={t} → H={h}, M={m})>")
+
+================================================================================
+📄 shared/settlement.py
+================================================================================
+# shared/settlement.py
+from math import ceil
+from shared.naming import formar_nome
+
+
+class Assentamento:
+    """
+    Representa um assentamento, unidade básica de ocupação no mundo.
+
+    Originalmente associado diretamente a um tile (coordenadas),
+    agora pode representar uma parcela específica dentro de um tile:
+    - Parcela central (índice 0)
+    - Parcelas periféricas (1–5 em pentágonos, 1–6 em hexágonos)
+
+    Para compatibilidade, se não for especificado, assume-se parcela central de um hexágono.
+    """
+
+    PARCELA_CENTRAL = 0
+    PARCELAS_PERIFERICAS_HEXA = [1, 2, 3, 4, 5, 6]
+    PARCELAS_PERIFERICAS_PENTA = [1, 2, 3, 4, 5]
+
+    def __init__(self, civilizacao, coordenadas, indice_parcela=None, eh_pentagono=False):
+        """
+        Inicializa um assentamento.
+
+        :param civilizacao: Civilização dona do assentamento
+        :param coordenadas: Coordenadas do tile (q, r) no grid hexagonal
+        :param indice_parcela: Índice da parcela no tile (0 a 6, ou 0 a 5 se pentágono)
+                               Se None, usa a parcela central (0)
+        :param eh_pentagono: Se True, o tile é um pentágono (5 periféricos)
+        """
+        self.civilizacao = civilizacao
+        self.coordenadas_tile = coordenadas
+        self.eh_pentagono = eh_pentagono
+
+        # Definir número máximo de parcelas
+        max_parcelas = 5 if eh_pentagono else 6
+
+        # Se não especificado, usar parcela central
+        if indice_parcela is None:
+            self.indice_parcela = self.PARCELA_CENTRAL
+        else:
+            if indice_parcela < 0 or indice_parcela > max_parcelas:
+                raise ValueError(
+                    f"Índice de parcela {indice_parcela} inválido para "
+                    f"{'pentágono' if eh_pentagono else 'hexágono'} em {coordenadas}. "
+                    f"Permitido: 0–{max_parcelas}"
+                )
+            self.indice_parcela = indice_parcela
+
+        # Nome da cultura
+        self.nome = formar_nome(civilizacao.cultura)
+
+        # População inicial: 1 homem, 1 mulher
+        self.homens = 1
+        self.mulheres = 1
+
+    def get_populacao_total(self):
+        """Retorna a população total do assentamento."""
+        return self.homens + self.mulheres
+
+    def aumentar_populacao(self):
+        """
+        Aplica:
+        1. Mortalidade: 5% da população morre (arredondado para baixo: // 20)
+        2. Nascimentos: 20% das mulheres geram filhos (arredondado para cima)
+        3. Distribuição de gênero tende a equilibrar.
+        """
+        # --- 1. MORTALIDADE (5% de cada gênero, arredondado para baixo) ---
+        mortos_homens = self.homens // 20
+        mortos_mulheres = self.mulheres // 20
+
+        self.homens = self.homens - mortos_homens
+        self.mulheres = self.mulheres - mortos_mulheres
+
+        # Se o assentamento foi extinto, não há crescimento
+        if self.get_populacao_total() == 0:
+            return
+
+        # --- 2. NASCIMENTOS: 20% das mulheres (arredondado para cima) ---
+        total_mulheres = self.mulheres
+        nascimentos = int(ceil(total_mulheres * 0.20))
+
+        # --- 3. DISTRIBUIÇÃO DE GÊNERO (tende a equilibrar) ---
+        if self.homens < self.mulheres:
+            homens_novos = (nascimentos + 1) // 2
+            mulheres_novas = nascimentos // 2
+        elif self.mulheres < self.homens:
+            mulheres_novas = (nascimentos + 1) // 2
+            homens_novos = nascimentos // 2
+        else:
+            homens_novos = (nascimentos + 1) // 2
+            mulheres_novas = nascimentos // 2
+
+        self.homens += homens_novos
+        self.mulheres += mulheres_novas
+
+    def eh_parcela_central(self):
+        """Verifica se o assentamento está na parcela central do tile."""
+        return self.indice_parcela == self.PARCELA_CENTRAL
+
+    def eh_parcela_periferica(self):
+        """Verifica se o assentamento está em uma parcela periférica."""
+        return self.indice_parcela >= 1
+
+    def get_tipo_tile(self):
+        """Retorna o tipo do tile: 'pentágono' ou 'hexágono'."""
+        return "pentágono" if self.eh_pentagono else "hexágono"
+
+    def __repr__(self):
+        return (f"Assentamento({self.nome}, Tile={self.coordenadas_tile}, "
+                f"Parcela={self.indice_parcela}, Tipo={self.get_tipo_tile()}, "
+                f"H={self.homens}, M={self.mulheres}, Total={self.get_populacao_total()})")
 
 ================================================================================
 📄 shared/turn.py

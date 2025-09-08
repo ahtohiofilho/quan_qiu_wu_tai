@@ -2,10 +2,9 @@
 """
 Módulo: shared/turn.py
 Responsável por gerenciar a lógica de cada turno do jogo.
-Atualmente: crescimento populacional por província.
+Atualmente: crescimento populacional por assentamento.
 Futuramente: pode incluir produção, eventos, IA, etc.
 """
-
 
 class Turno:
     def __init__(self):
@@ -22,13 +21,13 @@ class Turno:
         self.numero += 1
         total_nascimentos = 0
 
-        # Aplicar crescimento populacional em todas as províncias
+        # ✅ AGORA USA `assentamentos`, NÃO `provincias`
         for civ in mundo.civs:
-            for provincia in civ.provincias:
-                antes = provincia.get_populacao_total()
-                provincia.aumentar_populacao()
-                depois = provincia.get_populacao_total()
-                total_nascimentos += (depois - antes)
+            for assentamento in civ.assentamentos:
+                antes = assentamento.get_populacao_total()
+                assentamento.aumentar_populacao()
+                depois = assentamento.get_populacao_total()
+                total_nascimentos += max(0, depois - antes)  # Evita valores negativos
 
         # Registrar no histórico
         registro = {
@@ -38,9 +37,7 @@ class Turno:
         }
         self.historico.append(registro)
 
-        # Log opcional (pode ser removido ou controlado por DEBUG)
-        # from shared.debug import DEBUG  # opcional
-        # if DEBUG:
+        # Log visual
         print(f"\n--- Turno {self.numero} concluído ---")
         print(f"📊 +{total_nascimentos} nascimentos | População total: {registro['populacao_total']}")
 

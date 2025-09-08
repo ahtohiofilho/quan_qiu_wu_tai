@@ -347,11 +347,13 @@ class JanelaPrincipal(QMainWindow):
                 self.civ_jogador = civ_jogador
                 print(f"🎮 Jogador humano definido: {civ_jogador.nome}")
 
-                # --- 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) ---
-                if civ_jogador.provincias:
-                    provincia_inicial = civ_jogador.provincias[0]
-                    self.opengl_widget.centralizar_em(provincia_inicial.coordenadas)
-                    print(f"📍 Câmera centralizada na província do jogador: {provincia_inicial.coordenadas}")
+                # - 🔹 CENTRALIZAR CÂMERA NA PROVÍNCIA INICIAL (DEPOIS DO RESET) -
+                if civ_jogador.assentamentos:  # <-- Agora é 'assentamentos', não 'provincias'
+                    assentamento_inicial = civ_jogador.assentamentos[0]
+                    self.opengl_widget.centralizar_em(assentamento_inicial.coordenadas_tile)  # <-- coordenadas_tile
+                    print(f"📍 Câmera centralizada no assentamento do jogador: {assentamento_inicial.coordenadas_tile}")
+                else:
+                    print("⚠️ [DEBUG] Jogador não tem assentamentos para centralizar.")
 
         except Exception as e:
             print(f"❌ Erro ao criar mundo offline: {e}")

@@ -8,8 +8,11 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/rendering/opengl_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/opengl_widget.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/info.txt" beforeDir="false" afterPath="$PROJECT_DIR$/info.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/civilization.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/civilization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/settlement.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/settlement.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/turn.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/turn.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/world.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/world.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
