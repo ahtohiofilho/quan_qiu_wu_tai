@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from client.rendering.camera import Camera
 
 
-class MeuOpenGLWidget(QOpenGLWidget):
+class OpenGLWidget(QOpenGLWidget):
     def __init__(self):
         super().__init__()
 

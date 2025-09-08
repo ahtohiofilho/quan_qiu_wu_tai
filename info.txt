@@ -22,10 +22,14 @@ python server/app.py
 # Iniciar o simulador de players
 python start.py simulador
 
-def produtividade_agricola(unidades):
-    if unidades <= ponto_otimo:
-        return unidades * fator_base
-    else:
-        excesso = unidades - ponto_otimo
-        retorno_extra = excesso * fator_base * penalidade_marginal
-        return (ponto_otimo * fator_base) + retorno_extra
+equação da nutrição: x = oferta / demanda; y = coeficiente de nutrição
+    n = 2
+    m = 3
+    y = 1 + (n / m) * (1 - (1 / (1 + (m / (n + m)) * (x - 1))))
+
+def valor_oferta(quantidades, base=2.0):
+    # equação do minério
+    # ordena do maior para o menor
+    quantidades_ordenadas = sorted(quantidades, reverse=True)
+    # soma aplicando a fórmula
+    return sum(q * (base ** (p)) for p, q in enumerate(quantidades_ordenadas))

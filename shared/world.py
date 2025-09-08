@@ -4,8 +4,8 @@ from uuid import uuid4
 from shared.references import Referencias
 from shared.planet import Planeta
 from shared.civilization import Civilizacao
-from shared.province import Provincia
-from shared.turn import Turno  # ✅ Importa a classe Turno
+from shared.settlement import Assentamento
+from shared.turn import Turno
 
 
 class Mundo:
@@ -32,7 +32,7 @@ class Mundo:
 
         # Atribuir província inicial usando o ponto_inicial de cada civ
         for civ in self.civs:
-            provincia = Provincia(civ, civ.ponto_inicial)
+            provincia = Assentamento(civ, civ.ponto_inicial)
             civ.provincias.append(provincia)
 
         # ✅ Inicializa o sistema de turnos

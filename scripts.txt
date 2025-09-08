@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-03 13:19:29
+Gerado em: 2025-09-07 20:16:18
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -2681,7 +2681,7 @@ from client.components.icon_manager import GerenciadorIconesEsquerda
 from client.dialogs.auth_dialog import DialogoAutenticacao
 from client.widgets.waiting_room_overlay import WaitingRoomOverlay
 from client.widgets.offline_setup_overlay import OfflineSetupOverlay
-from client.rendering.opengl_widget import MeuOpenGLWidget
+from client.rendering.opengl_widget import OpenGLWidget
 from client.widgets.match_overlay import OverlayPartida
 
 # --- Componente Janela Principal ---
@@ -2781,7 +2781,7 @@ class JanelaPrincipal(QMainWindow):
         container_layout.setSpacing(0)
 
         # Widget OpenGL
-        self.opengl_widget = MeuOpenGLWidget()
+        self.opengl_widget = OpenGLWidget()
         self.opengl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         container_layout.addWidget(self.opengl_widget)
 
@@ -3413,10 +3413,12 @@ class JanelaPrincipal(QMainWindow):
         try:
             if hasattr(self, 'overlay_partida') and self.overlay_partida is not None:
                 self.overlay_partida.hide()
-                # Opcional: se quiser deletar completamente
-                # self.overlay_partida.setParent(None)
-                # self.overlay_partida.deleteLater()
-                print("✅ [DEBUG] _limpeza_local: overlay_partida escondido.")
+                # ✅ Resetar exibição do overlay
+                if hasattr(self.overlay_partida, 'label_turno'):
+                    self.overlay_partida.label_turno.setText("Turno: 0")
+                if hasattr(self.overlay_partida, 'label_pop'):
+                    self.overlay_partida.label_pop.setText("Pop: 0")
+                print("✅ [DEBUG] _limpeza_local: overlay_partida escondido e resetado.")
             else:
                 print("🟡 [DEBUG] _limpeza_local: overlay_partida já removido ou inexistente")
         except Exception as e:
@@ -3439,7 +3441,10 @@ class JanelaPrincipal(QMainWindow):
 
         # 6. Resetar estado de partida
         self.partida_iniciada = False
+        self.mundo = None  # ✅ Nova linha
+        self.civ_jogador = None  # ✅ Nova linha
         print("✅ [DEBUG] _limpeza_local: Estado de partida resetado (partida_iniciada = False)")
+        print("✅ [DEBUG] _limpeza_local: Referências ao mundo e jogador local limpas.")
 
         print("✅ [DEBUG] _limpeza_local: Limpeza concluída com sucesso.")
 
@@ -5014,7 +5019,7 @@ from PyQt6.QtCore import Qt
 from client.rendering.camera import Camera
 
 
-class MeuOpenGLWidget(QOpenGLWidget):
+class OpenGLWidget(QOpenGLWidget):
     def __init__(self):
         super().__init__()
 
@@ -5444,14 +5449,26 @@ class MeuOpenGLWidget(QOpenGLWidget):
         print(f"✅ Geometria do planeta criada: {len(self.vaos)} polígonos")
 
     def carregar_mundo(self, mundo):
+        """
+        Carrega um novo mundo e prepara o OpenGL para renderizá-lo.
+        Reseta estado visual e força recriação da geometria.
+        """
         self.mundo = mundo
         self.modulo_jogo = True
         self.vaos.clear()
         self.vbos.clear()
         self._geometria_necessaria = True
+
+        # ✅ Resetar câmera com base no fator do novo mundo
         self.camera.resetar(mundo.planeta.fator)
+
+        # ✅ Sincronizar modo de renderização com o mundo
+        self.modo_renderizacao = mundo.modo_renderizacao
+
+        # ✅ Forçar redraw
         self.update()
-        print(f"🌍 Mundo carregado. Geometria será criada em paintGL.")
+
+        print(f"🌍 Mundo carregado. Modo: {self.modo_renderizacao}, Geometria será criada em paintGL.")
 
     def ativar_modo_jogo(self):
         self.modulo_jogo = True
@@ -5469,10 +5486,10 @@ class MeuOpenGLWidget(QOpenGLWidget):
 
     def centralizar_em(self, coords):
         """
-        Centraliza a câmera em um hexágono do mapa.
-        Usa a média dos vértices 3D do polígono como centro.
-
-        :param coords: tupla (q, r) da coordenada axial
+        Reposiciona a câmera para olhar diretamente para um hexágono.
+        - Mantém o centro orbital em (0,0,0)
+        - Usa a mesma distância definida em `resetar()`
+        - Ajusta theta e phi para focar no tile
         """
         if not hasattr(self, 'mundo') or not self.mundo:
             print(f"❌ [centralizar_em] Mundo não carregado. Não é possível centralizar em {coords}")
@@ -5484,31 +5501,44 @@ class MeuOpenGLWidget(QOpenGLWidget):
             print(f"❌ [centralizar_em] Coordenada {coords} não encontrada em poligonos.")
             return
 
-        # === 1. Obter vértices 3D do polígono ===
-        vertices = planeta.poligonos[coords]  # List[List[float]] → [[x,y,z], ...]
-
-        # === 2. Verificar se há vértices (correção do erro) ===
-        if len(vertices) == 0:  # ✅ Correto para listas
+        vertices = planeta.poligonos[coords]
+        if len(vertices) == 0:
             print(f"❌ [centralizar_em] Polígono {coords} sem vértices.")
             return
 
-        # === 3. Calcular centro como média dos vértices ===
-        soma_x = soma_y = soma_z = 0.0
-        for v in vertices:
-            soma_x += v[0]
-            soma_y += v[1]
-            soma_z += v[2]
+        # === 1. Calcular centro 3D do hexágono ===
+        centro = [sum(v[i] for v in vertices) / len(vertices) for i in range(3)]
+        cx, cy, cz = float(centro[0]), float(centro[1]), float(centro[2])
 
-        n = len(vertices)
-        centro_3d = (soma_x / n, soma_y / n, soma_z / n)
+        # Normalizar para direção unitária
+        norm = (cx ** 2 + cy ** 2 + cz ** 2) ** 0.5
+        if norm == 0:
+            print("❌ [centralizar_em] Norma zero, impossível calcular direção.")
+            return
 
-        # === 4. Atualizar câmera ===
-        x, y, z = centro_3d
-        self.camera.center = glm.vec3(x, y, z)
-        self.camera.update_position()
+        dx, dy, dz = cx / norm, cy / norm, cz / norm
+
+        # === 2. Calcular theta e phi ===
+        import math
+        theta = math.atan2(dz, dx)  # Rotação horizontal
+        phi = math.acos(dy)  # Rotação vertical
+
+        # === 3. Calcular distância igual à do `resetar()` ===
+        fator = self.mundo.planeta.fator
+        raio_planeta = fator / (2 * math.sin(math.pi / 5))  # mesma fórmula de resetar()
+        distance = 3.0 * raio_planeta  # mesma distância
+
+        # === 4. Aplicar na câmera ===
+        camera = self.camera
+        camera.center = glm.vec3(0.0, 0.0, 0.0)  # orbita ainda é no centro do planeta
+        camera.distance = distance
+        camera.theta = theta
+        camera.phi = phi
+        camera.update_position()
         self.update()
 
-        print(f"📍 Câmera centralizada em {coords} → ({x:.2f}, {y:.2f}, {z:.2f})")
+        print(f"📍 Câmera reposicionada para olhar {coords}")
+        print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")
 
 ================================================================================
 📄 client/rendering/shader.py
@@ -7147,6 +7177,9 @@ class Mundo:
 
         # ✅ Inicializa o sistema de turnos
         self.turno = Turno()
+
+        # ✅ Estado visual vinculado ao mundo (evita vazamento entre partidas)
+        self.modo_renderizacao = "fisico"  # Pode ser "fisico" ou "politico"
 
     def get_populacao_global(self):
         """

@@ -13,7 +13,7 @@ from client.components.icon_manager import GerenciadorIconesEsquerda
 from client.dialogs.auth_dialog import DialogoAutenticacao
 from client.widgets.waiting_room_overlay import WaitingRoomOverlay
 from client.widgets.offline_setup_overlay import OfflineSetupOverlay
-from client.rendering.opengl_widget import MeuOpenGLWidget
+from client.rendering.opengl_widget import OpenGLWidget
 from client.widgets.match_overlay import OverlayPartida
 
 # --- Componente Janela Principal ---
@@ -113,7 +113,7 @@ class JanelaPrincipal(QMainWindow):
         container_layout.setSpacing(0)
 
         # Widget OpenGL
-        self.opengl_widget = MeuOpenGLWidget()
+        self.opengl_widget = OpenGLWidget()
         self.opengl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         container_layout.addWidget(self.opengl_widget)
 
