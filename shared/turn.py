@@ -2,9 +2,13 @@
 """
 Módulo: shared/turn.py
 Responsável por gerenciar a lógica de cada turno do jogo.
-Atualmente: crescimento populacional por assentamento.
+Atualmente:
+- Atualiza a produtividade dos assentamentos
+- Aplica crescimento populacional
+
 Futuramente: pode incluir produção, eventos, IA, etc.
 """
+
 
 class Turno:
     def __init__(self):
@@ -14,14 +18,23 @@ class Turno:
     def avancar(self, mundo):
         """
         Avança um turno no mundo.
-        Aplica todas as regras do jogo: crescimento populacional, etc.
+        Aplica:
+        1. Atualização da produtividade dos assentamentos
+        2. Crescimento populacional
+        3. Registro de estatísticas
 
         :param mundo: Instância de Mundo
         """
         self.numero += 1
         total_nascimentos = 0
 
-        # ✅ AGORA USA `assentamentos`, NÃO `provincias`
+        # --- 1. ATUALIZAR PRODUTIVIDADE DE TODOS OS ASSENTAMENTOS ---
+        # Útil se houver mudanças ambientais, expansão, etc.
+        for civ in mundo.civs:
+            for assentamento in civ.assentamentos:
+                assentamento.atualizar_produtividade(mundo)
+
+        # --- 2. APLICAR CRESCIMENTO POPULACIONAL ---
         for civ in mundo.civs:
             for assentamento in civ.assentamentos:
                 antes = assentamento.get_populacao_total()
@@ -29,17 +42,18 @@ class Turno:
                 depois = assentamento.get_populacao_total()
                 total_nascimentos += max(0, depois - antes)  # Evita valores negativos
 
-        # Registrar no histórico
+        # --- 3. REGISTRAR NO HISTÓRICO ---
+        populacao_total = mundo.get_populacao_global()[2]
         registro = {
             "turno": self.numero,
             "nascimentos": total_nascimentos,
-            "populacao_total": mundo.get_populacao_global()[2]
+            "populacao_total": populacao_total
         }
         self.historico.append(registro)
 
-        # Log visual
+        # --- 4. LOG VISUAL ---
         print(f"\n--- Turno {self.numero} concluído ---")
-        print(f"📊 +{total_nascimentos} nascimentos | População total: {registro['populacao_total']}")
+        print(f"📊 +{total_nascimentos} nascimentos | População total: {populacao_total}")
 
     def resetar(self):
         """Reseta o contador de turnos (sem afetar o mundo)."""

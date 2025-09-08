@@ -8,6 +8,7 @@ class Civilizacao:
     """
     Representa uma civilização no mundo.
     Possui nome, cultura, cor, bandeira, ponto inicial e uma lista de assentamentos.
+    A produção total é a soma da produtividade de todos os assentamentos.
     """
 
     def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None):
@@ -29,7 +30,7 @@ class Civilizacao:
         self.assentamentos = []
         self.unidades = []
         self.eh_jogador_local = False
-        self.mundo = mundo  # Para consulta de pentágonos
+        self.mundo = mundo  # Para consulta de pentágonos ou outros dados globais
 
     def get_populacao_total(self):
         """Calcula a população total somando todos os assentamentos."""
@@ -41,7 +42,12 @@ class Civilizacao:
         mulheres = sum(a.mulheres for a in self.assentamentos)
         return homens, mulheres
 
+    def get_producao_total(self):
+        """Retorna a produção total da civilização."""
+        return sum(a.get_producao_real() for a in self.assentamentos)
+
     def __repr__(self):
         h, m = self.get_genero_counts()
+        producao = self.get_producao_total()
         return (f"Civilização('{self.nome}', assentamentos={len(self.assentamentos)}, "
-                f"H={h}, M={m}, Total={h + m})")
+                f"Prod={producao:.1f}, H={h}, M={m}, Total={h + m})")

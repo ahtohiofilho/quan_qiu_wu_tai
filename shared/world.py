@@ -9,13 +9,26 @@ from shared.turn import Turno
 
 
 class Mundo:
+    """
+    Representa o estado completo do mundo no jogo.
+    Inclui:
+    - Planeta (geografia, biomas, polígonos)
+    - Civilizações e seus assentamentos
+    - Sistema de turnos
+    - Estado de renderização (físico ou político)
+    """
+
     def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
         self.id_mundo = id_mundo or str(uuid4())
-        ref = Referencias()
-        random.shuffle(ref.culturas)
-        lista_de_cores = list(ref.civs_cores.keys())
+        self.ref = Referencias()
+        random.shuffle(self.ref.culturas)
+        lista_de_cores = list(self.ref.civs_cores.keys())
         random.shuffle(lista_de_cores)
+
+        # Criar o planeta com base no fator e bioma
         self.planeta = Planeta(fator=fator, bioma=bioma)
+
+        # Lista de civilizações
         self.civs = []
 
         # Identificar os 12 pentágonos do poliedro de Goldberg
@@ -24,13 +37,13 @@ class Mundo:
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(ref, i, nome, True, capital, mundo=self)
+            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(ref, indice, nome, False, capital, mundo=self)
+            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self)
             self.civs.append(civ)
 
         # Criar assentamento inicial para cada civilização
@@ -42,6 +55,8 @@ class Mundo:
                 indice_parcela=Assentamento.PARCELA_CENTRAL,
                 eh_pentagono=eh_pentagono
             )
+            # 🔥 Atualiza a produtividade com base no mundo
+            assentamento_inicial.atualizar_produtividade(self)
             civ.assentamentos.append(assentamento_inicial)
 
         # ✅ Inicializa o sistema de turnos

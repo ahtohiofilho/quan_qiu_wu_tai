@@ -26,14 +26,14 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
         self.produtividade_base = {
-            'Meadow':     1.0,
-            'Forest':     0.9,
-            'Hills':      0.7,
-            'Savanna':    0.6,
-            'Coast':      0.5,
-            'Desert':     0.3,
-            'Mountains':  0.2,
-            'Ice':        0.0,
-            'Ocean':      0.0,
-            'Sea':        0.0
+            'Meadow':     6.0,
+            'Forest':     5.0,
+            'Hills':      4.0,
+            'Savanna':    3.0,
+            'Coast':      3.0,
+            'Desert':     2.0,
+            'Sea':        2.0,
+            'Mountains':  1.0,
+            'Ocean':      1.0,
+            'Ice':        0.0
         }

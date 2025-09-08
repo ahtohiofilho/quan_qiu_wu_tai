@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-08 14:19:18
+Gerado em: 2025-09-08 19:45:23
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -4292,6 +4292,12 @@ class OverlayPartida(QWidget):
         self.label_pop.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_pop)
 
+        # --- Display de Produção ---  🔻 ADICIONADO AQUI
+        self.label_prod = QLabel("Produção: 0.0")
+        self.label_prod.setStyleSheet("font-size: 13px; color: #a0ffa0; font-weight: bold;")
+        self.label_prod.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_prod)
+
         # --- Botão de Avançar Turno ---
         self.botao_turno = QPushButton("⏭️ Avançar Turno")
         self.botao_turno.setStyleSheet(self._estilo_botao("#4CAF50", "#45a049", "#3d8b40"))
@@ -4354,13 +4360,23 @@ class OverlayPartida(QWidget):
             print(f"❌ Erro ao avançar turno: {e}")
 
     def atualizar_display(self, mundo):
-        """Atualiza os labels de turno e população."""
+        """Atualiza os labels de turno, população e produção."""
         self.label_turno.setText(f"Turno: {mundo.turno.numero}")
         h, m, t = mundo.get_populacao_global()
         pop_formatada = self._formatar_numero(t)
         homens_formatado = self._formatar_numero(h)
         mulheres_formatado = self._formatar_numero(m)
         self.label_pop.setText(f"Pop: {pop_formatada} (H={homens_formatado}, M={mulheres_formatado})")
+
+        # 🔥 Produção da civilização do jogador
+        janela_principal = self._obter_janela_principal()
+        civ_jogador = janela_principal.civ_jogador if janela_principal else None
+        if civ_jogador and hasattr(civ_jogador, 'get_producao_total'):
+            print(f"ℹ️ Produção da civilização do jogador: {civ_jogador.get_producao_total():.1f}")
+            producao = civ_jogador.get_producao_total()
+            self.label_prod.setText(f"Produção: {producao:.1f}")
+        else:
+            self.label_prod.setText("Produção: 0.0")
 
     def conectar_mundo(self, mundo):
         """Conecta o overlay a um mundo e atualiza o display inicial."""
@@ -7004,6 +7020,7 @@ class Civilizacao:
     """
     Representa uma civilização no mundo.
     Possui nome, cultura, cor, bandeira, ponto inicial e uma lista de assentamentos.
+    A produção total é a soma da produtividade de todos os assentamentos.
     """
 
     def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None):
@@ -7025,7 +7042,7 @@ class Civilizacao:
         self.assentamentos = []
         self.unidades = []
         self.eh_jogador_local = False
-        self.mundo = mundo  # Para consulta de pentágonos
+        self.mundo = mundo  # Para consulta de pentágonos ou outros dados globais
 
     def get_populacao_total(self):
         """Calcula a população total somando todos os assentamentos."""
@@ -7037,10 +7054,19 @@ class Civilizacao:
         mulheres = sum(a.mulheres for a in self.assentamentos)
         return homens, mulheres
 
+    def get_producao_total(self):
+        """
+        Retorna a produção total da civilização.
+        Soma a produtividade de todos os assentamentos.
+        :return: float
+        """
+        return sum(a.produtividade for a in self.assentamentos)
+
     def __repr__(self):
         h, m = self.get_genero_counts()
+        producao = self.get_producao_total()
         return (f"Civilização('{self.nome}', assentamentos={len(self.assentamentos)}, "
-                f"H={h}, M={m}, Total={h + m})")
+                f"Prod={producao:.1f}, H={h}, M={m}, Total={h + m})")
 
 ================================================================================
 📄 shared/world.py
@@ -7056,13 +7082,26 @@ from shared.turn import Turno
 
 
 class Mundo:
+    """
+    Representa o estado completo do mundo no jogo.
+    Inclui:
+    - Planeta (geografia, biomas, polígonos)
+    - Civilizações e seus assentamentos
+    - Sistema de turnos
+    - Estado de renderização (físico ou político)
+    """
+
     def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
         self.id_mundo = id_mundo or str(uuid4())
         ref = Referencias()
         random.shuffle(ref.culturas)
         lista_de_cores = list(ref.civs_cores.keys())
         random.shuffle(lista_de_cores)
+
+        # Criar o planeta com base no fator e bioma
         self.planeta = Planeta(fator=fator, bioma=bioma)
+
+        # Lista de civilizações
         self.civs = []
 
         # Identificar os 12 pentágonos do poliedro de Goldberg
@@ -7089,6 +7128,8 @@ class Mundo:
                 indice_parcela=Assentamento.PARCELA_CENTRAL,
                 eh_pentagono=eh_pentagono
             )
+            # 🔥 Atualiza a produtividade com base no mundo
+            assentamento_inicial.atualizar_produtividade(self)
             civ.assentamentos.append(assentamento_inicial)
 
         # ✅ Inicializa o sistema de turnos
@@ -7137,17 +7178,26 @@ class Assentamento:
     """
     Representa um assentamento, unidade básica de ocupação no mundo.
 
-    Originalmente associado diretamente a um tile (coordenadas),
-    agora pode representar uma parcela específica dentro de um tile:
+    Cada assentamento ocupa uma parcela específica dentro de um tile:
     - Parcela central (índice 0)
     - Parcelas periféricas (1–5 em pentágonos, 1–6 em hexágonos)
+
+    A produtividade da parcela depende do bioma:
+    - Central: produtividade do bioma do tile
+    - Periférica: média entre bioma local e do vizinho na direção da parcela
 
     Para compatibilidade, se não for especificado, assume-se parcela central de um hexágono.
     """
 
     PARCELA_CENTRAL = 0
-    PARCELAS_PERIFERICAS_HEXA = [1, 2, 3, 4, 5, 6]
-    PARCELAS_PERIFERICAS_PENTA = [1, 2, 3, 4, 5]
+    DIRECOES_HEX = [
+        (+1, 0),   # 0
+        (+1, -1),  # 1
+        (0, -1),   # 2
+        (-1, 0),   # 3
+        (-1, +1),  # 4
+        (0, +1)    # 5
+    ]  # Direções axiais para os 6 vizinhos
 
     def __init__(self, civilizacao, coordenadas, indice_parcela=None, eh_pentagono=False):
         """
@@ -7163,14 +7213,12 @@ class Assentamento:
         self.coordenadas_tile = coordenadas
         self.eh_pentagono = eh_pentagono
 
-        # Definir número máximo de parcelas
+        # Validar e definir índice da parcela
         max_parcelas = 5 if eh_pentagono else 6
-
-        # Se não especificado, usar parcela central
         if indice_parcela is None:
             self.indice_parcela = self.PARCELA_CENTRAL
         else:
-            if indice_parcela < 0 or indice_parcela > max_parcelas:
+            if not (0 <= indice_parcela <= max_parcelas):
                 raise ValueError(
                     f"Índice de parcela {indice_parcela} inválido para "
                     f"{'pentágono' if eh_pentagono else 'hexágono'} em {coordenadas}. "
@@ -7181,9 +7229,12 @@ class Assentamento:
         # Nome da cultura
         self.nome = formar_nome(civilizacao.cultura)
 
-        # População inicial: 1 homem, 1 mulher
+        # População inicial
         self.homens = 1
         self.mulheres = 1
+
+        # Produtividade da parcela (inicializada como 0; será calculada depois)
+        self.produtividade = 0.0
 
     def get_populacao_total(self):
         """Retorna a população total do assentamento."""
@@ -7191,27 +7242,25 @@ class Assentamento:
 
     def aumentar_populacao(self):
         """
-        Aplica:
+        Aplica crescimento populacional:
         1. Mortalidade: 5% da população morre (arredondado para baixo: // 20)
         2. Nascimentos: 20% das mulheres geram filhos (arredondado para cima)
         3. Distribuição de gênero tende a equilibrar.
         """
-        # --- 1. MORTALIDADE (5% de cada gênero, arredondado para baixo) ---
+        # --- 1. MORTALIDADE ---
         mortos_homens = self.homens // 20
         mortos_mulheres = self.mulheres // 20
+        self.homens = max(0, self.homens - mortos_homens)
+        self.mulheres = max(0, self.mulheres - mortos_mulheres)
 
-        self.homens = self.homens - mortos_homens
-        self.mulheres = self.mulheres - mortos_mulheres
-
-        # Se o assentamento foi extinto, não há crescimento
+        # Se extinto, não há crescimento
         if self.get_populacao_total() == 0:
             return
 
-        # --- 2. NASCIMENTOS: 20% das mulheres (arredondado para cima) ---
-        total_mulheres = self.mulheres
-        nascimentos = int(ceil(total_mulheres * 0.20))
+        # --- 2. NASCIMENTOS ---
+        nascimentos = int(ceil(self.mulheres * 0.20))
 
-        # --- 3. DISTRIBUIÇÃO DE GÊNERO (tende a equilibrar) ---
+        # --- 3. DISTRIBUIÇÃO DE GÊNERO ---
         if self.homens < self.mulheres:
             homens_novos = (nascimentos + 1) // 2
             mulheres_novas = nascimentos // 2
@@ -7237,9 +7286,86 @@ class Assentamento:
         """Retorna o tipo do tile: 'pentágono' ou 'hexágono'."""
         return "pentágono" if self.eh_pentagono else "hexágono"
 
+    @staticmethod
+    def calcular_produtividade_parcela(mundo, tile, indice_parcela, eh_pentagono=False):
+        """
+        Calcula o coeficiente de produção de uma parcela.
+        - Central: produtividade do bioma do tile
+        - Periférica: média entre bioma local e do vizinho na direção da parcela
+
+        Usa a topologia real da geografia (grafo NetworkX) com direções explícitas.
+
+        :param mundo: Instância de Mundo
+        :param tile: Coordenadas (q, r) do tile
+        :param indice_parcela: Índice da parcela (0 a 6)
+        :param eh_pentagono: Se o tile é pentágono (opcional; detectado automaticamente)
+        :return: float (0.0 a 6.0)
+        """
+        G = mundo.planeta.geografia
+        ref = mundo.civs[0].cultura.ref  # Referencias (produtividade_base)
+        prod_base = ref.produtividade_base
+
+        # Bioma do tile atual
+        try:
+            bioma_local = G.nodes[tile]['bioma']
+            prod_local = prod_base.get(bioma_local, 0.0)
+        except KeyError:
+            return 0.0
+
+        # 1. Parcela central
+        if indice_parcela == Assentamento.PARCELA_CENTRAL:
+            return prod_local
+
+        # 2. Detectar se é pentágono (se não foi passado)
+        if eh_pentagono is False:
+            grau = len(list(G.neighbors(tile)))
+            eh_pentagono = (grau == 5)
+
+        # 3. Obter vizinhos ordenados por direção
+        vizinhos_com_direcao = []
+        for vizinho in G.neighbors(tile):
+            direcao = G[tile][vizinho].get('direcao')
+            if direcao:
+                vizinhos_com_direcao.append((direcao, vizinho))
+
+        # Ordenar por direção alfabética (ex: N1, N2, ..., S1, S2, ...)
+        # Isso garante uma ordem estável e previsível
+        vizinhos_com_direcao.sort(key=lambda x: x[0])
+
+        vizinhos = [v for _, v in vizinhos_com_direcao]
+
+        # 4. Verificar se o índice da parcela é válido
+        max_parcelas = 5 if eh_pentagono else 6
+        if indice_parcela > max_parcelas:
+            return 0.0  # Inválido
+
+        # Ajustar índice: parcelas periféricas 1–5/6 → índices 0–4/5 na lista
+        idx_vizinho = (indice_parcela - 1) % len(vizinhos)  # Evita erro se houver menos vizinhos
+
+        try:
+            vizinho = vizinhos[idx_vizinho]
+            bioma_vizinho = G.nodes[vizinho]['bioma']
+            prod_vizinho = prod_base.get(bioma_vizinho, 0.0)
+            return (prod_local + prod_vizinho) / 2.0
+        except (IndexError, KeyError):
+            return prod_local / 2.0  # Fallback seguro
+
+    def atualizar_produtividade(self, mundo):
+        """
+        Atualiza a produtividade do assentamento com base no mundo atual.
+        Chamado ao criar ou ao avançar turno.
+        """
+        self.produtividade = self.calcular_produtividade_parcela(
+            mundo,
+            self.coordenadas_tile,
+            self.indice_parcela,
+            self.eh_pentagono
+        )
+
     def __repr__(self):
         return (f"Assentamento({self.nome}, Tile={self.coordenadas_tile}, "
                 f"Parcela={self.indice_parcela}, Tipo={self.get_tipo_tile()}, "
+                f"Prod={self.produtividade:.1f}, "
                 f"H={self.homens}, M={self.mulheres}, Total={self.get_populacao_total()})")
 
 ================================================================================
@@ -7249,7 +7375,10 @@ class Assentamento:
 """
 Módulo: shared/turn.py
 Responsável por gerenciar a lógica de cada turno do jogo.
-Atualmente: crescimento populacional por província.
+Atualmente:
+- Atualiza a produtividade dos assentamentos
+- Aplica crescimento populacional
+
 Futuramente: pode incluir produção, eventos, IA, etc.
 """
 
@@ -7262,34 +7391,42 @@ class Turno:
     def avancar(self, mundo):
         """
         Avança um turno no mundo.
-        Aplica todas as regras do jogo: crescimento populacional, etc.
+        Aplica:
+        1. Atualização da produtividade dos assentamentos
+        2. Crescimento populacional
+        3. Registro de estatísticas
 
         :param mundo: Instância de Mundo
         """
         self.numero += 1
         total_nascimentos = 0
 
-        # Aplicar crescimento populacional em todas as províncias
+        # --- 1. ATUALIZAR PRODUTIVIDADE DE TODOS OS ASSENTAMENTOS ---
+        # Útil se houver mudanças ambientais, expansão, etc.
         for civ in mundo.civs:
-            for provincia in civ.provincias:
-                antes = provincia.get_populacao_total()
-                provincia.aumentar_populacao()
-                depois = provincia.get_populacao_total()
-                total_nascimentos += (depois - antes)
+            for assentamento in civ.assentamentos:
+                assentamento.atualizar_produtividade(mundo)
 
-        # Registrar no histórico
+        # --- 2. APLICAR CRESCIMENTO POPULACIONAL ---
+        for civ in mundo.civs:
+            for assentamento in civ.assentamentos:
+                antes = assentamento.get_populacao_total()
+                assentamento.aumentar_populacao()
+                depois = assentamento.get_populacao_total()
+                total_nascimentos += max(0, depois - antes)  # Evita valores negativos
+
+        # --- 3. REGISTRAR NO HISTÓRICO ---
+        populacao_total = mundo.get_populacao_global()[2]
         registro = {
             "turno": self.numero,
             "nascimentos": total_nascimentos,
-            "populacao_total": mundo.get_populacao_global()[2]
+            "populacao_total": populacao_total
         }
         self.historico.append(registro)
 
-        # Log opcional (pode ser removido ou controlado por DEBUG)
-        # from shared.debug import DEBUG  # opcional
-        # if DEBUG:
+        # --- 4. LOG VISUAL ---
         print(f"\n--- Turno {self.numero} concluído ---")
-        print(f"📊 +{total_nascimentos} nascimentos | População total: {registro['populacao_total']}")
+        print(f"📊 +{total_nascimentos} nascimentos | População total: {populacao_total}")
 
     def resetar(self):
         """Reseta o contador de turnos (sem afetar o mundo)."""
@@ -7335,16 +7472,16 @@ class Referencias:
         self.tons_de_cabelo = [(209, 195, 2), (140, 106, 0), (99, 55, 26), (52, 48, 47)]
 
         self.produtividade_base = {
-            'Meadow':     1.0,
-            'Forest':     0.9,
-            'Hills':      0.7,
-            'Savanna':    0.6,
-            'Coast':      0.5,
-            'Desert':     0.3,
-            'Mountains':  0.2,
-            'Ice':        0.0,
-            'Ocean':      0.0,
-            'Sea':        0.0
+            'Meadow':     6.0,
+            'Forest':     5.0,
+            'Hills':      4.0,
+            'Savanna':    3.0,
+            'Coast':      3.0,
+            'Desert':     2.0,
+            'Sea':        2.0,
+            'Mountains':  1.0,
+            'Ocean':      1.0,
+            'Ice':        0.0
         }
 
 

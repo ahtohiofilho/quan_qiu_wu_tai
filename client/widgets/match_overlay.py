@@ -55,6 +55,12 @@ class OverlayPartida(QWidget):
         self.label_pop.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label_pop)
 
+        # --- Display de Produção ---  🔻 ADICIONADO AQUI
+        self.label_prod = QLabel("Produção: 0.0")
+        self.label_prod.setStyleSheet("font-size: 13px; color: #a0ffa0; font-weight: bold;")
+        self.label_prod.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label_prod)
+
         # --- Botão de Avançar Turno ---
         self.botao_turno = QPushButton("⏭️ Avançar Turno")
         self.botao_turno.setStyleSheet(self._estilo_botao("#4CAF50", "#45a049", "#3d8b40"))
@@ -117,13 +123,23 @@ class OverlayPartida(QWidget):
             print(f"❌ Erro ao avançar turno: {e}")
 
     def atualizar_display(self, mundo):
-        """Atualiza os labels de turno e população."""
+        """Atualiza os labels de turno, população e produção."""
         self.label_turno.setText(f"Turno: {mundo.turno.numero}")
         h, m, t = mundo.get_populacao_global()
         pop_formatada = self._formatar_numero(t)
         homens_formatado = self._formatar_numero(h)
         mulheres_formatado = self._formatar_numero(m)
         self.label_pop.setText(f"Pop: {pop_formatada} (H={homens_formatado}, M={mulheres_formatado})")
+
+        # 🔥 Produção da civilização do jogador
+        janela_principal = self._obter_janela_principal()
+        civ_jogador = janela_principal.civ_jogador if janela_principal else None
+        if civ_jogador and hasattr(civ_jogador, 'get_producao_total'):
+            print(f"ℹ️ Produção da civilização do jogador: {civ_jogador.get_producao_total():.1f}")
+            producao = civ_jogador.get_producao_total()
+            self.label_prod.setText(f"Produção: {producao:.1f}")
+        else:
+            self.label_prod.setText("Produção: 0.0")
 
     def conectar_mundo(self, mundo):
         """Conecta o overlay a um mundo e atualiza o display inicial."""
