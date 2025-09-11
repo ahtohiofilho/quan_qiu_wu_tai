@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-08 19:45:23
+Gerado em: 2025-09-10 21:46:10
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -62,6 +62,7 @@ Conteúdo dos scripts principais reunidos.
 │   └── main.py
 ├── shared
 │   ├── civilization.py
+│   ├── economy.py
 │   ├── geography.py
 │   ├── planet.py
 │   ├── polygons.py
@@ -7055,12 +7056,8 @@ class Civilizacao:
         return homens, mulheres
 
     def get_producao_total(self):
-        """
-        Retorna a produção total da civilização.
-        Soma a produtividade de todos os assentamentos.
-        :return: float
-        """
-        return sum(a.produtividade for a in self.assentamentos)
+        """Retorna a produção total da civilização."""
+        return sum(a.get_producao_real() for a in self.assentamentos)
 
     def __repr__(self):
         h, m = self.get_genero_counts()
@@ -7093,9 +7090,9 @@ class Mundo:
 
     def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
         self.id_mundo = id_mundo or str(uuid4())
-        ref = Referencias()
-        random.shuffle(ref.culturas)
-        lista_de_cores = list(ref.civs_cores.keys())
+        self.ref = Referencias()
+        random.shuffle(self.ref.culturas)
+        lista_de_cores = list(self.ref.civs_cores.keys())
         random.shuffle(lista_de_cores)
 
         # Criar o planeta com base no fator e bioma
@@ -7110,13 +7107,13 @@ class Mundo:
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(ref, i, nome, True, capital, mundo=self)
+            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(ref, indice, nome, False, capital, mundo=self)
+            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self)
             self.civs.append(civ)
 
         # Criar assentamento inicial para cada civilização
@@ -7172,6 +7169,7 @@ class Mundo:
 # shared/settlement.py
 from math import ceil
 from shared.naming import formar_nome
+from shared.economy import Economia
 
 
 class Assentamento:
@@ -7182,22 +7180,13 @@ class Assentamento:
     - Parcela central (índice 0)
     - Parcelas periféricas (1–5 em pentágonos, 1–6 em hexágonos)
 
-    A produtividade da parcela depende do bioma:
-    - Central: produtividade do bioma do tile
-    - Periférica: média entre bioma local e do vizinho na direção da parcela
-
-    Para compatibilidade, se não for especificado, assume-se parcela central de um hexágono.
+    A produção real depende de:
+    - Coeficiente do bioma (calculado por tile)
+    - População (homens e mulheres)
+    - Fator de gênero: homens = 4, mulheres = 2 (unidades de trabalho)
     """
 
     PARCELA_CENTRAL = 0
-    DIRECOES_HEX = [
-        (+1, 0),   # 0
-        (+1, -1),  # 1
-        (0, -1),   # 2
-        (-1, 0),   # 3
-        (-1, +1),  # 4
-        (0, +1)    # 5
-    ]  # Direções axiais para os 6 vizinhos
 
     def __init__(self, civilizacao, coordenadas, indice_parcela=None, eh_pentagono=False):
         """
@@ -7209,6 +7198,7 @@ class Assentamento:
                                Se None, usa a parcela central (0)
         :param eh_pentagono: Se True, o tile é um pentágono (5 periféricos)
         """
+        # --- DADOS BÁSICOS ---
         self.civilizacao = civilizacao
         self.coordenadas_tile = coordenadas
         self.eh_pentagono = eh_pentagono
@@ -7229,12 +7219,23 @@ class Assentamento:
         # Nome da cultura
         self.nome = formar_nome(civilizacao.cultura)
 
-        # População inicial
+        # --- POPULAÇÃO INICIAL ---
         self.homens = 1
         self.mulheres = 1
 
-        # Produtividade da parcela (inicializada como 0; será calculada depois)
-        self.produtividade = 0.0
+        # --- PRODUTIVIDADE (GEOPRÓXIMA) ---
+        self.coef_produtividade = 0.0  # Será calculado com base no bioma
+
+        # --- ECONOMIA LOCAL ---
+        self.estoque_alimentos = 0.0  # Alimentos armazenados localmente
+        self.taxa_consumo = 1.0  # Demanda base: unidades por pessoa por turno
+        self.fator_consumo_local = 1.0  # Multiplier: quanto % da demanda será consumido (0.0 a 1.5+)
+        self.coef_nutricao = 1.0  # Calculado como sqrt(consumo_efetivo / demanda)
+        self.producao_bruta = 0.0  # Cache: produção antes de ajuste por nutrição
+
+        # --- PLACEHOLDERS FUTUROS (opcional) ---
+        # self.armazenamento_maximo = 50.0  # Pode crescer com tecnologia
+        # self.politica_local = "padrao"    # Ex: "racionamento", "abastecimento"
 
     def get_populacao_total(self):
         """Retorna a população total do assentamento."""
@@ -7302,8 +7303,7 @@ class Assentamento:
         :return: float (0.0 a 6.0)
         """
         G = mundo.planeta.geografia
-        ref = mundo.civs[0].cultura.ref  # Referencias (produtividade_base)
-        prod_base = ref.produtividade_base
+        prod_base = mundo.ref.produtividade_base
 
         # Bioma do tile atual
         try:
@@ -7329,9 +7329,7 @@ class Assentamento:
                 vizinhos_com_direcao.append((direcao, vizinho))
 
         # Ordenar por direção alfabética (ex: N1, N2, ..., S1, S2, ...)
-        # Isso garante uma ordem estável e previsível
         vizinhos_com_direcao.sort(key=lambda x: x[0])
-
         vizinhos = [v for _, v in vizinhos_com_direcao]
 
         # 4. Verificar se o índice da parcela é válido
@@ -7352,21 +7350,71 @@ class Assentamento:
 
     def atualizar_produtividade(self, mundo):
         """
-        Atualiza a produtividade do assentamento com base no mundo atual.
+        Atualiza o coeficiente de produtividade do assentamento com base no mundo atual.
         Chamado ao criar ou ao avançar turno.
         """
-        self.produtividade = self.calcular_produtividade_parcela(
+        self.coef_produtividade = self.calcular_produtividade_parcela(
             mundo,
             self.coordenadas_tile,
             self.indice_parcela,
             self.eh_pentagono
         )
 
+    def get_producao_real(self):
+        """
+        Calcula a produção real do assentamento com base em:
+        - Coeficiente de produtividade do bioma
+        - População (homens e mulheres)
+        - Coeficiente de nutrição local (afeta eficiência)
+        - Coeficientes futuros (tecnologia, políticas)
+
+        Fórmula:
+            produção = coef_produtividade × coef_nutricao × trabalho_total
+        """
+        if self.coef_produtividade == 0.0:
+            return 0.0
+
+        # --- Trabalho ---
+        trabalho_homens = self.homens * 4
+        trabalho_mulheres = 0  # Padrão: mulheres são reprodutoras
+        trabalho_total = trabalho_homens + trabalho_mulheres
+
+        # --- Coeficientes econômicos locais ---
+        # Já calculado no turno: self.coef_nutricao = sqrt((produção + estoque) / demanda)
+        coef_nutricao = self.coef_nutricao
+
+        # Futuro: pode vir de tecnologia, edifício ou política local
+        coef_eficiencia_tecnica = 1.0
+
+        # --- Cálculo final ---
+        return self.coef_produtividade * coef_nutricao * coef_eficiencia_tecnica * trabalho_total
+
+    def get_producao_bruta(self):
+        """
+        Produção sem ajustes (antes de aplicar nutrição ou eficiência).
+        Usada para cálculo de consumo e exibição na UI.
+        """
+        if self.coef_produtividade == 0.0:
+            return 0.0
+
+        trabalho_homens = self.homens * 4
+        trabalho_mulheres = 0
+        trabalho_total = trabalho_homens + trabalho_mulheres
+
+        return self.coef_produtividade * trabalho_total
+
     def __repr__(self):
-        return (f"Assentamento({self.nome}, Tile={self.coordenadas_tile}, "
-                f"Parcela={self.indice_parcela}, Tipo={self.get_tipo_tile()}, "
-                f"Prod={self.produtividade:.1f}, "
-                f"H={self.homens}, M={self.mulheres}, Total={self.get_populacao_total()})")
+        return (f"Assentamento({self.nome}, "
+                f"Tile={self.coordenadas_tile}, "
+                f"Parcela={self.indice_parcela}, "
+                f"Tipo={self.get_tipo_tile()}, "
+                f"Coef={self.coef_produtividade:.1f}, "
+                f"Prod={self.get_producao_real():.1f} "
+                f"(Bruta={self.producao_bruta:.1f}), "
+                f"Nut={self.coef_nutricao:.2f}, "
+                f"Estoque={self.estoque_alimentos:.1f}, "
+                f"H={self.homens}, M={self.mulheres}, "
+                f"Total={self.get_populacao_total()})")
 
 ================================================================================
 📄 shared/turn.py
@@ -7375,12 +7423,16 @@ class Assentamento:
 """
 Módulo: shared/turn.py
 Responsável por gerenciar a lógica de cada turno do jogo.
-Atualmente:
-- Atualiza a produtividade dos assentamentos
-- Aplica crescimento populacional
+Agora inclui:
+1. Atualização da produtividade (geográfica)
+2. Cálculo econômico por assentamento: produção, consumo, nutrição, estoque
+3. Crescimento populacional
+4. Registro de estatísticas
 
-Futuramente: pode incluir produção, eventos, IA, etc.
+Futuramente: eventos, comércio, tecnologia, etc.
 """
+
+import math
 
 
 class Turno:
@@ -7392,30 +7444,63 @@ class Turno:
         """
         Avança um turno no mundo.
         Aplica:
-        1. Atualização da produtividade dos assentamentos
-        2. Crescimento populacional
-        3. Registro de estatísticas
+        1. Atualização da produtividade dos assentamentos (bioma)
+        2. Cálculo econômico local: produção, consumo, nutrição, estoque
+        3. Crescimento populacional
+        4. Registro de estatísticas
 
         :param mundo: Instância de Mundo
         """
         self.numero += 1
         total_nascimentos = 0
 
-        # --- 1. ATUALIZAR PRODUTIVIDADE DE TODOS OS ASSENTAMENTOS ---
-        # Útil se houver mudanças ambientais, expansão, etc.
+        # --- 1. ATUALIZAR PRODUTIVIDADE GEOGRÁFICA ---
         for civ in mundo.civs:
             for assentamento in civ.assentamentos:
                 assentamento.atualizar_produtividade(mundo)
 
-        # --- 2. APLICAR CRESCIMENTO POPULACIONAL ---
+        # --- 2. CÁLCULO ECONÔMICO POR ASSENTAMENTO ---
+        for civ in mundo.civs:
+            for assentamento in civ.assentamentos:
+                # Atualizar produção bruta (sem ajustes)
+                producao_bruta = assentamento.get_producao_bruta()
+                assentamento.producao_bruta = producao_bruta
+
+                populacao = assentamento.get_populacao_total()
+
+                # Se o assentamento está vazio, pula cálculos
+                if populacao == 0:
+                    assentamento.coef_nutricao = 1.0
+                    continue
+
+                # --- CÁLCULO DE NUTRIÇÃO BASEADO EM CONSUMO EFETIVO ---
+                # x = consumo_efetivo / demanda, onde:
+                # - demanda = população × taxa_consumo
+                # - consumo_efetivo = min(planejado, disponível)
+                # - coef_nutricao = sqrt(x), limitado entre 0.1 e 2.0
+
+                demanda = populacao * assentamento.taxa_consumo
+                consumo_planejado = demanda * assentamento.fator_consumo_local
+                disponivel = producao_bruta + assentamento.estoque_alimentos
+                consumo_efetivo = min(consumo_planejado, disponivel)
+                x = consumo_efetivo / demanda if demanda > 0 else 0.0
+
+                # Coeficiente de nutrição: y = sqrt(x)
+                coef_nutricao = math.sqrt(x)
+                assentamento.coef_nutricao = max(0.1, min(coef_nutricao, 2.0))  # [0.1, 2.0]
+
+                # Atualizar estoque após consumo
+                assentamento.estoque_alimentos = disponivel - consumo_efetivo
+
+        # --- 3. CRESCIMENTO POPULACIONAL ---
         for civ in mundo.civs:
             for assentamento in civ.assentamentos:
                 antes = assentamento.get_populacao_total()
                 assentamento.aumentar_populacao()
                 depois = assentamento.get_populacao_total()
-                total_nascimentos += max(0, depois - antes)  # Evita valores negativos
+                total_nascimentos += max(0, depois - antes)
 
-        # --- 3. REGISTRAR NO HISTÓRICO ---
+        # --- 4. REGISTRAR NO HISTÓRICO ---
         populacao_total = mundo.get_populacao_global()[2]
         registro = {
             "turno": self.numero,
@@ -7424,7 +7509,7 @@ class Turno:
         }
         self.historico.append(registro)
 
-        # --- 4. LOG VISUAL ---
+        # --- 5. LOG VISUAL ---
         print(f"\n--- Turno {self.numero} concluído ---")
         print(f"📊 +{total_nascimentos} nascimentos | População total: {populacao_total}")
 
@@ -7440,6 +7525,76 @@ class Turno:
 
     def __repr__(self):
         return f"<Turno {self.numero} | Histórico: {len(self.historico)} turnos>"
+
+================================================================================
+📄 shared/economy.py
+================================================================================
+# shared/economy.py
+import math
+
+class Economia:
+    """
+    Módulo centralizado para cálculos econômicos de uma civilização.
+    Responsabilidades:
+    - Cálculo do coeficiente de nutrição
+    - Gestão de produção, consumo e estoque
+    - Aplicação de efeitos econômicos na produtividade
+    """
+
+    @staticmethod
+    def calcular_producao_real(
+            coef_produtividade: float,
+            homens: int,
+            mulheres: int,
+            coef_nutricao: float = 1.0,
+            coef_eficiencia_tecnica: float = 1.0,
+            fator_mulheres: float = 0.0
+    ) -> float:
+        """
+        Calcula a produção real com base em população, produtividade e coeficientes.
+        """
+        trabalho_homens = homens * 4
+        trabalho_mulheres = mulheres * fator_mulheres
+        trabalho_total = trabalho_homens + trabalho_mulheres
+
+        return coef_produtividade * coef_nutricao * coef_eficiencia_tecnica * trabalho_total
+
+    @staticmethod
+    def calcular_coeficiente_nutricao(x: float) -> float:
+        """
+        Calcula o coeficiente de nutrição com base na razão oferta/demanda.
+        Usa y = sqrt(x).
+        """
+        return math.sqrt(x)
+
+    @staticmethod
+    def calcular_demanda_alimentos(populacao: float, taxa_consumo: float) -> float:
+        """Retorna a demanda total de alimentos."""
+        return populacao * taxa_consumo
+
+    @staticmethod
+    def calcular_fluxo_alimentos(
+        producao_bruta: float,
+        estoque_atual: float,
+        demanda: float
+    ) -> dict:
+        """
+        Calcula consumo efetivo e novo estoque.
+        Retorna um dicionário com os resultados.
+        """
+        disponivel = producao_bruta + estoque_atual
+        consumo_efetivo = min(demanda, disponivel)
+        novo_estoque = disponivel - consumo_efetivo
+        razao_oferta_demanda = disponivel / demanda if demanda > 0 else 0.0
+
+        return {
+            "disponivel": disponivel,
+            "demanda": demanda,
+            "consumo": consumo_efetivo,
+            "estoque_final": novo_estoque,
+            "x": razao_oferta_demanda,
+            "coef_nutricao": Economia.calcular_coeficiente_nutricao(razao_oferta_demanda)
+        }
 
 ================================================================================
 📄 shared/references.py
@@ -7486,5 +7641,5 @@ class Referencias:
 
 
 ================================================================================
-✅ Total de 41 arquivos incluídos.
+✅ Total de 42 arquivos incluídos.
 ================================================================================

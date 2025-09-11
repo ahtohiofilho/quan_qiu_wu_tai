@@ -1,6 +1,7 @@
 # shared/settlement.py
 from math import ceil
 from shared.naming import formar_nome
+from shared.economy import Economia
 
 
 class Assentamento:
@@ -29,6 +30,7 @@ class Assentamento:
                                Se None, usa a parcela central (0)
         :param eh_pentagono: Se True, o tile é um pentágono (5 periféricos)
         """
+        # --- DADOS BÁSICOS ---
         self.civilizacao = civilizacao
         self.coordenadas_tile = coordenadas
         self.eh_pentagono = eh_pentagono
@@ -49,17 +51,23 @@ class Assentamento:
         # Nome da cultura
         self.nome = formar_nome(civilizacao.cultura)
 
-        # População inicial
+        # --- POPULAÇÃO INICIAL ---
         self.homens = 1
         self.mulheres = 1
 
-        # ✅ Coeficiente de produtividade do bioma (ex: 6.0 para Meadow)
-        # Será atualizado ao criar e ao avançar turno
-        self.coef_produtividade = 0.0
+        # --- PRODUTIVIDADE (GEOPRÓXIMA) ---
+        self.coef_produtividade = 0.0  # Será calculado com base no bioma
 
-        # ✅ Inicializa o coeficiente
-        # (mas o mundo pode não estar pronto ainda → será recalculado em atualizar_produtividade)
-        # → Não chame calcular_produtividade_parcela aqui
+        # --- ECONOMIA LOCAL ---
+        self.estoque_alimentos = 0.0  # Alimentos armazenados localmente
+        self.taxa_consumo = 1.0  # Demanda base: unidades por pessoa por turno
+        self.fator_consumo_local = 1.0  # Multiplier: quanto % da demanda será consumido (0.0 a 1.5+)
+        self.coef_nutricao = 1.0  # Calculado como sqrt(consumo_efetivo / demanda)
+        self.producao_bruta = 0.0  # Cache: produção antes de ajuste por nutrição
+
+        # --- PLACEHOLDERS FUTUROS (opcional) ---
+        # self.armazenamento_maximo = 50.0  # Pode crescer com tecnologia
+        # self.politica_local = "padrao"    # Ex: "racionamento", "abastecimento"
 
     def get_populacao_total(self):
         """Retorna a população total do assentamento."""
@@ -186,45 +194,56 @@ class Assentamento:
 
     def get_producao_real(self):
         """
-        Calcula a produção real do assentamento em unidades de recurso.
+        Calcula a produção real do assentamento com base em:
+        - Coeficiente de produtividade do bioma
+        - População (homens e mulheres)
+        - Coeficiente de nutrição local (afeta eficiência)
+        - Coeficientes futuros (tecnologia, políticas)
+
         Fórmula:
-            produção = coef_produtividade × coef_nutricao × coef_eficiencia_tecnica × trabalho_total
-
-        Onde:
-            trabalho_total = (homens × 4) + (mulheres × fator_mulheres)
-
-        Por padrão:
-            - fator_mulheres = 0 (mulheres são reprodutoras, não trabalham)
-            - Isso pode mudar com políticas, tecnologias ou escolhas do jogador no futuro.
-
-        Coeficientes futuros:
-            - coef_nutricao: afeta produtividade por escassez ou abundância de alimentos
-            - coef_eficiencia_tecnica: melhoria por tecnologia, organização social, etc.
+            produção = coef_produtividade × coef_nutricao × trabalho_total
         """
         if self.coef_produtividade == 0.0:
-            return 0.0  # Evita cálculo se não foi inicializado
+            return 0.0
 
-        # 🔧 Força de trabalho atual
+        # --- Trabalho ---
         trabalho_homens = self.homens * 4
-
-        # 🚺 Por padrão, mulheres NÃO trabalham (são reprodutoras)
-        trabalho_mulheres = 0  # ✅ Padrão atual: mulheres não trabalham
-
-        # 🔮 PLACEHOLDER: Sistema futuro para liberar trabalho feminino
-        # Ex: tecnologia "Agricultura Coletiva" ou política "Igualdade de Gênero"
-        # if self.civilizacao.tem_tecnologia("Trabalho Inclusivo") or self.assentamento.politica == "igualdade":
-        #     trabalho_mulheres = self.mulheres * 2  # ou *3, ou *4
-
+        trabalho_mulheres = 0  # Padrão: mulheres são reprodutoras
         trabalho_total = trabalho_homens + trabalho_mulheres
 
-        # 🔮 PLACEHOLDERS PARA COEFICIENTES FUTUROS
-        coef_nutricao = 1.0  # Futuro: dinâmico com base em estoque, clima, eventos
-        coef_eficiencia_tecnica = 1.0  # Futuro: tecnologia, upgrades, políticas
+        # --- Coeficientes econômicos locais ---
+        # Já calculado no turno: self.coef_nutricao = sqrt((produção + estoque) / demanda)
+        coef_nutricao = self.coef_nutricao
 
+        # Futuro: pode vir de tecnologia, edifício ou política local
+        coef_eficiencia_tecnica = 1.0
+
+        # --- Cálculo final ---
         return self.coef_produtividade * coef_nutricao * coef_eficiencia_tecnica * trabalho_total
 
+    def get_producao_bruta(self):
+        """
+        Produção sem ajustes (antes de aplicar nutrição ou eficiência).
+        Usada para cálculo de consumo e exibição na UI.
+        """
+        if self.coef_produtividade == 0.0:
+            return 0.0
+
+        trabalho_homens = self.homens * 4
+        trabalho_mulheres = 0
+        trabalho_total = trabalho_homens + trabalho_mulheres
+
+        return self.coef_produtividade * trabalho_total
+
     def __repr__(self):
-        return (f"Assentamento({self.nome}, Tile={self.coordenadas_tile}, "
-                f"Parcela={self.indice_parcela}, Tipo={self.get_tipo_tile()}, "
-                f"Coef={self.coef_produtividade:.1f}, Prod={self.get_producao_real():.1f}, "
-                f"H={self.homens}, M={self.mulheres}, Total={self.get_populacao_total()})")
+        return (f"Assentamento({self.nome}, "
+                f"Tile={self.coordenadas_tile}, "
+                f"Parcela={self.indice_parcela}, "
+                f"Tipo={self.get_tipo_tile()}, "
+                f"Coef={self.coef_produtividade:.1f}, "
+                f"Prod={self.get_producao_real():.1f} "
+                f"(Bruta={self.producao_bruta:.1f}), "
+                f"Nut={self.coef_nutricao:.2f}, "
+                f"Estoque={self.estoque_alimentos:.1f}, "
+                f"H={self.homens}, M={self.mulheres}, "
+                f"Total={self.get_populacao_total()})")

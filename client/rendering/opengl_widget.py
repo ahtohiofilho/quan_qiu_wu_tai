@@ -4,7 +4,8 @@ import ctypes
 import numpy as np
 from pyglm import glm
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QKeyEvent
 from client.rendering.camera import Camera
 
 
@@ -16,7 +17,7 @@ class OpenGLWidget(QOpenGLWidget):
         self.modulo_jogo = False  # Ativa renderização do planeta
         self.mundo = None  # Referência ao mundo atual
         self._geometria_necessaria = False  # Flag: geometria precisa ser criada em paintGL
-        self.modo_renderizacao = "fisico"  # Modo de visualização do mapa ('fisico' ou 'politico')
+        self.modo_renderizacao = "fisico"  # Modo de visualização ('fisico' ou 'politico')
 
         # --- Recursos OpenGL ---
         self.shader_program = None  # Programa de shader ativo
@@ -31,10 +32,55 @@ class OpenGLWidget(QOpenGLWidget):
         self.camera = Camera()  # Câmera orbital (posição, rotação, zoom)
 
         # --- Entrada do Usuário ---
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # Para eventos de teclado/mouse
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # Aceita foco para teclado/mouse
+        self.setMouseTracking(True)  # Permite detectar movimento sem clicar
+        self.last_mouse_pos = None  # Para calcular delta do mouse
 
-        # --- Debug e Estado Interno ---
-        # Pronto para expansão (ex: modo de depuração, FPS, etc)
+        # Teclas pressionadas (para movimento contínuo)
+        self.keys_pressed = set()
+
+        # Timer para processamento contínuo das teclas
+        self.timer_keyboard = QTimer(self)
+        self.timer_keyboard.timeout.connect(self._atualizar_camera_por_tecla)
+        self.timer_keyboard.start(16)  # ~60 FPS
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.isAutoRepeat():
+            return  # ignore repeats
+        self.keys_pressed.add(event.key())
+
+    def keyReleaseEvent(self, event: QKeyEvent):
+        if event.isAutoRepeat():
+            return
+        if event.key() in self.keys_pressed:
+            self.keys_pressed.remove(event.key())
+
+    def _atualizar_camera_por_tecla(self):
+        """Aplica rotação com base nas teclas pressionadas."""
+        sensibilidade = 0.03  # Rad/tecla
+
+        dtheta = 0.0
+        dphi = 0.0
+        dzoom = 0.0
+
+        if Qt.Key.Key_Left in self.keys_pressed:
+            dtheta += sensibilidade
+        if Qt.Key.Key_Right in self.keys_pressed:
+            dtheta -= sensibilidade
+        if Qt.Key.Key_Up in self.keys_pressed:
+            dphi -= sensibilidade
+        if Qt.Key.Key_Down in self.keys_pressed:
+            dphi += sensibilidade
+
+        # Zoom opcional com Page Up / Page Down
+        if Qt.Key.Key_PageUp in self.keys_pressed:
+            dzoom -= 0.5
+        if Qt.Key.Key_PageDown in self.keys_pressed:
+            dzoom += 0.5
+
+        if dtheta != 0 or dphi != 0 or dzoom != 0:
+            self.camera.orbit(dtheta, dphi, dzoom)
+            self.update()  # ✅ Força redraw quando houver mudança
 
     def mudar_modo_mapa(self, modo: str):
         if modo in ["fisico", "politico"]:
@@ -50,6 +96,12 @@ class OpenGLWidget(QOpenGLWidget):
             return
         self.modo_renderizacao = modo
         self.update()  # força redesenhar
+
+    def wheelEvent(self, event):
+        # Normaliza o delta do scroll (~±120 por "click")
+        dzoom = -event.angleDelta().y() / 120 * 0.5
+        self.camera.orbit(0, 0, dzoom)
+        self.update()
 
     def initializeGL(self):
         """Configuração inicial do contexto OpenGL.
@@ -153,8 +205,8 @@ class OpenGLWidget(QOpenGLWidget):
                     return
 
                 # --- Calcular MVP ---
-                view = self.camera.view_matrix()
-                proj = self.camera.projection_matrix()
+                view = self.camera.get_view_matrix()
+                proj = self.camera.get_projection_matrix()
                 model = glm.mat4(1.0)
                 mvp = proj * view * model
 
@@ -221,8 +273,8 @@ class OpenGLWidget(QOpenGLWidget):
 
         # === 2. Calcular MVP ===
         try:
-            view = self.camera.view_matrix()
-            proj = self.camera.projection_matrix()
+            view = self.camera.get_view_matrix()
+            proj = self.camera.get_projection_matrix()
             model = glm.mat4(1.0)
             mvp = proj * view * model
             print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
@@ -460,12 +512,12 @@ class OpenGLWidget(QOpenGLWidget):
         # === 3. Calcular distância igual à do `resetar()` ===
         fator = self.mundo.planeta.fator
         raio_planeta = fator / (2 * math.sin(math.pi / 5))  # mesma fórmula de resetar()
-        distance = 3.0 * raio_planeta  # mesma distância
+        distance = 4.0 * raio_planeta  # mesma distância
 
         # === 4. Aplicar na câmera ===
         camera = self.camera
         camera.center = glm.vec3(0.0, 0.0, 0.0)  # orbita ainda é no centro do planeta
-        camera.distance = distance
+        distance = self.camera.distance
         camera.theta = theta
         camera.phi = phi
         camera.update_position()
@@ -473,3 +525,7 @@ class OpenGLWidget(QOpenGLWidget):
 
         print(f"📍 Câmera reposicionada para olhar {coords}")
         print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")
+
+    def __del__(self):
+        if hasattr(self, 'timer_keyboard'):
+            self.timer_keyboard.stop()

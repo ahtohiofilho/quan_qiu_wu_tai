@@ -5,14 +5,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/shared/economy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/widgets/match_overlay.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/widgets/match_overlay.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/rendering/camera.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/camera.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/rendering/opengl_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/opengl_widget.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/civilization.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/civilization.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/references.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/references.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shared/settlement.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/settlement.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shared/turn.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/turn.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/world.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/world.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
