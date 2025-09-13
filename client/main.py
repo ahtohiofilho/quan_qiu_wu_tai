@@ -117,6 +117,9 @@ class JanelaPrincipal(QMainWindow):
         self.opengl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         container_layout.addWidget(self.opengl_widget)
 
+        # 🔥 LINHA ADICIONADA: Conecta o OpenGLWidget à JanelaPrincipal
+        self.opengl_widget.parent_widget = self
+
         # Overlay de Boas-Vindas (centralizado)
         self.overlay_widget = QWidget(self.opengl_container)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)

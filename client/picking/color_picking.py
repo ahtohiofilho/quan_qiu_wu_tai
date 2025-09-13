@@ -352,6 +352,7 @@ class ColorPicking:
         """
         Executa todo pipeline de color picking.
         Retorna: coordenadas do tile clicado (q, r) ou None.
+        Garante que o estado do OpenGL será restaurado após a execução.
         """
         # ✅ Verificações iniciais
         if not widget.mundo or not widget.mundo.planeta:
@@ -362,74 +363,93 @@ class ColorPicking:
             print("❌ [PICKING] Widget não possui dimensões")
             return None
 
-        # ✅ Atualizar tamanho do FBO primeiro
-        self.resize(widget.width(), widget.height())
+        from OpenGL.GL import (
+            glBindFramebuffer, GL_READ_FRAMEBUFFER, GL_DRAW_FRAMEBUFFER,
+            glClearColor, glGetFloatv, GL_COLOR_CLEAR_VALUE,
+            glFinish, glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
+        )
+        import numpy as np
 
-        # ✅ Garantir que o FBO está configurado ANTES de tentar usar
-        if not self._setup_fbo():
-            print("❌ [PICKING] Falha ao configurar FBO. Abortando.")
-            return None
+        # ✅ SALVAR ESTADO ATUAL DO OPENGL
+        saved_clear_color = glGetFloatv(GL_COLOR_CLEAR_VALUE)  # [r, g, b, a]
+        current_framebuffer = []  # placeholder
 
-        # ✅ Verificar se o shader de picking está compilado
-        if self.picking_shader is None:
-            if not self._criar_shader_picking():
-                print("❌ [PICKING] Shader de picking não disponível")
+        try:
+            # ✅ Atualizar tamanho do FBO primeiro
+            self.resize(widget.width(), widget.height())
+
+            # ✅ Garantir que o FBO está configurado
+            if not self._setup_fbo():
+                print("❌ [PICKING] Falha ao configurar FBO. Abortando.")
                 return None
 
-        # ✅ Renderizar cena de picking
-        try:
-            self.renderizar(widget)
-        except Exception as e:
-            print(f"❌ [PICKING] Erro durante renderização: {e}")
-            return None
+            # ✅ Verificar se o shader de picking está compilado
+            if self.picking_shader is None:
+                if not self._criar_shader_picking():
+                    print("❌ [PICKING] Shader de picking não disponível")
+                    return None
 
-        # ✅ Forçar conclusão da renderização
-        from OpenGL.GL import glFinish
-        glFinish()
+            # ✅ Bind FBO e limpar buffers com fundo preto SÓ para picking
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.fbo)
+            glClearColor(0.0, 0.0, 0.0, 1.0)  # Preto puro para picking
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # ✅ Converter coordenada Y para sistema OpenGL (origem inferior)
-        viewport_y = self.height - int(y) - 1
-        x = int(x)
+            # ✅ Renderizar cena de picking
+            try:
+                self.renderizar(widget)
+            except Exception as e:
+                print(f"❌ [PICKING] Erro durante renderização: {e}")
+                return None
 
-        # ✅ Ler pixel do framebuffer de picking (CORRIGIDO)
-        from OpenGL.GL import glBindFramebuffer, GL_READ_FRAMEBUFFER, glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
-        try:
+            # ✅ Forçar conclusão da renderização
+            glFinish()
+
+            # ✅ Converter coordenada Y para sistema OpenGL (origem inferior)
+            viewport_y = self.height - int(y) - 1
+            x_int = int(x)
+
+            # ✅ Ler pixel do framebuffer de picking
             glBindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo)
-
-            # ✅ CORREÇÃO: Usar numpy array para leitura confiável
-            import numpy as np
             pixel_data = np.zeros((1, 1, 3), dtype=np.uint8)
-            glReadPixels(x, viewport_y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel_data)
-
+            glReadPixels(x_int, viewport_y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel_data)
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0)
 
-            # ✅ Extrair valores RGB do numpy array
+            # ✅ Extrair valores RGB
             r, g, b = pixel_data[0, 0]
 
+            # ✅ Fundo (preto) = sem seleção
+            if r == 0 and g == 0 and b == 0:
+                print("⚫ [PICKING] Pixel preto detectado (fundo)")
+                return None
+
+            # ✅ Converter cor → ID → coordenadas
+            idx = self._cor_para_id(r, g, b) - 1  # -1 por causa do +1 no _id_para_cor
+            nodes_list = list(widget.mundo.planeta.geografia.nodes)
+
+            if 0 <= idx < len(nodes_list):
+                coords = nodes_list[idx]
+                print(f"🎯 [PICKING] Tile detectado: {coords} (RGB={r},{g},{b}, ID={idx + 1})")
+                return coords
+            else:
+                print(f"⚠️ [PICKING] Índice fora do intervalo: {idx} (tamanho={len(nodes_list)}, RGB={r},{g},{b})")
+                # Debug: listar alguns nodes para verificar a ordem
+                if len(nodes_list) > 0:
+                    print(f"   → Primeiros nodes: {nodes_list[:5]}")
+                    print(f"   → Últimos nodes: {nodes_list[-5:]}")
+                return None
+
         except Exception as e:
-            print(f"❌ [PICKING] Erro ao ler pixel: {e}")
+            print(f"❌ [PICKING] Erro crítico no pipeline: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
-        # ✅ Fundo (preto) = sem seleção
-        if r == 0 and g == 0 and b == 0:
-            print("⚫ [PICKING] Pixel preto detectado (fundo)")
-            return None
-
-        # ✅ Converter cor → ID → coordenadas
-        idx = self._cor_para_id(r, g, b) - 1  # -1 por causa do +1 no _id_para_cor
-        nodes_list = list(widget.mundo.planeta.geografia.nodes)
-
-        if 0 <= idx < len(nodes_list):
-            coords = nodes_list[idx]
-            print(f"🎯 [PICKING] Tile detectado: {coords} (RGB={r},{g},{b}, ID={idx + 1})")
-            return coords
-        else:
-            print(f"⚠️ [PICKING] Índice fora do intervalo: {idx} (tamanho={len(nodes_list)}, RGB={r},{g},{b})")
-            # Debug: listar alguns nodes para verificar a ordem
-            if len(nodes_list) > 0:
-                print(f"   → Primeiros nodes: {nodes_list[:5]}")
-                print(f"   → Últimos nodes: {nodes_list[-5:]}")
-            return None
+        finally:
+            # ✅ RESTAURAR ESTADO DO OPENGL
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0)  # Volta ao framebuffer principal
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0)  # Limpa leitura também
+            glClearColor(*saved_clear_color)  # Restaura cor original de fundo
+            # Não chama widget.update() aqui — quem decide o redraw é o fluxo principal
 
     def _descartar_recursos(self):
         """Libera FBO/textura se existirem."""

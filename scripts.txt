@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-13 00:46:41
+Gerado em: 2025-09-13 15:09:49
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -5177,7 +5177,7 @@ class ColorPicking:
             print("❌ [PICKING] Mundo não carregado para renderização")
             return
 
-        if not hasattr(widget, 'vaos') or not self.vaos:
+        if not hasattr(widget, 'vaos') or not widget.vaos:
             print("❌ [PICKING] VAOs não disponíveis")
             return
 
