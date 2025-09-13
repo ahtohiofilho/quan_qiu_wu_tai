@@ -7,6 +7,7 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeyEvent
 from client.rendering.camera import Camera
+from client.picking.color_picking import ColorPicking
 
 
 class OpenGLWidget(QOpenGLWidget):
@@ -44,6 +45,50 @@ class OpenGLWidget(QOpenGLWidget):
         self.timer_keyboard.timeout.connect(self._atualizar_camera_por_tecla)
         self.timer_keyboard.start(16)  # ~60 FPS
 
+        # --- Sistema de Interação 3D ---
+        self.color_picking = ColorPicking()  # Sistema de seleção via color picking
+
+    def mousePressEvent(self, event):
+        from PyQt6.QtCore import Qt
+
+        pos = event.position()
+        self.last_mouse_pos = (pos.x(), pos.y())
+
+        # 🔍 Botão direito: selecionar tile via color picking
+        if event.button() == Qt.MouseButton.RightButton:
+            x = pos.x()
+            y = pos.y()
+
+            # ✅ Verificar se o widget está visível e válido
+            if not self.isVisible() or not self.isValid():
+                print("❌ Widget não está visível ou válido para picking")
+                return
+
+            # ✅ Usar QOpenGLWidget.makeCurrent() corretamente
+            try:
+                self.makeCurrent()  # Isso deve funcionar agora
+
+                coords = self.color_picking.detectar_tile(self, x, y)
+
+                if coords:
+                    print(f"🎯 Tile clicado: {coords}")
+                    self.centralizar_em(coords)
+                    self.on_tile_clicado(coords)
+                else:
+                    print("🖱️ Nenhum tile detectado.")
+
+            except Exception as e:
+                print(f"❌ Erro durante picking: {e}")
+            finally:
+                # ✅ Liberar contexto sempre
+                self.doneCurrent()
+
+        # 🖱️ Botão esquerdo: ativar rotação (arraste)
+        elif event.button() == Qt.MouseButton.LeftButton:
+            self.last_mouse_pos = (pos.x(), pos.y())
+
+        super().mousePressEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent):
         if event.isAutoRepeat():
             return  # ignore repeats
@@ -54,6 +99,21 @@ class OpenGLWidget(QOpenGLWidget):
             return
         if event.key() in self.keys_pressed:
             self.keys_pressed.remove(event.key())
+
+    def on_tile_clicado(self, coords):
+        """
+        Chamado quando um tile é detectado via color picking.
+        Pode ser usado para seleção, highlight, ou outras ações.
+        """
+        print(f"🎯 Tile clicado via picking: {coords}")
+        # Aqui você pode implementar:
+        # - Highlight do tile
+        # - Seleção para ações
+        # - Mostrar informações
+        # - etc.
+
+        # Exemplo: centralizar no tile clicado
+        self.centralizar_em(coords)
 
     def _atualizar_camera_por_tecla(self):
         """Aplica rotação com base nas teclas pressionadas."""
@@ -182,6 +242,9 @@ class OpenGLWidget(QOpenGLWidget):
         if h > 0:
             self.camera.set_aspect(w / h)
         gl.glViewport(0, 0, w, h)
+
+        # Sincronizar com o sistema de picking
+        self.color_picking.resize(w, h)
 
     def paintGL(self):
         """Renderiza o frame atual.

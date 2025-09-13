@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-10 21:46:10
+Gerado em: 2025-09-13 00:46:41
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -42,6 +42,8 @@ Conteúdo dos scripts principais reunidos.
 │   │   └── icon_manager.py
 │   ├── dialogs
 │   │   └── auth_dialog.py
+│   ├── picking
+│   │   └── color_picking.py
 │   ├── rendering
 │   │   ├── camera.py
 │   │   ├── opengl_widget.py
@@ -50,7 +52,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── resources
 │   ├── shaders
 │   │   ├── basic.frag
-│   │   └── basic.vert
+│   │   ├── basic.vert
+│   │   └── picking.frag
 │   ├── states
 │   │   └── waiting_room.py
 │   ├── utils
@@ -4684,6 +4687,16 @@ void main() {
 }
 
 ================================================================================
+📄 client/shaders/picking.frag
+================================================================================
+#version 330 core
+uniform vec3 picking_color;
+out vec4 FragColor;
+void main() {
+    FragColor = vec4(picking_color, 1.0);
+}
+
+================================================================================
 📄 client/shaders/basic.vert
 ================================================================================
 #version 330 core
@@ -4906,6 +4919,460 @@ class OverlaySalaEspera(QWidget):
             self.move(x, y)
 
 ================================================================================
+📄 client/picking/color_picking.py
+================================================================================
+# client/picking/color_picking.py
+
+from pyglm import glm
+from OpenGL.GL import (
+    # --- Framebuffer ---
+    glGenFramebuffers, glBindFramebuffer, glDeleteFramebuffers,
+    glCheckFramebufferStatus, GL_FRAMEBUFFER, GL_FRAMEBUFFER_COMPLETE,
+    GL_COLOR_ATTACHMENT0, glFramebufferTexture2D,
+    glFramebufferRenderbuffer,  # 👈 também precisa se você usa
+    glBindRenderbuffer, glRenderbufferStorage,  # 👈 idem
+    GL_RENDERBUFFER, GL_DEPTH_ATTACHMENT, GL_DEPTH_COMPONENT24,  # 👈 adicionados aqui
+
+    # --- Textures ---
+    glGenTextures, glBindTexture, glTexImage2D, glTexParameteri,
+    GL_TEXTURE_2D, GL_RGB, GL_UNSIGNED_BYTE, GL_LINEAR, GL_CLAMP_TO_EDGE,
+    GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T,
+
+    # --- Reading pixels ---
+    glReadPixels, GL_READ_FRAMEBUFFER,
+
+    # --- Clearing and drawing ---
+    glClearColor, glClear, GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT,
+
+    # --- Rendering pipeline ---
+    glUseProgram, glGetUniformLocation, glUniformMatrix4fv, glUniform3f,
+    glBindVertexArray, glDrawArrays,
+
+    # --- State control ---
+    glDisable, GL_BLEND, glColorMask, glEnable, glGetError,
+
+    # --- Cleanup ---
+    glDeleteTextures,
+)
+
+
+class ColorPicking:
+    """
+    Sistema de detecção de objetos 3D via color picking.
+    Usa um FBO off-screen onde cada objeto é renderizado com uma cor única.
+    """
+
+    def __init__(self):
+        self.fbo = None
+        self.texture = None
+        self.width = 800
+        self.height = 600
+        self._inicializado = False
+        self.picking_shader = None
+
+    def _criar_shader_picking(self):
+        """Compila um shader dedicado para color picking."""
+        from client.rendering.shader import ShaderProgram
+        import os
+
+        print("🔧 [PICKING] Compilando shader de picking...")
+
+        try:
+            vert_path = "client/shaders/basic.vert"
+            frag_path = "client/shaders/picking.frag"
+
+            # ✅ Verificar existência dos arquivos
+            if not os.path.exists(vert_path):
+                raise FileNotFoundError(f"Vertex shader não encontrado: {vert_path}")
+            if not os.path.exists(frag_path):
+                raise FileNotFoundError(f"Fragment shader não encontrado: {frag_path}")
+
+            # ✅ Ler conteúdo dos shaders
+            with open(vert_path, "r", encoding='utf-8') as f:
+                vertex_src = f.read()
+            with open(frag_path, "r", encoding='utf-8') as f:
+                fragment_src = f.read()
+
+            # ✅ Verificar se os shaders não estão vazios
+            if not vertex_src.strip():
+                raise ValueError("Vertex shader está vazio")
+            if not fragment_src.strip():
+                raise ValueError("Fragment shader está vazio")
+
+            print(f"📖 [PICKING] Shaders carregados: {len(vertex_src)} chars vert, {len(fragment_src)} chars frag")
+
+            # ✅ Compilar shader
+            self.picking_shader = ShaderProgram(vertex_src, fragment_src)
+
+            if not self.picking_shader or not self.picking_shader.program_id:
+                raise RuntimeError("Falha ao compilar shader de picking - programa inválido")
+
+            # ✅ Verificar uniforms essenciais
+            essential_uniforms = ["MVP", "picking_color"]
+            missing_uniforms = []
+
+            for uniform in essential_uniforms:
+                loc = self.picking_shader.obter_localizacao_uniform(uniform)
+                if loc == -1:
+                    missing_uniforms.append(uniform)
+
+            if missing_uniforms:
+                raise RuntimeError(f"Uniforms essenciais não encontrados: {missing_uniforms}")
+
+            print("✅ [PICKING] Shader de picking compilado com sucesso.")
+            print(f"   → Program ID: {self.picking_shader.program_id}")
+            print(f"   → Uniforms encontrados: MVP, picking_color")
+
+            return True
+
+        except FileNotFoundError as e:
+            print(f"❌ [PICKING] Arquivo de shader não encontrado: {e}")
+            self.picking_shader = None
+            return False
+
+        except ValueError as e:
+            print(f"❌ [PICKING] Erro de conteúdo: {e}")
+            self.picking_shader = None
+            return False
+
+        except RuntimeError as e:
+            print(f"❌ [PICKING] Erro de compilação/linking: {e}")
+            self.picking_shader = None
+            return False
+
+        except Exception as e:
+            print(f"❌ [PICKING] Erro inesperado ao criar shader: {e}")
+            import traceback
+            traceback.print_exc()
+            self.picking_shader = None
+            return False
+
+    def resize(self, width: int, height: int):
+        """Atualiza tamanho do framebuffer se necessário."""
+        if self.width == width and self.height == height:
+            return
+        print(f"🔄 [PICKING] Redimensionando FBO: {self.width}x{self.height} -> {width}x{height}")
+        self.width = width
+        self.height = height
+        self._descartar_recursos()
+
+    def _setup_fbo(self):
+        """Cria FBO, textura de cor e renderbuffer de profundidade."""
+        from OpenGL.GL import (
+            glGenFramebuffers, glBindFramebuffer, glDeleteRenderbuffers,
+            glGenTextures, glBindTexture, glTexImage2D, glTexParameteri,
+            glFramebufferTexture2D, glCheckFramebufferStatus,
+            GL_FRAMEBUFFER, GL_FRAMEBUFFER_COMPLETE, GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D, GL_RGB, GL_UNSIGNED_BYTE, GL_LINEAR, GL_CLAMP_TO_EDGE,
+            GL_RENDERBUFFER, glGenRenderbuffers, glBindRenderbuffer,
+            glRenderbufferStorage, glFramebufferRenderbuffer
+        )
+
+        if self._inicializado:
+            print("✅ [PICKING] FBO já inicializado")
+            return True
+
+        print("🔄 [PICKING] Inicializando FBO com depth buffer...")
+
+        try:
+            # --- 1. Gerar FBO ---
+            self.fbo = glGenFramebuffers(1)
+            self.texture = glGenTextures(1)
+            self.depth_rb = glGenRenderbuffers(1)  # Novo: buffer de profundidade
+
+            print(f"🆔 [PICKING] Recursos gerados → FBO: {self.fbo}, Texture: {self.texture}, Depth RB: {self.depth_rb}")
+
+            if self.fbo == 0 or self.texture == 0 or self.depth_rb == 0:
+                raise RuntimeError("Falha ao gerar recursos do FBO")
+
+            # --- 2. Configurar textura de cor ---
+            glBindTexture(GL_TEXTURE_2D, self.texture)
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGB,  # Formato interno: RGB (sem alpha)
+                self.width,
+                self.height,
+                0,
+                GL_RGB,  # Formato dos dados
+                GL_UNSIGNED_BYTE,  # Tipo
+                None  # Dados iniciais: nenhum
+            )
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+            # --- 3. Anexar textura ao FBO ---
+            glBindFramebuffer(GL_FRAMEBUFFER, self.fbo)
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER,
+                GL_COLOR_ATTACHMENT0,
+                GL_TEXTURE_2D,
+                self.texture,
+                0
+            )
+
+            # --- 4. Criar e anexar renderbuffer de profundidade ---
+            glBindRenderbuffer(GL_RENDERBUFFER, self.depth_rb)
+            glRenderbufferStorage(
+                GL_RENDERBUFFER,
+                GL_DEPTH_COMPONENT24,  # 24 bits de precisão → ideal
+                self.width,
+                self.height
+            )
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER,
+                GL_DEPTH_ATTACHMENT,
+                GL_RENDERBUFFER,
+                self.depth_rb
+            )
+
+            # --- 5. Validar FBO completo ---
+            status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
+            if status != GL_FRAMEBUFFER_COMPLETE:
+                error_msg = {
+                    0: "GL_FRAMEBUFFER_UNDEFINED",
+                    1280: "GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT",
+                    1281: "GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT",
+                    1282: "GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER",
+                    1283: "GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER",
+                    1285: "GL_FRAMEBUFFER_INCOMPLETE_FORMATS",
+                    1286: "GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS"
+                }.get(status, f"Erro desconhecido: {status:x}")
+                raise RuntimeError(f"FBO de picking não está completo! {error_msg}")
+
+            # --- 6. Limpar estado OpenGL ---
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glBindRenderbuffer(GL_RENDERBUFFER, 0)
+            glBindTexture(GL_TEXTURE_2D, 0)
+
+            self._inicializado = True
+            print(f"✅ [PICKING] FBO criado com sucesso: {self.width}x{self.height} + depth buffer")
+            return True
+
+        except Exception as e:
+            print(f"❌ [PICKING] Falha ao configurar FBO: {e}")
+            self._cleanup()
+            return False
+
+    def _id_para_cor(self, idx: int):
+        """Converte ID inteiro → RGB (máx 16777215)."""
+        r = (idx >> 16) & 0xFF
+        g = (idx >> 8) & 0xFF
+        b = idx & 0xFF
+        return r, g, b
+
+    def _cor_para_id(self, r: int, g: int, b: int) -> int:
+        """Converte RGB → ID inteiro."""
+        return (r << 16) + (g << 8) + b
+
+    def renderizar(self, widget):
+        """
+        Renderiza todos os tiles com cores únicas em um FBO,
+        usando Z-buffer para garantir que apenas o tile mais visível seja detectado.
+        """
+        # === 1. Verificações iniciais ===
+        if not widget.mundo or not widget.mundo.planeta:
+            print("❌ [PICKING] Mundo não carregado para renderização")
+            return
+
+        if not hasattr(widget, 'vaos') or not self.vaos:
+            print("❌ [PICKING] VAOs não disponíveis")
+            return
+
+        if not self._setup_fbo():
+            print("❌ [PICKING] Falha ao configurar FBO")
+            return
+
+        print("🎨 [PICKING] Iniciando renderização de picking...")
+
+        # === 2. Compilar shader, se necessário ===
+        if self.picking_shader is None and not self._criar_shader_picking():
+            print("❌ [PICKING] Shader de picking falhou")
+            return
+
+        # === 3. Bind FBO e limpar buffers (COR + PROFUNDIDADE!) ===
+        from OpenGL.GL import (
+            glBindFramebuffer, glViewport, glClearColor, glClear,
+            GL_FRAMEBUFFER, GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT,
+            glEnable, GL_DEPTH_TEST, glDepthFunc, GL_LESS,
+            glDisable, GL_BLEND, GL_CULL_FACE
+        )
+
+        glBindFramebuffer(GL_FRAMEBUFFER, self.fbo)
+        glViewport(0, 0, self.width, self.height)
+
+        glClearColor(0.0, 0.0, 0.0, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)  # ✅ Limpa profundidade!
+
+        # === 4. Configurar estado OpenGL ===
+        self.picking_shader.usar()
+
+        glDisable(GL_BLEND)  # Evita blend indesejado
+        glDisable(GL_CULL_FACE)  # Garante que todos os lados sejam desenhados
+        glEnable(GL_DEPTH_TEST)  # ✅ ATIVA TESTE DE PROFUNDIDADE
+        glDepthFunc(GL_LESS)  # ✅ Menor valor de Z vence
+
+        # === 5. Calcular e enviar MVP ===
+        try:
+            proj = widget.camera.get_projection_matrix()
+            view = widget.camera.get_view_matrix()
+            model = glm.mat4(1.0)
+            mvp = proj * view * model
+
+            loc_mvp = self.picking_shader.obter_localizacao_uniform("MVP")
+            if loc_mvp != -1:
+                self.picking_shader.set_uniform_mat4("MVP", glm.value_ptr(mvp))
+            else:
+                print("⚠️ [PICKING] Uniform 'MVP' não encontrado!")
+        except Exception as e:
+            print(f"❌ [PICKING] Erro ao calcular MVP: {e}")
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            self.picking_shader.limpar()
+            return
+
+        # === 6. Iterar e desenhar cada tile com cor única ===
+        G = widget.mundo.planeta.geografia
+        tiles_renderizados = 0
+
+        for idx, coords in enumerate(G.nodes):
+            if coords not in widget.vaos or coords not in widget.mundo.planeta.poligonos:
+                continue
+
+            try:
+                # Gerar cor única (evitar preto puro)
+                r, g, b = self._id_para_cor(idx + 1)
+                self.picking_shader.set_uniform_vec3("picking_color", (r / 255.0, g / 255.0, b / 255.0))
+
+                # Desenhar
+                from OpenGL.GL import glBindVertexArray, glDrawArrays, GL_TRIANGLE_FAN
+                glBindVertexArray(widget.vaos[coords])
+                num_vertices = len(widget.mundo.planeta.poligonos[coords])
+                glDrawArrays(GL_TRIANGLE_FAN, 0, num_vertices)
+
+                tiles_renderizados += 1
+
+            except Exception as e:
+                print(f"⚠️ [PICKING] Falha ao renderizar tile {coords}: {e}")
+                continue
+
+        # === 7. Limpeza final ===
+        from OpenGL.GL import glBindVertexArray
+        glBindVertexArray(0)
+        self.picking_shader.limpar()
+
+        # Restaurar framebuffer padrão
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+
+        # Restaurar viewport original
+        if hasattr(widget, 'width') and hasattr(widget, 'height'):
+            glViewport(0, 0, widget.width(), widget.height())
+
+        print(f"✅ [PICKING] Renderização concluída: {tiles_renderizados}/{len(G.nodes)} tiles.")
+
+    def detectar_tile(self, widget, x: int, y: int):
+        """
+        Executa todo pipeline de color picking.
+        Retorna: coordenadas do tile clicado (q, r) ou None.
+        """
+        # ✅ Verificações iniciais
+        if not widget.mundo or not widget.mundo.planeta:
+            print("❌ [PICKING] Mundo não carregado")
+            return None
+
+        if not hasattr(widget, 'width') or not hasattr(widget, 'height'):
+            print("❌ [PICKING] Widget não possui dimensões")
+            return None
+
+        # ✅ Atualizar tamanho do FBO primeiro
+        self.resize(widget.width(), widget.height())
+
+        # ✅ Garantir que o FBO está configurado ANTES de tentar usar
+        if not self._setup_fbo():
+            print("❌ [PICKING] Falha ao configurar FBO. Abortando.")
+            return None
+
+        # ✅ Verificar se o shader de picking está compilado
+        if self.picking_shader is None:
+            if not self._criar_shader_picking():
+                print("❌ [PICKING] Shader de picking não disponível")
+                return None
+
+        # ✅ Renderizar cena de picking
+        try:
+            self.renderizar(widget)
+        except Exception as e:
+            print(f"❌ [PICKING] Erro durante renderização: {e}")
+            return None
+
+        # ✅ Forçar conclusão da renderização
+        from OpenGL.GL import glFinish
+        glFinish()
+
+        # ✅ Converter coordenada Y para sistema OpenGL (origem inferior)
+        viewport_y = self.height - int(y) - 1
+        x = int(x)
+
+        # ✅ Ler pixel do framebuffer de picking (CORRIGIDO)
+        from OpenGL.GL import glBindFramebuffer, GL_READ_FRAMEBUFFER, glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
+        try:
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo)
+
+            # ✅ CORREÇÃO: Usar numpy array para leitura confiável
+            import numpy as np
+            pixel_data = np.zeros((1, 1, 3), dtype=np.uint8)
+            glReadPixels(x, viewport_y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel_data)
+
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0)
+
+            # ✅ Extrair valores RGB do numpy array
+            r, g, b = pixel_data[0, 0]
+
+        except Exception as e:
+            print(f"❌ [PICKING] Erro ao ler pixel: {e}")
+            return None
+
+        # ✅ Fundo (preto) = sem seleção
+        if r == 0 and g == 0 and b == 0:
+            print("⚫ [PICKING] Pixel preto detectado (fundo)")
+            return None
+
+        # ✅ Converter cor → ID → coordenadas
+        idx = self._cor_para_id(r, g, b) - 1  # -1 por causa do +1 no _id_para_cor
+        nodes_list = list(widget.mundo.planeta.geografia.nodes)
+
+        if 0 <= idx < len(nodes_list):
+            coords = nodes_list[idx]
+            print(f"🎯 [PICKING] Tile detectado: {coords} (RGB={r},{g},{b}, ID={idx + 1})")
+            return coords
+        else:
+            print(f"⚠️ [PICKING] Índice fora do intervalo: {idx} (tamanho={len(nodes_list)}, RGB={r},{g},{b})")
+            # Debug: listar alguns nodes para verificar a ordem
+            if len(nodes_list) > 0:
+                print(f"   → Primeiros nodes: {nodes_list[:5]}")
+                print(f"   → Últimos nodes: {nodes_list[-5:]}")
+            return None
+
+    def _descartar_recursos(self):
+        """Libera FBO/textura se existirem."""
+        self._cleanup()
+
+    def _cleanup(self):
+        """Libera recursos da GPU."""
+        from OpenGL.GL import glDeleteFramebuffers, glDeleteTextures
+        if self.fbo:
+            glDeleteFramebuffers(1, [self.fbo])
+            self.fbo = None
+        if self.texture:
+            glDeleteTextures(1, [self.texture])
+            self.texture = None
+        self._inicializado = False
+
+    def __del__(self):
+        self._cleanup()
+
+================================================================================
 📄 client/utils/scaling.py
 ================================================================================
 # utils/scaling.py
@@ -4949,7 +5416,7 @@ class Camera:
     def __init__(self):
         # Posição inicial: olhando para a origem
         self.center = glm.vec3(0.0, 0.0, 0.0)  # Ponto central (planeta)
-        self.distance = 5.0                   # Distância do centro
+        self.distance = None
         self.theta = 0.0                      # Rotação horizontal (Y)
         self.phi = glm.radians(10.0)          # Rotação vertical (X), evita singularity
 
@@ -4959,7 +5426,7 @@ class Camera:
         self.far = 100.0
 
         # Limites
-        self.min_distance = 2.0
+        self.min_distance = 2.1
         self.max_distance = 20.0
 
     def orbit(self, dtheta: float, dphi: float, dzoom: float = 0.0):
@@ -4987,19 +5454,16 @@ class Camera:
 
         self.position = glm.vec3(x, y, z) + self.center
 
-    def view_matrix(self):
-        """
-        Retorna a matriz de view (modelo de câmera).
-        Chamado em paintGL.
-        """
+    def get_view_matrix(self):
+        """Retorna a matriz de visualização (view)."""
         self.update_position()
         return glm.lookAt(self.position, self.center, glm.vec3(0.0, 1.0, 0.0))
 
-    def projection_matrix(self):
+    def get_projection_matrix(self):
         """
         Retorna a matriz de projeção perspectiva.
         """
-        return glm.perspective(self.fov, self.aspect, self.near, self.far)
+        return glm.perspective(glm.radians(self.fov), self.aspect, self.near, self.far)
 
     def set_aspect(self, aspect: float):
         """
@@ -5010,13 +5474,13 @@ class Camera:
 
     def resetar(self, fator: float):
         """Reposiciona a câmera para enxergar todo o planeta.
-        A câmera é colocada a 4× o raio do planeta do centro.
+        A câmera é colocada a 3× o raio do planeta do centro (~2× acima da superfície).
         """
         # Raio do planeta: fator / (2 * sin(π/5))
         raio_planeta = fator / (2 * glm.sin(glm.pi() / 5))
 
-        # Distância do centro: 4× o raio (3× acima da superfície)
-        self.distance = 3.0 * raio_planeta
+        # Distância do centro: 4× o raio do planeta
+        self.distance = 4.0 * raio_planeta
 
         # Ângulos iniciais
         self.theta = 0.0
@@ -5034,8 +5498,10 @@ import ctypes
 import numpy as np
 from pyglm import glm
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QKeyEvent
 from client.rendering.camera import Camera
+from client.picking.color_picking import ColorPicking
 
 
 class OpenGLWidget(QOpenGLWidget):
@@ -5046,7 +5512,7 @@ class OpenGLWidget(QOpenGLWidget):
         self.modulo_jogo = False  # Ativa renderização do planeta
         self.mundo = None  # Referência ao mundo atual
         self._geometria_necessaria = False  # Flag: geometria precisa ser criada em paintGL
-        self.modo_renderizacao = "fisico"  # Modo de visualização do mapa ('fisico' ou 'politico')
+        self.modo_renderizacao = "fisico"  # Modo de visualização ('fisico' ou 'politico')
 
         # --- Recursos OpenGL ---
         self.shader_program = None  # Programa de shader ativo
@@ -5061,10 +5527,114 @@ class OpenGLWidget(QOpenGLWidget):
         self.camera = Camera()  # Câmera orbital (posição, rotação, zoom)
 
         # --- Entrada do Usuário ---
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # Para eventos de teclado/mouse
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # Aceita foco para teclado/mouse
+        self.setMouseTracking(True)  # Permite detectar movimento sem clicar
+        self.last_mouse_pos = None  # Para calcular delta do mouse
 
-        # --- Debug e Estado Interno ---
-        # Pronto para expansão (ex: modo de depuração, FPS, etc)
+        # Teclas pressionadas (para movimento contínuo)
+        self.keys_pressed = set()
+
+        # Timer para processamento contínuo das teclas
+        self.timer_keyboard = QTimer(self)
+        self.timer_keyboard.timeout.connect(self._atualizar_camera_por_tecla)
+        self.timer_keyboard.start(16)  # ~60 FPS
+
+        # --- Sistema de Interação 3D ---
+        self.color_picking = ColorPicking()  # Sistema de seleção via color picking
+
+    def mousePressEvent(self, event):
+        from PyQt6.QtCore import Qt
+
+        pos = event.position()
+        self.last_mouse_pos = (pos.x(), pos.y())
+
+        # 🔍 Botão direito: selecionar tile via color picking
+        if event.button() == Qt.MouseButton.RightButton:
+            x = pos.x()
+            y = pos.y()
+
+            # ✅ Verificar se o widget está visível e válido
+            if not self.isVisible() or not self.isValid():
+                print("❌ Widget não está visível ou válido para picking")
+                return
+
+            # ✅ Usar QOpenGLWidget.makeCurrent() corretamente
+            try:
+                self.makeCurrent()  # Isso deve funcionar agora
+
+                coords = self.color_picking.detectar_tile(self, x, y)
+
+                if coords:
+                    print(f"🎯 Tile clicado: {coords}")
+                    self.centralizar_em(coords)
+                    self.on_tile_clicado(coords)
+                else:
+                    print("🖱️ Nenhum tile detectado.")
+
+            except Exception as e:
+                print(f"❌ Erro durante picking: {e}")
+            finally:
+                # ✅ Liberar contexto sempre
+                self.doneCurrent()
+
+        # 🖱️ Botão esquerdo: ativar rotação (arraste)
+        elif event.button() == Qt.MouseButton.LeftButton:
+            self.last_mouse_pos = (pos.x(), pos.y())
+
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.isAutoRepeat():
+            return  # ignore repeats
+        self.keys_pressed.add(event.key())
+
+    def keyReleaseEvent(self, event: QKeyEvent):
+        if event.isAutoRepeat():
+            return
+        if event.key() in self.keys_pressed:
+            self.keys_pressed.remove(event.key())
+
+    def on_tile_clicado(self, coords):
+        """
+        Chamado quando um tile é detectado via color picking.
+        Pode ser usado para seleção, highlight, ou outras ações.
+        """
+        print(f"🎯 Tile clicado via picking: {coords}")
+        # Aqui você pode implementar:
+        # - Highlight do tile
+        # - Seleção para ações
+        # - Mostrar informações
+        # - etc.
+
+        # Exemplo: centralizar no tile clicado
+        self.centralizar_em(coords)
+
+    def _atualizar_camera_por_tecla(self):
+        """Aplica rotação com base nas teclas pressionadas."""
+        sensibilidade = 0.03  # Rad/tecla
+
+        dtheta = 0.0
+        dphi = 0.0
+        dzoom = 0.0
+
+        if Qt.Key.Key_Left in self.keys_pressed:
+            dtheta += sensibilidade
+        if Qt.Key.Key_Right in self.keys_pressed:
+            dtheta -= sensibilidade
+        if Qt.Key.Key_Up in self.keys_pressed:
+            dphi -= sensibilidade
+        if Qt.Key.Key_Down in self.keys_pressed:
+            dphi += sensibilidade
+
+        # Zoom opcional com Page Up / Page Down
+        if Qt.Key.Key_PageUp in self.keys_pressed:
+            dzoom -= 0.5
+        if Qt.Key.Key_PageDown in self.keys_pressed:
+            dzoom += 0.5
+
+        if dtheta != 0 or dphi != 0 or dzoom != 0:
+            self.camera.orbit(dtheta, dphi, dzoom)
+            self.update()  # ✅ Força redraw quando houver mudança
 
     def mudar_modo_mapa(self, modo: str):
         if modo in ["fisico", "politico"]:
@@ -5080,6 +5650,12 @@ class OpenGLWidget(QOpenGLWidget):
             return
         self.modo_renderizacao = modo
         self.update()  # força redesenhar
+
+    def wheelEvent(self, event):
+        # Normaliza o delta do scroll (~±120 por "click")
+        dzoom = -event.angleDelta().y() / 120 * 0.5
+        self.camera.orbit(0, 0, dzoom)
+        self.update()
 
     def initializeGL(self):
         """Configuração inicial do contexto OpenGL.
@@ -5161,6 +5737,9 @@ class OpenGLWidget(QOpenGLWidget):
             self.camera.set_aspect(w / h)
         gl.glViewport(0, 0, w, h)
 
+        # Sincronizar com o sistema de picking
+        self.color_picking.resize(w, h)
+
     def paintGL(self):
         """Renderiza o frame atual.
         - Modo jogo: renderiza o planeta com MVP e câmera orbital
@@ -5183,8 +5762,8 @@ class OpenGLWidget(QOpenGLWidget):
                     return
 
                 # --- Calcular MVP ---
-                view = self.camera.view_matrix()
-                proj = self.camera.projection_matrix()
+                view = self.camera.get_view_matrix()
+                proj = self.camera.get_projection_matrix()
                 model = glm.mat4(1.0)
                 mvp = proj * view * model
 
@@ -5251,8 +5830,8 @@ class OpenGLWidget(QOpenGLWidget):
 
         # === 2. Calcular MVP ===
         try:
-            view = self.camera.view_matrix()
-            proj = self.camera.projection_matrix()
+            view = self.camera.get_view_matrix()
+            proj = self.camera.get_projection_matrix()
             model = glm.mat4(1.0)
             mvp = proj * view * model
             print(f"📐 [DEBUG] MVP calculado. Posição da câmera: ({view[3][0]:.2f}, {view[3][1]:.2f}, {view[3][2]:.2f})")
@@ -5490,12 +6069,12 @@ class OpenGLWidget(QOpenGLWidget):
         # === 3. Calcular distância igual à do `resetar()` ===
         fator = self.mundo.planeta.fator
         raio_planeta = fator / (2 * math.sin(math.pi / 5))  # mesma fórmula de resetar()
-        distance = 3.0 * raio_planeta  # mesma distância
+        distance = 4.0 * raio_planeta  # mesma distância
 
         # === 4. Aplicar na câmera ===
         camera = self.camera
         camera.center = glm.vec3(0.0, 0.0, 0.0)  # orbita ainda é no centro do planeta
-        camera.distance = distance
+        distance = self.camera.distance
         camera.theta = theta
         camera.phi = phi
         camera.update_position()
@@ -5503,6 +6082,10 @@ class OpenGLWidget(QOpenGLWidget):
 
         print(f"📍 Câmera reposicionada para olhar {coords}")
         print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")
+
+    def __del__(self):
+        if hasattr(self, 'timer_keyboard'):
+            self.timer_keyboard.stop()
 
 ================================================================================
 📄 client/rendering/shader.py
@@ -7641,5 +8224,5 @@ class Referencias:
 
 
 ================================================================================
-✅ Total de 42 arquivos incluídos.
+✅ Total de 44 arquivos incluídos.
 ================================================================================
