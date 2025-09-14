@@ -9,6 +9,8 @@
       <change beforePath="$PROJECT_DIR$/client/rendering/opengl_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/opengl_widget.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/widgets/tile_overlay.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/widgets/tile_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/geography.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/geography.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/settlement.py" beforeDir="false" afterPath="$PROJECT_DIR$/shared/settlement.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

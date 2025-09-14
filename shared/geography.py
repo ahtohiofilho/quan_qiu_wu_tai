@@ -40,37 +40,37 @@ def definir_geografia(poligonos, fator, bioma):
 
     def tipo_de_poligono(c):
         if c == (0, 0):
-            geografia.nodes[c]['tipo'] = 'pn'
+            geografia.nodes[c]['tipo'] = 'pn' # Polar-Norte
             return "pn"
         elif 0 < c[0] < fator and c[1] % c[0] == 0:
-            geografia.nodes[c]['tipo'] = 'ipn'
+            geografia.nodes[c]['tipo'] = 'ipn' # Internodular-Polar-Norte
             return "ipn"
         elif 0 < c[0] < fator and c[1] % c[0] != 0:
-            geografia.nodes[c]['tipo'] = 'cpn'
+            geografia.nodes[c]['tipo'] = 'cpn' # Central-Polar-Norte
             return "cpn"
         elif c[0] == fator and c[1] % c[0] == 0:
-            geografia.nodes[c]['tipo'] = 'ntn'
+            geografia.nodes[c]['tipo'] = 'ntn' # Nodular-Tropical-Norte
             return "ntn"
         elif c[0] == fator and c[1] % c[0] != 0:
-            geografia.nodes[c]['tipo'] = 'itn'
+            geografia.nodes[c]['tipo'] = 'itn' # Internodular-Tropical-Norte
             return "itn"
         elif fator < c[0] < fator * 2:
-            geografia.nodes[c]['tipo'] = 'e'
+            geografia.nodes[c]['tipo'] = 'e' # Equatorial
             return "e"
         elif c[0] == fator * 2 and c[1] % fator != 0:
-            geografia.nodes[c]['tipo'] = 'its'
+            geografia.nodes[c]['tipo'] = 'its' # Internodular-Tropical-Sul
             return "its"
         elif c[0] == fator * 2 and c[1] % fator == 0:
-            geografia.nodes[c]['tipo'] = 'nts'
+            geografia.nodes[c]['tipo'] = 'nts' # Nodular-Tropical-Sul
             return "nts"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) != 0:
-            geografia.nodes[c]['tipo'] = 'cps'
+            geografia.nodes[c]['tipo'] = 'cps' # Central-Polar-Sul
             return "cps"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) == 0:
-            geografia.nodes[c]['tipo'] = 'ips'
+            geografia.nodes[c]['tipo'] = 'ips' # Internodular-Polar-Sul
             return "ips"
         elif c[0] == fator * 3:
-            geografia.nodes[c]['tipo'] = 'ps'
+            geografia.nodes[c]['tipo'] = 'ps' # Polar-Sul
             return "ps"
 
     for n in list(geografia.nodes):

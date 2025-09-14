@@ -85,29 +85,37 @@ class OpenGLWidget(QOpenGLWidget):
                 self.doneCurrent()
 
             if coords:
-                # ✅ CORREÇÃO AQUI: node_data é um DICT, acessado com .get()
-                node_data = self.mundo.planeta.geografia.nodes.get(coords)
-                if node_data:
-                    dados_tile = {
-                        "bioma": node_data.get("bioma", "Desconhecido").title(),
-                        "placa": node_data.get("placa"),
-                        "letra_grega": node_data.get("letra_grega")
-                    }
-                else:
-                    dados_tile = {
-                        "bioma": "Desconhecido",
-                        "placa": None,
-                        "letra_grega": None
-                    }
+                # Obter dados do nó (bioma, placa, etc.)
+                node_data = self.mundo.planeta.geografia.nodes.get(coords, {})
+                dados_tile = {
+                    "bioma": node_data.get("bioma", "Unknown").title(),
+                    "placa": node_data.get("placa"),
+                    "letra_grega": node_data.get("letra_grega")
+                }
 
-                # Criar ou acessar o overlay
+                # 🔎 Coletar assentamentos no tile com tipo resolvido
+                assentamentos_info = []
+                for civ in self.mundo.civs:
+                    for ass in civ.assentamentos:
+                        if ass.coordenadas_tile == coords:
+                            tipo = ass.get_tipo_parcela(self.mundo)  # Retorna "Southeast", "Central", etc.
+                            assentamentos_info.append({
+                                "civilizacao": civ,
+                                "populacao": ass.get_populacao_total(),
+                                "tipo_parcela": tipo
+                            })
+                print("🔍 Assentamentos coletados:", assentamentos_info)
+
+                # Criar ou acessar o TileOverlay
+                container = getattr(parent_widget, 'opengl_container', parent_widget)
                 if not hasattr(parent_widget, 'tile_overlay'):
                     from client.widgets.tile_overlay import TileOverlay
-                    parent_widget.tile_overlay = TileOverlay(parent=parent_widget.opengl_container)
+                    parent_widget.tile_overlay = TileOverlay(parent=container)
 
                 overlay = parent_widget.tile_overlay
-                overlay.atualizar_info(dados_tile)
+                overlay.atualizar_info(dados_tile, assentamentos=assentamentos_info)
                 overlay.show_centered()
+
             else:
                 # Clique fora de um tile → esconde o overlay
                 if hasattr(parent_widget, 'tile_overlay'):

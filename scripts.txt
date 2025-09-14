@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-13 19:40:07
+Gerado em: 2025-09-14 12:51:25
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -4684,7 +4684,7 @@ class OfflineSetupOverlay(QWidget):
 ================================================================================
 # client/widgets/tile_overlay.py
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QFrame
+    QWidget, QVBoxLayout, QLabel, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSlot
 from client.utils.scaling import scale, scale_font
@@ -4693,7 +4693,9 @@ from client.utils.scaling import scale, scale_font
 class TileOverlay(QWidget):
     """
     Overlay flutuante centralizado que exibe informações sobre um tile clicado.
-    Aparece no centro da área OpenGL, com fundo translúcido e estilo minimalista.
+    Mostra apenas:
+    - Bioma
+    - Placa (com letra grega)
     """
 
     def __init__(self, parent=None):
@@ -4708,7 +4710,7 @@ class TileOverlay(QWidget):
         layout.setContentsMargins(scale(20), scale(15), scale(20), scale(15))
         layout.setSpacing(scale(10))
 
-        # Título destacado
+        # Título (opcional — pode ser removido depois)
         self.label_title = QLabel("Informações do Tile")
         self.label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_title.setStyleSheet(f"""
@@ -4719,8 +4721,8 @@ class TileOverlay(QWidget):
         """)
         layout.addWidget(self.label_title)
 
-        # Conteúdo principal (placeholder dinâmico)
-        self.label_info = QLabel("Bioma: Savana\nAltitude: 85m\nPopulação: 850")
+        # Conteúdo principal
+        self.label_info = QLabel("Carregando...")
         self.label_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_info.setStyleSheet(f"""
             font-size: {scale_font(13)}px;
@@ -4732,7 +4734,7 @@ class TileOverlay(QWidget):
         """)
         layout.addWidget(self.label_info)
 
-        # Botão de fechar no canto superior direito
+        # Botão de fechar (canto superior direito)
         self.btn_close = QPushButton("✕")
         self.btn_close.setFixedSize(scale(28), scale(28))
         self.btn_close.setStyleSheet("""
@@ -4750,7 +4752,7 @@ class TileOverlay(QWidget):
         """)
         self.btn_close.clicked.connect(self.hide)
 
-        # Layout para o botão de fechar
+        # Layout do botão de fechar
         close_layout = QVBoxLayout()
         close_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         close_layout.addWidget(self.btn_close)
@@ -4758,7 +4760,7 @@ class TileOverlay(QWidget):
 
         self.setLayout(layout)
 
-        # Estilo geral: fundo escuro translúcido
+        # Fundo translúcido
         self.setStyleSheet("""
             background-color: rgba(0, 0, 0, 160);
             border-radius: 16px;
@@ -4767,26 +4769,34 @@ class TileOverlay(QWidget):
     @pyqtSlot(dict)
     def atualizar_info(self, dados_tile):
         """
-        Atualiza as informações exibidas com base nos dados do tile.
-        :param dados_tile: dict com chaves como 'bioma', 'altitude', 'populacao'
+        Atualiza o overlay com bioma e placa (com letra grega).
+        :param dados_tile: dict com chaves 'bioma', 'placa', 'letra_grega'
         """
-        bioma = dados_tile.get("bioma", "Desconhecido")
-        altitude = f"{dados_tile.get('altitude', '?')}m"
-        populacao = f"{dados_tile.get('populacao', 0):,}".replace(",", ".") + " hab."
+        bioma = dados_tile.get("bioma", "Desconhecido").title()
 
-        info_text = f"<b>{bioma}</b><br>Altitude: {altitude}<br>População: {populacao}"
+        placa = dados_tile.get("placa")
+        letra_grega = dados_tile.get("letra_grega")
+
+        if placa and letra_grega:
+            placa_str = f"{placa} ({letra_grega})"
+        elif placa:
+            placa_str = placa
+        else:
+            placa_str = "Nenhuma"
+
+        info_text = f"<b>{bioma}</b><br>🪧 Placa: {placa_str}"
         self.label_info.setText(info_text)
 
     def show_centered(self):
         """
-        Exibe o overlay centralizado dentro do widget pai (opengl_container).
+        Centraliza o overlay dentro do widget pai (ex: opengl_container).
         """
         if not self.parent():
             return
 
         parent_rect = self.parent().rect()
         width = scale(320)
-        height = scale(200)
+        height = scale(160)  # Reduzido: menos altura, mais compacto
         x = (parent_rect.width() - width) // 2
         y = (parent_rect.height() - height) // 2
 
@@ -5693,46 +5703,44 @@ class OpenGLWidget(QOpenGLWidget):
         x, y = pos.x(), pos.y()
         self.last_mouse_pos = (x, y)
 
-        # 🖱️ Botão ESQUERDO: mostrar overlay de informações do tile
+        # Referência ao widget pai
+        parent_widget = getattr(self, 'parent_widget', None)
+        if not parent_widget:
+            print("❌ Parent widget não encontrado.")
+            super().mousePressEvent(event)
+            return
+
+        # Botão ESQUERDO: mostrar informações do tile
         if event.button() == Qt.MouseButton.LeftButton:
             if not self.modulo_jogo or not self.mundo:
                 print("❌ Modo jogo inativo ou mundo não carregado. Ignorando clique.")
                 super().mousePressEvent(event)
                 return
 
-            # 🔧 Garantir acesso a parent_widget em todo o escopo
-            parent_widget = self.parent_widget if hasattr(self, 'parent_widget') else None
-            if not parent_widget:
-                print("❌ Parent widget não encontrado para exibir overlay.")
-                super().mousePressEvent(event)
-                return
-
-            # ✅ Fazer picking para identificar o tile clicado
+            # Picking para obter coordenadas do tile
             try:
                 self.makeCurrent()
                 coords = self.color_picking.detectar_tile(self, x, y)
             except Exception as e:
-                print(f"❌ Erro durante picking no clique esquerdo: {e}")
+                print(f"❌ Erro durante picking: {e}")
                 coords = None
             finally:
                 self.doneCurrent()
 
             if coords:
-                # Obter dados do tile
-                node = self.mundo.planeta.geografia.nodes.get(coords)
-                if node:
+                # ✅ CORREÇÃO AQUI: node_data é um DICT, acessado com .get()
+                node_data = self.mundo.planeta.geografia.nodes.get(coords)
+                if node_data:
                     dados_tile = {
-                        "bioma": getattr(node, "bioma", "Desconhecido").title(),
-                        "altitude": round(getattr(node, "altitude", 0)),
-                        "populacao": getattr(node, "populacao", 0),
-                        "coordenadas": f"({coords[0]}, {coords[1]})"
+                        "bioma": node_data.get("bioma", "Desconhecido").title(),
+                        "placa": node_data.get("placa"),
+                        "letra_grega": node_data.get("letra_grega")
                     }
                 else:
                     dados_tile = {
                         "bioma": "Desconhecido",
-                        "altitude": "?",
-                        "populacao": 0,
-                        "coordenadas": str(coords)
+                        "placa": None,
+                        "letra_grega": None
                     }
 
                 # Criar ou acessar o overlay
@@ -5748,30 +5756,28 @@ class OpenGLWidget(QOpenGLWidget):
                 if hasattr(parent_widget, 'tile_overlay'):
                     parent_widget.tile_overlay.hide()
 
-        # 🔍 Botão DIREITO: selecionar tile e centralizar (comportamento atual)
+        # Botão DIREITO: selecionar e centralizar no tile
         elif event.button() == Qt.MouseButton.RightButton:
             if not self.isVisible() or not self.isValid():
-                print("❌ Widget não está visível ou válido para picking")
+                print("❌ Widget inválido para picking.")
                 super().mousePressEvent(event)
                 return
 
             try:
                 self.makeCurrent()
                 coords = self.color_picking.detectar_tile(self, x, y)
-
                 if coords:
                     print(f"🎯 Tile clicado: {coords}")
                     self.centralizar_em(coords)
                     self.on_tile_clicado(coords)
                 else:
                     print("🖱️ Nenhum tile detectado.")
-
             except Exception as e:
-                print(f"❌ Erro durante picking: {e}")
+                print(f"❌ Erro durante picking com botão direito: {e}")
             finally:
                 self.doneCurrent()
 
-        # ✅ Propagar evento para QOpenGLWidget (necessário para eventos de arraste)
+        # Propagar evento para suportar arraste
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):

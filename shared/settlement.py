@@ -235,6 +235,69 @@ class Assentamento:
 
         return self.coef_produtividade * trabalho_total
 
+    def get_tipo_parcela(self, mundo):
+        """
+        Retorna o tipo da parcela como string descritiva:
+        - 'Central'
+        - 'South', 'Southeast', 'East', etc., conforme a direção real do vizinho.
+
+        Usa o grafo real de geografia para garantir que a direção corresponde à topologia.
+
+        :param mundo: instância de Mundo (para acessar planeta.geografia)
+        :return: str como "Central", "Southeast", etc.
+        """
+        if self.indice_parcela == self.PARCELA_CENTRAL:
+            return "Central"
+
+        G = mundo.planeta.geografia
+        coords_tile = self.coordenadas_tile
+
+        # Verifica se o tile existe no grafo
+        if not G.has_node(coords_tile):
+            return "Peripheral"  # fallback seguro
+
+        # Coleta todos os vizinhos com suas direções
+        vizinhos_direcoes = []
+        for vizinho in G.neighbors(coords_tile):
+            direcao_abrev = G[coords_tile][vizinho].get('direcao')
+            if direcao_abrev:
+                vizinhos_direcoes.append(direcao_abrev)
+
+        # Mapeamento de abreviações → nomes completos em inglês
+        mapa_completo = {
+            'N': 'North', 'NE': 'Northeast', 'E': 'East',
+            'SE': 'Southeast', 'S': 'South', 'SW': 'Southwest',
+            'W': 'West', 'NW': 'Northwest'
+        }
+
+        # Ordenar as direções? Sim, mas não alfabeticamente!
+        # Precisamos manter a ordem coerente com a construção do grafo.
+        # Como não temos garantia de ordem de iteração, vamos ordenar pela abreviação,
+        # mas isso só funciona se as direções forem únicas e consistentes.
+
+        # Alternativa segura: ordenar pela string da direção (ex: 'N', 'NE', 'E'...)
+        # Essa ordem reflete a lógica do grafo, mas pode variar.
+        # O melhor é reconstruir a ordem esperada com base em um padrão circular.
+
+        # Vamos ordenar por uma sequência horária predefinida para consistência visual
+        ordem_horaria = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        try:
+            vizinhos_ordenados = sorted(vizinhos_direcoes,
+                                        key=lambda d: ordem_horaria.index(d))
+        except ValueError as e:
+            print(f"⚠️ Direção desconhecida em {coords_tile}: {e}")
+            vizinhos_ordenados = vizinhos_direcoes  # sem ordenação
+
+        # Agora, o índice da parcela periférica (1 a 5 ou 1 a 6) corresponde
+        # à posição na lista de vizinhos conectados (já ordenada)
+        idx_periferico = self.indice_parcela - 1  # parcelas periféricas começam em 1
+
+        if idx_periferico < len(vizinhos_ordenados):
+            abrev = vizinhos_ordenados[idx_periferico]
+            return mapa_completo.get(abrev, abrev)  # ex: "Southeast"
+
+        return "Peripheral"  # fallback
+
     def __repr__(self):
         return (f"Assentamento({self.nome}, "
                 f"Tile={self.coordenadas_tile}, "
