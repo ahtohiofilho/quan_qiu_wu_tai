@@ -1,6 +1,6 @@
 # client/widgets/tile_overlay.py
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QFrame
+    QWidget, QVBoxLayout, QLabel, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSlot
 from client.utils.scaling import scale, scale_font
@@ -9,7 +9,9 @@ from client.utils.scaling import scale, scale_font
 class TileOverlay(QWidget):
     """
     Overlay flutuante centralizado que exibe informações sobre um tile clicado.
-    Aparece no centro da área OpenGL, com fundo translúcido e estilo minimalista.
+    Mostra apenas:
+    - Bioma
+    - Placa (com letra grega)
     """
 
     def __init__(self, parent=None):
@@ -24,7 +26,7 @@ class TileOverlay(QWidget):
         layout.setContentsMargins(scale(20), scale(15), scale(20), scale(15))
         layout.setSpacing(scale(10))
 
-        # Título destacado
+        # Título (opcional — pode ser removido depois)
         self.label_title = QLabel("Informações do Tile")
         self.label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_title.setStyleSheet(f"""
@@ -35,8 +37,8 @@ class TileOverlay(QWidget):
         """)
         layout.addWidget(self.label_title)
 
-        # Conteúdo principal (placeholder dinâmico)
-        self.label_info = QLabel("Bioma: Savana\nAltitude: 85m\nPopulação: 850")
+        # Conteúdo principal
+        self.label_info = QLabel("Carregando...")
         self.label_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label_info.setStyleSheet(f"""
             font-size: {scale_font(13)}px;
@@ -48,7 +50,7 @@ class TileOverlay(QWidget):
         """)
         layout.addWidget(self.label_info)
 
-        # Botão de fechar no canto superior direito
+        # Botão de fechar (canto superior direito)
         self.btn_close = QPushButton("✕")
         self.btn_close.setFixedSize(scale(28), scale(28))
         self.btn_close.setStyleSheet("""
@@ -66,7 +68,7 @@ class TileOverlay(QWidget):
         """)
         self.btn_close.clicked.connect(self.hide)
 
-        # Layout para o botão de fechar
+        # Layout do botão de fechar
         close_layout = QVBoxLayout()
         close_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         close_layout.addWidget(self.btn_close)
@@ -74,7 +76,7 @@ class TileOverlay(QWidget):
 
         self.setLayout(layout)
 
-        # Estilo geral: fundo escuro translúcido
+        # Fundo translúcido
         self.setStyleSheet("""
             background-color: rgba(0, 0, 0, 160);
             border-radius: 16px;
@@ -83,26 +85,34 @@ class TileOverlay(QWidget):
     @pyqtSlot(dict)
     def atualizar_info(self, dados_tile):
         """
-        Atualiza as informações exibidas com base nos dados do tile.
-        :param dados_tile: dict com chaves como 'bioma', 'altitude', 'populacao'
+        Atualiza o overlay com bioma e placa (com letra grega).
+        :param dados_tile: dict com chaves 'bioma', 'placa', 'letra_grega'
         """
-        bioma = dados_tile.get("bioma", "Desconhecido")
-        altitude = f"{dados_tile.get('altitude', '?')}m"
-        populacao = f"{dados_tile.get('populacao', 0):,}".replace(",", ".") + " hab."
+        bioma = dados_tile.get("bioma", "Desconhecido").title()
 
-        info_text = f"<b>{bioma}</b><br>Altitude: {altitude}<br>População: {populacao}"
+        placa = dados_tile.get("placa")
+        letra_grega = dados_tile.get("letra_grega")
+
+        if placa and letra_grega:
+            placa_str = f"{placa} ({letra_grega})"
+        elif placa:
+            placa_str = placa
+        else:
+            placa_str = "Nenhuma"
+
+        info_text = f"<b>{bioma}</b><br>🪧 Placa: {placa_str}"
         self.label_info.setText(info_text)
 
     def show_centered(self):
         """
-        Exibe o overlay centralizado dentro do widget pai (opengl_container).
+        Centraliza o overlay dentro do widget pai (ex: opengl_container).
         """
         if not self.parent():
             return
 
         parent_rect = self.parent().rect()
         width = scale(320)
-        height = scale(200)
+        height = scale(160)  # Reduzido: menos altura, mais compacto
         x = (parent_rect.width() - width) // 2
         y = (parent_rect.height() - height) // 2
 

@@ -60,46 +60,44 @@ class OpenGLWidget(QOpenGLWidget):
         x, y = pos.x(), pos.y()
         self.last_mouse_pos = (x, y)
 
-        # 🖱️ Botão ESQUERDO: mostrar overlay de informações do tile
+        # Referência ao widget pai
+        parent_widget = getattr(self, 'parent_widget', None)
+        if not parent_widget:
+            print("❌ Parent widget não encontrado.")
+            super().mousePressEvent(event)
+            return
+
+        # Botão ESQUERDO: mostrar informações do tile
         if event.button() == Qt.MouseButton.LeftButton:
             if not self.modulo_jogo or not self.mundo:
                 print("❌ Modo jogo inativo ou mundo não carregado. Ignorando clique.")
                 super().mousePressEvent(event)
                 return
 
-            # 🔧 Garantir acesso a parent_widget em todo o escopo
-            parent_widget = self.parent_widget if hasattr(self, 'parent_widget') else None
-            if not parent_widget:
-                print("❌ Parent widget não encontrado para exibir overlay.")
-                super().mousePressEvent(event)
-                return
-
-            # ✅ Fazer picking para identificar o tile clicado
+            # Picking para obter coordenadas do tile
             try:
                 self.makeCurrent()
                 coords = self.color_picking.detectar_tile(self, x, y)
             except Exception as e:
-                print(f"❌ Erro durante picking no clique esquerdo: {e}")
+                print(f"❌ Erro durante picking: {e}")
                 coords = None
             finally:
                 self.doneCurrent()
 
             if coords:
-                # Obter dados do tile
-                node = self.mundo.planeta.geografia.nodes.get(coords)
-                if node:
+                # ✅ CORREÇÃO AQUI: node_data é um DICT, acessado com .get()
+                node_data = self.mundo.planeta.geografia.nodes.get(coords)
+                if node_data:
                     dados_tile = {
-                        "bioma": getattr(node, "bioma", "Desconhecido").title(),
-                        "altitude": round(getattr(node, "altitude", 0)),
-                        "populacao": getattr(node, "populacao", 0),
-                        "coordenadas": f"({coords[0]}, {coords[1]})"
+                        "bioma": node_data.get("bioma", "Desconhecido").title(),
+                        "placa": node_data.get("placa"),
+                        "letra_grega": node_data.get("letra_grega")
                     }
                 else:
                     dados_tile = {
                         "bioma": "Desconhecido",
-                        "altitude": "?",
-                        "populacao": 0,
-                        "coordenadas": str(coords)
+                        "placa": None,
+                        "letra_grega": None
                     }
 
                 # Criar ou acessar o overlay
@@ -115,30 +113,28 @@ class OpenGLWidget(QOpenGLWidget):
                 if hasattr(parent_widget, 'tile_overlay'):
                     parent_widget.tile_overlay.hide()
 
-        # 🔍 Botão DIREITO: selecionar tile e centralizar (comportamento atual)
+        # Botão DIREITO: selecionar e centralizar no tile
         elif event.button() == Qt.MouseButton.RightButton:
             if not self.isVisible() or not self.isValid():
-                print("❌ Widget não está visível ou válido para picking")
+                print("❌ Widget inválido para picking.")
                 super().mousePressEvent(event)
                 return
 
             try:
                 self.makeCurrent()
                 coords = self.color_picking.detectar_tile(self, x, y)
-
                 if coords:
                     print(f"🎯 Tile clicado: {coords}")
                     self.centralizar_em(coords)
                     self.on_tile_clicado(coords)
                 else:
                     print("🖱️ Nenhum tile detectado.")
-
             except Exception as e:
-                print(f"❌ Erro durante picking: {e}")
+                print(f"❌ Erro durante picking com botão direito: {e}")
             finally:
                 self.doneCurrent()
 
-        # ✅ Propagar evento para QOpenGLWidget (necessário para eventos de arraste)
+        # Propagar evento para suportar arraste
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):

@@ -5,11 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="7f647d14-916d-474b-953d-7a92cf291f9f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/client/widgets/tile_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/picking/color_picking.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/picking/color_picking.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/rendering/opengl_widget.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/rendering/opengl_widget.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/widgets/tile_overlay.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/widgets/tile_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

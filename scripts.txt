@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-13 15:09:49
+Gerado em: 2025-09-13 19:40:07
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -61,6 +61,7 @@ Conteúdo dos scripts principais reunidos.
 │   ├── widgets
 │   │   ├── match_overlay.py
 │   │   ├── offline_setup_overlay.py
+│   │   ├── tile_overlay.py
 │   │   └── waiting_room_overlay.py
 │   └── main.py
 ├── shared
@@ -2789,6 +2790,9 @@ class JanelaPrincipal(QMainWindow):
         self.opengl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         container_layout.addWidget(self.opengl_widget)
 
+        # 🔥 LINHA ADICIONADA: Conecta o OpenGLWidget à JanelaPrincipal
+        self.opengl_widget.parent_widget = self
+
         # Overlay de Boas-Vindas (centralizado)
         self.overlay_widget = QWidget(self.opengl_container)
         self.overlay_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -4676,6 +4680,121 @@ class OfflineSetupOverlay(QWidget):
             self.move(x, y)
 
 ================================================================================
+📄 client/widgets/tile_overlay.py
+================================================================================
+# client/widgets/tile_overlay.py
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QFrame
+)
+from PyQt6.QtCore import Qt, pyqtSlot
+from client.utils.scaling import scale, scale_font
+
+
+class TileOverlay(QWidget):
+    """
+    Overlay flutuante centralizado que exibe informações sobre um tile clicado.
+    Aparece no centro da área OpenGL, com fundo translúcido e estilo minimalista.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Popup)
+        self.setup_ui()
+        self.hide()  # Começa oculto
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(scale(20), scale(15), scale(20), scale(15))
+        layout.setSpacing(scale(10))
+
+        # Título destacado
+        self.label_title = QLabel("Informações do Tile")
+        self.label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_title.setStyleSheet(f"""
+            font-size: {scale_font(16)}px;
+            font-weight: bold;
+            color: white;
+            margin-bottom: {scale(8)}px;
+        """)
+        layout.addWidget(self.label_title)
+
+        # Conteúdo principal (placeholder dinâmico)
+        self.label_info = QLabel("Bioma: Savana\nAltitude: 85m\nPopulação: 850")
+        self.label_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_info.setStyleSheet(f"""
+            font-size: {scale_font(13)}px;
+            color: #e0e0e0;
+            background-color: rgba(40, 40, 60, 180);
+            padding: {scale(12)}px;
+            border-radius: {scale(8)}px;
+            border: 1px solid rgba(255, 255, 255, 30);
+        """)
+        layout.addWidget(self.label_info)
+
+        # Botão de fechar no canto superior direito
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setFixedSize(scale(28), scale(28))
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(180, 0, 0, 180);
+                color: white;
+                border: none;
+                border-radius: 14px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: red;
+            }
+        """)
+        self.btn_close.clicked.connect(self.hide)
+
+        # Layout para o botão de fechar
+        close_layout = QVBoxLayout()
+        close_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        close_layout.addWidget(self.btn_close)
+        layout.addLayout(close_layout)
+
+        self.setLayout(layout)
+
+        # Estilo geral: fundo escuro translúcido
+        self.setStyleSheet("""
+            background-color: rgba(0, 0, 0, 160);
+            border-radius: 16px;
+        """)
+
+    @pyqtSlot(dict)
+    def atualizar_info(self, dados_tile):
+        """
+        Atualiza as informações exibidas com base nos dados do tile.
+        :param dados_tile: dict com chaves como 'bioma', 'altitude', 'populacao'
+        """
+        bioma = dados_tile.get("bioma", "Desconhecido")
+        altitude = f"{dados_tile.get('altitude', '?')}m"
+        populacao = f"{dados_tile.get('populacao', 0):,}".replace(",", ".") + " hab."
+
+        info_text = f"<b>{bioma}</b><br>Altitude: {altitude}<br>População: {populacao}"
+        self.label_info.setText(info_text)
+
+    def show_centered(self):
+        """
+        Exibe o overlay centralizado dentro do widget pai (opengl_container).
+        """
+        if not self.parent():
+            return
+
+        parent_rect = self.parent().rect()
+        width = scale(320)
+        height = scale(200)
+        x = (parent_rect.width() - width) // 2
+        y = (parent_rect.height() - height) // 2
+
+        self.setGeometry(x, y, width, height)
+        self.show()
+        self.raise_()
+
+================================================================================
 📄 client/shaders/basic.frag
 ================================================================================
 #version 330 core
@@ -5275,6 +5394,7 @@ class ColorPicking:
         """
         Executa todo pipeline de color picking.
         Retorna: coordenadas do tile clicado (q, r) ou None.
+        Garante que o estado do OpenGL será restaurado após a execução.
         """
         # ✅ Verificações iniciais
         if not widget.mundo or not widget.mundo.planeta:
@@ -5285,74 +5405,93 @@ class ColorPicking:
             print("❌ [PICKING] Widget não possui dimensões")
             return None
 
-        # ✅ Atualizar tamanho do FBO primeiro
-        self.resize(widget.width(), widget.height())
+        from OpenGL.GL import (
+            glBindFramebuffer, GL_READ_FRAMEBUFFER, GL_DRAW_FRAMEBUFFER,
+            glClearColor, glGetFloatv, GL_COLOR_CLEAR_VALUE,
+            glFinish, glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
+        )
+        import numpy as np
 
-        # ✅ Garantir que o FBO está configurado ANTES de tentar usar
-        if not self._setup_fbo():
-            print("❌ [PICKING] Falha ao configurar FBO. Abortando.")
-            return None
+        # ✅ SALVAR ESTADO ATUAL DO OPENGL
+        saved_clear_color = glGetFloatv(GL_COLOR_CLEAR_VALUE)  # [r, g, b, a]
+        current_framebuffer = []  # placeholder
 
-        # ✅ Verificar se o shader de picking está compilado
-        if self.picking_shader is None:
-            if not self._criar_shader_picking():
-                print("❌ [PICKING] Shader de picking não disponível")
+        try:
+            # ✅ Atualizar tamanho do FBO primeiro
+            self.resize(widget.width(), widget.height())
+
+            # ✅ Garantir que o FBO está configurado
+            if not self._setup_fbo():
+                print("❌ [PICKING] Falha ao configurar FBO. Abortando.")
                 return None
 
-        # ✅ Renderizar cena de picking
-        try:
-            self.renderizar(widget)
-        except Exception as e:
-            print(f"❌ [PICKING] Erro durante renderização: {e}")
-            return None
+            # ✅ Verificar se o shader de picking está compilado
+            if self.picking_shader is None:
+                if not self._criar_shader_picking():
+                    print("❌ [PICKING] Shader de picking não disponível")
+                    return None
 
-        # ✅ Forçar conclusão da renderização
-        from OpenGL.GL import glFinish
-        glFinish()
+            # ✅ Bind FBO e limpar buffers com fundo preto SÓ para picking
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, self.fbo)
+            glClearColor(0.0, 0.0, 0.0, 1.0)  # Preto puro para picking
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # ✅ Converter coordenada Y para sistema OpenGL (origem inferior)
-        viewport_y = self.height - int(y) - 1
-        x = int(x)
+            # ✅ Renderizar cena de picking
+            try:
+                self.renderizar(widget)
+            except Exception as e:
+                print(f"❌ [PICKING] Erro durante renderização: {e}")
+                return None
 
-        # ✅ Ler pixel do framebuffer de picking (CORRIGIDO)
-        from OpenGL.GL import glBindFramebuffer, GL_READ_FRAMEBUFFER, glReadPixels, GL_RGB, GL_UNSIGNED_BYTE
-        try:
+            # ✅ Forçar conclusão da renderização
+            glFinish()
+
+            # ✅ Converter coordenada Y para sistema OpenGL (origem inferior)
+            viewport_y = self.height - int(y) - 1
+            x_int = int(x)
+
+            # ✅ Ler pixel do framebuffer de picking
             glBindFramebuffer(GL_READ_FRAMEBUFFER, self.fbo)
-
-            # ✅ CORREÇÃO: Usar numpy array para leitura confiável
-            import numpy as np
             pixel_data = np.zeros((1, 1, 3), dtype=np.uint8)
-            glReadPixels(x, viewport_y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel_data)
-
+            glReadPixels(x_int, viewport_y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, pixel_data)
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0)
 
-            # ✅ Extrair valores RGB do numpy array
+            # ✅ Extrair valores RGB
             r, g, b = pixel_data[0, 0]
 
+            # ✅ Fundo (preto) = sem seleção
+            if r == 0 and g == 0 and b == 0:
+                print("⚫ [PICKING] Pixel preto detectado (fundo)")
+                return None
+
+            # ✅ Converter cor → ID → coordenadas
+            idx = self._cor_para_id(r, g, b) - 1  # -1 por causa do +1 no _id_para_cor
+            nodes_list = list(widget.mundo.planeta.geografia.nodes)
+
+            if 0 <= idx < len(nodes_list):
+                coords = nodes_list[idx]
+                print(f"🎯 [PICKING] Tile detectado: {coords} (RGB={r},{g},{b}, ID={idx + 1})")
+                return coords
+            else:
+                print(f"⚠️ [PICKING] Índice fora do intervalo: {idx} (tamanho={len(nodes_list)}, RGB={r},{g},{b})")
+                # Debug: listar alguns nodes para verificar a ordem
+                if len(nodes_list) > 0:
+                    print(f"   → Primeiros nodes: {nodes_list[:5]}")
+                    print(f"   → Últimos nodes: {nodes_list[-5:]}")
+                return None
+
         except Exception as e:
-            print(f"❌ [PICKING] Erro ao ler pixel: {e}")
+            print(f"❌ [PICKING] Erro crítico no pipeline: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
-        # ✅ Fundo (preto) = sem seleção
-        if r == 0 and g == 0 and b == 0:
-            print("⚫ [PICKING] Pixel preto detectado (fundo)")
-            return None
-
-        # ✅ Converter cor → ID → coordenadas
-        idx = self._cor_para_id(r, g, b) - 1  # -1 por causa do +1 no _id_para_cor
-        nodes_list = list(widget.mundo.planeta.geografia.nodes)
-
-        if 0 <= idx < len(nodes_list):
-            coords = nodes_list[idx]
-            print(f"🎯 [PICKING] Tile detectado: {coords} (RGB={r},{g},{b}, ID={idx + 1})")
-            return coords
-        else:
-            print(f"⚠️ [PICKING] Índice fora do intervalo: {idx} (tamanho={len(nodes_list)}, RGB={r},{g},{b})")
-            # Debug: listar alguns nodes para verificar a ordem
-            if len(nodes_list) > 0:
-                print(f"   → Primeiros nodes: {nodes_list[:5]}")
-                print(f"   → Últimos nodes: {nodes_list[-5:]}")
-            return None
+        finally:
+            # ✅ RESTAURAR ESTADO DO OPENGL
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0)  # Volta ao framebuffer principal
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0)  # Limpa leitura também
+            glClearColor(*saved_clear_color)  # Restaura cor original de fundo
+            # Não chama widget.update() aqui — quem decide o redraw é o fluxo principal
 
     def _descartar_recursos(self):
         """Libera FBO/textura se existirem."""
@@ -5502,11 +5641,16 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeyEvent
 from client.rendering.camera import Camera
 from client.picking.color_picking import ColorPicking
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from client.main import JanelaPrincipal
 
 
 class OpenGLWidget(QOpenGLWidget):
     def __init__(self):
         super().__init__()
+        self.parent_widget: Optional['JanelaPrincipal'] = None
 
         # --- Estado de Renderização ---
         self.modulo_jogo = False  # Ativa renderização do planeta
@@ -5546,22 +5690,73 @@ class OpenGLWidget(QOpenGLWidget):
         from PyQt6.QtCore import Qt
 
         pos = event.position()
-        self.last_mouse_pos = (pos.x(), pos.y())
+        x, y = pos.x(), pos.y()
+        self.last_mouse_pos = (x, y)
 
-        # 🔍 Botão direito: selecionar tile via color picking
-        if event.button() == Qt.MouseButton.RightButton:
-            x = pos.x()
-            y = pos.y()
-
-            # ✅ Verificar se o widget está visível e válido
-            if not self.isVisible() or not self.isValid():
-                print("❌ Widget não está visível ou válido para picking")
+        # 🖱️ Botão ESQUERDO: mostrar overlay de informações do tile
+        if event.button() == Qt.MouseButton.LeftButton:
+            if not self.modulo_jogo or not self.mundo:
+                print("❌ Modo jogo inativo ou mundo não carregado. Ignorando clique.")
+                super().mousePressEvent(event)
                 return
 
-            # ✅ Usar QOpenGLWidget.makeCurrent() corretamente
-            try:
-                self.makeCurrent()  # Isso deve funcionar agora
+            # 🔧 Garantir acesso a parent_widget em todo o escopo
+            parent_widget = self.parent_widget if hasattr(self, 'parent_widget') else None
+            if not parent_widget:
+                print("❌ Parent widget não encontrado para exibir overlay.")
+                super().mousePressEvent(event)
+                return
 
+            # ✅ Fazer picking para identificar o tile clicado
+            try:
+                self.makeCurrent()
+                coords = self.color_picking.detectar_tile(self, x, y)
+            except Exception as e:
+                print(f"❌ Erro durante picking no clique esquerdo: {e}")
+                coords = None
+            finally:
+                self.doneCurrent()
+
+            if coords:
+                # Obter dados do tile
+                node = self.mundo.planeta.geografia.nodes.get(coords)
+                if node:
+                    dados_tile = {
+                        "bioma": getattr(node, "bioma", "Desconhecido").title(),
+                        "altitude": round(getattr(node, "altitude", 0)),
+                        "populacao": getattr(node, "populacao", 0),
+                        "coordenadas": f"({coords[0]}, {coords[1]})"
+                    }
+                else:
+                    dados_tile = {
+                        "bioma": "Desconhecido",
+                        "altitude": "?",
+                        "populacao": 0,
+                        "coordenadas": str(coords)
+                    }
+
+                # Criar ou acessar o overlay
+                if not hasattr(parent_widget, 'tile_overlay'):
+                    from client.widgets.tile_overlay import TileOverlay
+                    parent_widget.tile_overlay = TileOverlay(parent=parent_widget.opengl_container)
+
+                overlay = parent_widget.tile_overlay
+                overlay.atualizar_info(dados_tile)
+                overlay.show_centered()
+            else:
+                # Clique fora de um tile → esconde o overlay
+                if hasattr(parent_widget, 'tile_overlay'):
+                    parent_widget.tile_overlay.hide()
+
+        # 🔍 Botão DIREITO: selecionar tile e centralizar (comportamento atual)
+        elif event.button() == Qt.MouseButton.RightButton:
+            if not self.isVisible() or not self.isValid():
+                print("❌ Widget não está visível ou válido para picking")
+                super().mousePressEvent(event)
+                return
+
+            try:
+                self.makeCurrent()
                 coords = self.color_picking.detectar_tile(self, x, y)
 
                 if coords:
@@ -5574,13 +5769,9 @@ class OpenGLWidget(QOpenGLWidget):
             except Exception as e:
                 print(f"❌ Erro durante picking: {e}")
             finally:
-                # ✅ Liberar contexto sempre
                 self.doneCurrent()
 
-        # 🖱️ Botão esquerdo: ativar rotação (arraste)
-        elif event.button() == Qt.MouseButton.LeftButton:
-            self.last_mouse_pos = (pos.x(), pos.y())
-
+        # ✅ Propagar evento para QOpenGLWidget (necessário para eventos de arraste)
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):
@@ -5746,10 +5937,18 @@ class OpenGLWidget(QOpenGLWidget):
             → Escolhe entre modo físico ou político com base em self.modo_renderizacao
         - Modo espera: apenas limpa o fundo (overlay está por cima)
         """
-        # === 1. Limpar buffers ===
+        # === 1. DEFINIR COR DE FUNDO ANTES DE QUALQUER COISA ===
+        if self.modulo_jogo and self.mundo:
+            # Durante a partida: fundo preto
+            gl.glClearColor(0.0, 0.0, 0.0, 1.0)
+        else:
+            # Tela de espera / sem mundo: fundo cinza escuro
+            gl.glClearColor(0.1, 0.1, 0.1, 1.0)
+
+        # === 2. LIMPAR BUFFERS (com a cor já definida) ===
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-        # === 2. Modo Jogo: Renderizar o planeta ===
+        # === 3. MODO JOGO: Renderizar o planeta ===
         if self.modulo_jogo and self.mundo and self.shader_program and self.shader_program.program_id:
             try:
                 print(f"🔧 [DEBUG] paintGL: Iniciando renderização. Modo='{self.modo_renderizacao}'")
@@ -5806,15 +6005,12 @@ class OpenGLWidget(QOpenGLWidget):
                 print(f"❌ Erro crítico em paintGL: {e}")
                 import traceback
                 traceback.print_exc()
-                # Fundo vermelho para indicar falha
+                # Em caso de erro, usa fundo vermelho de alerta
                 gl.glClearColor(0.2, 0.0, 0.0, 1.0)
                 gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-        # === 3. Modo Espera ou Estado Inválido ===
-        else:
-            # Apenas limpa com fundo escuro — o overlay está por cima
-            gl.glClearColor(0.1, 0.1, 0.1, 1.0)
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+        # === 4. NÃO FAZER NADA NO ELSE ===
+        # Já fizemos glClear com a cor certa acima, então não precisa repetir
 
     def _renderizar_planeta_fisico(self):
         """Renderiza o planeta no modo físico, usando cores por vértice (biomas, altitude, etc)."""
@@ -8224,5 +8420,5 @@ class Referencias:
 
 
 ================================================================================
-✅ Total de 44 arquivos incluídos.
+✅ Total de 45 arquivos incluídos.
 ================================================================================
