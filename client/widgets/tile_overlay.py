@@ -1,165 +1,145 @@
 # client/widgets/tile_overlay.py
+import os
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton
+    QWidget, QLabel, QPushButton, QGridLayout
 )
-from PyQt6.QtCore import Qt, pyqtSlot
-from client.utils.scaling import scale, scale_font
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QPixmap, QCursor
 
 
 class TileOverlay(QWidget):
     """
-    Overlay flutuante centralizado que exibe informações sobre um tile clicado.
-    Mostra apenas:
-    - Bioma
-    - Placa (com letra grega)
+    Overlay flutuante para exibir a textura do bioma do tile.
+    - Imagem centralizada com escala responsiva
+    - Botão '✕' redondo no canto superior direito
+    - Centralizado fisicamente no widget de referência (OpenGLWidget)
+    - Fecha com clique fora, no botão ou em ESC
     """
+    closed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Popup)
-        self.setup_ui()
-        self.hide()  # Começa oculto
+        self.setWindowFlags(
+            Qt.WindowType.Popup |           # Fecha com clique fora
+            Qt.WindowType.FramelessWindowHint  # Sem bordas
+        )
 
-    @staticmethod
-    def _rgb_tuple_to_hex(rgb):
-        """
-        Converte uma tupla RGB (r, g, b) com valores 0-255 para string hex "#RRGGBB"
-        :param rgb: tuple(int, int, int)
-        :return: str como "#7FFF00"
-        """
-        if isinstance(rgb, str):
-            return rgb.lstrip('#')  # Já é string → remover '#' se tiver
-        try:
-            r, g, b = rgb
-            return f"{int(r):02X}{int(g):02X}{int(b):02X}"
-        except (TypeError, ValueError, AttributeError):
-            print(f"❌ Falha ao converter cor: {rgb}")
-            return "FFFFFF"  # fallback branco
+        from client.utils.scaling import scale
 
-    def setup_ui(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(scale(20), scale(15), scale(20), scale(15))
-        layout.setSpacing(scale(10))
+        # === Layout principal (grid para posicionamento preciso) ===
+        layout = QGridLayout(self)
+        layout.setContentsMargins(scale(16), scale(16), scale(16), scale(16))
+        layout.setSpacing(0)
 
-        # Título (opcional — pode ser removido depois)
-        self.label_title = QLabel("Informações do Tile")
-        self.label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_title.setStyleSheet(f"""
-            font-size: {scale_font(16)}px;
-            font-weight: bold;
-            color: white;
-            margin-bottom: {scale(8)}px;
-        """)
-        layout.addWidget(self.label_title)
+        # --- Label da imagem ---
+        self.image_label = QLabel("...")
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setStyleSheet("background: transparent;")
 
-        # Conteúdo principal
-        self.label_info = QLabel("Carregando...")
-        self.label_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label_info.setStyleSheet(f"""
-            font-size: {scale_font(13)}px;
-            color: #e0e0e0;
-            background-color: rgba(40, 40, 60, 180);
-            padding: {scale(12)}px;
-            border-radius: {scale(8)}px;
-            border: 1px solid rgba(255, 255, 255, 30);
-        """)
-        layout.addWidget(self.label_info)
-
-        # Botão de fechar (canto superior direito)
+        # --- Botão fechar: apenas '✕' em círculo ---
         self.btn_close = QPushButton("✕")
-        self.btn_close.setFixedSize(scale(28), scale(28))
-        self.btn_close.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(180, 0, 0, 180);
+        self.btn_close.setFixedSize(scale(30), scale(30))
+        self.btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(200, 50, 50, 200);
                 color: white;
-                border: none;
-                border-radius: 14px;
-                font-size: 16px;
+                border-radius: {scale(15)}px;
+                font-size: {int(scale(18))}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: red;
-            }
+                border: none;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(230, 70, 70, 220);
+            }}
         """)
-        self.btn_close.clicked.connect(self.hide)
+        self.btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_close.clicked.connect(self.close)
 
-        # Layout do botão de fechar
-        close_layout = QVBoxLayout()
-        close_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        close_layout.addWidget(self.btn_close)
-        layout.addLayout(close_layout)
-
+        # Adiciona widgets ao grid
+        layout.addWidget(self.image_label, 0, 0)
+        layout.addWidget(
+            self.btn_close,
+            0, 0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
+        )
         self.setLayout(layout)
 
-        # Fundo translúcido
+        # Estilo do fundo do overlay
         self.setStyleSheet("""
             background-color: rgba(0, 0, 0, 160);
             border-radius: 16px;
         """)
 
-    @pyqtSlot(dict)
-    def atualizar_info(self, dados_tile, assentamentos=None):
-        """
-        Updates the overlay with:
-        - Biome
-        - Plate (with Greek letter)
-        - List of settlements (if any), including:
-            - Civilization name
-            - Population
-            - Parcel type (e.g. 'Central', 'Southeast')
+        # Widget de referência para centralização
+        self.reference_widget = None
 
-        :param dados_tile: dict with keys 'bioma', 'placa', 'letra_grega'
-        :param assentamentos: list of settlement dicts with keys:
-                             {'civilizacao': Civ, 'populacao': int, 'tipo_parcela': str}
-        """
-        # Basic tile data
-        bioma = dados_tile.get("bioma", "Unknown").title()
-        placa = dados_tile.get("placa")
-        letra_grega = dados_tile.get("letra_grega")
+    def set_reference_widget(self, widget):
+        """Define o widget de referência (ex: OpenGLWidget) para centralização."""
+        self.reference_widget = widget
 
-        if placa and letra_grega:
-            placa_str = f"{placa} ({letra_grega})"
-        elif placa:
-            placa_str = placa
-        else:
-            placa_str = "None"
-
-        info_lines = [
-            f"<b>{bioma}</b>",
-            f"Plate: {placa_str}"
-        ]
-
-        # Add settlements if present
-        if assentamentos and len(assentamentos) > 0:
-            info_lines.append("<hr style='border: 1px solid #555;'>")  # Divider
-            for ass in assentamentos:
-                civ_nome = ass["civilizacao"].nome
-                pop_total = ass["populacao"]
-                tipo_parcela = ass["tipo_parcela"]  # e.g. "Central", "Southeast"
-                raw_cor = ass["civilizacao"].cor
-                cor_hex = self._rgb_tuple_to_hex(raw_cor)
-                marker = f"<span style='color:#{cor_hex};'>●</span>"
-                formatted_pop = f"{pop_total:,}"  # Add thousand separators
-                info_lines.append(
-                    f"{marker} <b>{civ_nome}</b>: {formatted_pop} pop ({tipo_parcela})"
-                )
-
-        self.label_info.setText("<br>".join(info_lines))
-
-    def show_centered(self):
-        """
-        Centraliza o overlay dentro do widget pai (ex: opengl_container).
-        """
-        if not self.parent():
+    def carregar_textura(self, caminho_imagem):
+        """Carrega e dimensiona a textura com base no tamanho do widget de referência."""
+        if not os.path.exists(caminho_imagem):
+            print(f"❌ Textura não encontrada: {caminho_imagem}")
             return
 
-        parent_rect = self.parent().rect()
-        width = scale(320)
-        height = scale(160)  # Reduzido: menos altura, mais compacto
-        x = (parent_rect.width() - width) // 2
-        y = (parent_rect.height() - height) // 2
+        pixmap = QPixmap(caminho_imagem)
+        if pixmap.isNull():
+            print("❌ QPixmap inválido.")
+            return
 
-        self.setGeometry(x, y, width, height)
+        # --- Obter dimensões do widget de referência ---
+        ref = self.reference_widget or self.parent()
+        if not ref:
+            max_w, max_h = 800, 600
+        else:
+            rect = ref.rect()
+            max_w, max_h = rect.width(), rect.height()
+
+        from client.utils.scaling import scale
+        target_size = int(min(max_w, max_h) * 0.9)
+        MAX_SIZE = scale(1024)
+        target_size = min(target_size, MAX_SIZE)
+
+        scaled_pixmap = pixmap.scaled(
+            target_size,
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.image_label.setPixmap(scaled_pixmap)
+
+        self.setMinimumSize(
+            scaled_pixmap.width() + scale(32),
+            scaled_pixmap.height() + scale(32)
+        )
+
+    def show_centered(self):
+        """Exibe o overlay centralizado no centro do widget de referência."""
+        if not self.reference_widget:
+            print("❌ [TileOverlay] Nenhum widget de referência definido para centralizar.")
+            return
+
+        self.adjustSize()
+        w, h = self.width(), self.height()
+
+        global_center = self.reference_widget.mapToGlobal(self.reference_widget.rect().center())
+        x = global_center.x() - w // 2
+        y = global_center.y() - h // 2
+
+        self.move(x, y)
         self.show()
         self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        """Fecha o overlay ao pressionar ESC."""
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)

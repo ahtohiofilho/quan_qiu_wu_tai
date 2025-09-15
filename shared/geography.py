@@ -438,8 +438,11 @@ def definir_geografia(poligonos, fator, bioma):
             geografia[u][v]['cust_mob'] *= 0.7
 
     cores_biomas = {
-        'Ocean': (0, 23, 98), 'Sea': (8, 33, 113), 'Coast': (12, 71, 108), 'Meadow': (91, 174, 70), 'Savanna': (231, 190, 141),
-        'Forest': (75, 129, 66), 'Desert': (242, 242, 166), 'Hills': (201, 147, 121), 'Mountains': (158, 86, 86), 'Ice': (245, 255, 245)
+        'Ocean': (0, 23, 98), 'Sea': (8, 33, 113),
+        'Coast': (12, 71, 108), 'Meadow': (91, 174, 70),
+        'Savanna': (231, 190, 141), 'Forest': (75, 129, 66),
+        'Desert': (242, 242, 166), 'Hills': (201, 147, 121),
+        'Mountains': (158, 86, 86), 'Ice': (245, 255, 245)
     }
 
     bioma_escolhido = []
