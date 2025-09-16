@@ -1,5 +1,6 @@
 # client/widgets/tile_overlay.py
 import os
+from PyQt6 import QtCore
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QGridLayout
 )
@@ -79,7 +80,6 @@ class TileOverlay(QWidget):
         self.reference_widget = widget
 
     def carregar_textura(self, caminho_imagem):
-        """Carrega e dimensiona a textura com base no tamanho do widget de referência."""
         if not os.path.exists(caminho_imagem):
             print(f"❌ Textura não encontrada: {caminho_imagem}")
             return
@@ -98,10 +98,18 @@ class TileOverlay(QWidget):
             max_w, max_h = rect.width(), rect.height()
 
         from client.utils.scaling import scale
-        target_size = int(min(max_w, max_h) * 0.9)
-        MAX_SIZE = scale(1024)
-        target_size = min(target_size, MAX_SIZE)
 
+        # === 🔽 LIMITES BASEADOS NA TELA ===
+        # Use 75% do menor lado, mas impõe limite rígido
+        target_size = int(min(max_w, max_h) * 1.0)
+
+        # ✅ Novo: limite máximo com margem segura
+        MAX_SIZE_ALLOWED = int(min(max_w, max_h) * 0.85)  # Nunca mais que 85%
+        MAX_SIZE_HARD = scale(700)  # Limite absoluto físico (para telas pequenas)
+
+        target_size = min(target_size, MAX_SIZE_ALLOWED, MAX_SIZE_HARD)
+
+        # Redimensiona mantendo proporção
         scaled_pixmap = pixmap.scaled(
             target_size,
             target_size,
@@ -110,28 +118,55 @@ class TileOverlay(QWidget):
         )
         self.image_label.setPixmap(scaled_pixmap)
 
+        # Ajusta tamanho mínimo do overlay
         self.setMinimumSize(
             scaled_pixmap.width() + scale(32),
             scaled_pixmap.height() + scale(32)
         )
 
     def show_centered(self):
-        """Exibe o overlay centralizado no centro do widget de referência."""
-        if not self.reference_widget:
-            print("❌ [TileOverlay] Nenhum widget de referência definido para centralizar.")
-            return
+        """Exibe o overlay com diagnóstico detalhado de posicionamento."""
+        from PyQt6.QtWidgets import QApplication
 
+        # --- 1. Obter janela principal ---
+        app = QApplication.instance()
+        window = app.activeWindow()
+        if not window:
+            print("❌ [DEBUG - SHOW] Nenhuma janela ativa encontrada.")
+            return
+        else:
+            print(f"✅ [DEBUG - SHOW] Janela ativa: {window}")
+
+        # --- 2. Obter geometria da área disponível (sem barra de tarefas) ---
+        screen = app.primaryScreen()
+        screen_rect = screen.availableGeometry()
+        print(f"📏 [DEBUG - SHOW] availableGeometry(): {screen_rect}")
+
+        center_x = screen_rect.center().x()
+        center_y = screen_rect.center().y()
+        print(f"🎯 [DEBUG - SHOW] Centro absoluto da tela: ({center_x}, {center_y})")
+
+        # --- 3. Tamanho do overlay ---
         self.adjustSize()
         w, h = self.width(), self.height()
+        print(f"🖼️ [DEBUG - SHOW] Tamanho calculado do overlay: {w}x{h}")
 
-        global_center = self.reference_widget.mapToGlobal(self.reference_widget.rect().center())
-        x = global_center.x() - w // 2
-        y = global_center.y() - h // 2
+        # --- 4. Posição final ---
+        x = center_x - w // 2
+        y = center_y - h // 2
+        print(f"📌 [DEBUG - SHOW] Posição final calculada: ({x}, {y})")
 
+        # --- 5. Informações adicionais para depuração visual ---
+        print(f"🔍 [DEBUG - SHOW] Altura total da tela física: {screen.geometry().height()}")
+        print(f"🔍 [DEBUG - SHOW] Margem superior (barra de tarefas?): {screen.geometry().top()}")
+        print(f"🔍 [DEBUG - SHOW] Margem inferior estimada: {screen.geometry().bottom() - screen_rect.bottom()}")
+
+        # --- 6. Aplicar posição ---
         self.move(x, y)
         self.show()
         self.raise_()
         self.activateWindow()
+        print(f"✅ [DEBUG - SHOW] Overlay mostrado em ({x}, {y}), tamanho {w}x{h}")
 
     def closeEvent(self, event):
         self.closed.emit()

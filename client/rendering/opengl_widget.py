@@ -60,10 +60,8 @@ class OpenGLWidget(QOpenGLWidget):
         x, y = pos.x(), pos.y()
         self.last_mouse_pos = (x, y)
 
-        # --- Logs de depuração (opcional) ---
-        DEBUG = False  # 🔁 Mude para True para ativar logs
-        if DEBUG:
-            print(f"🖱️ [DEBUG] Clique detectado: botão={event.button()}, posição=({x}, {y})")
+        # --- Ative para depurar ---
+        DEBUG = False  # 🔁 Mude para True durante testes
 
         parent_widget = getattr(self, 'parent_widget', None)
         if not parent_widget:
@@ -74,118 +72,41 @@ class OpenGLWidget(QOpenGLWidget):
         if DEBUG:
             print("✅ [DEBUG] parent_widget encontrado.")
 
-        container = getattr(parent_widget, 'opengl_container', parent_widget)
+        # === Picking: detectar tile clicado ===
+        try:
+            self.makeCurrent()
+            coords = self.color_picking.detectar_tile(self, x, y)
+            if DEBUG and coords:
+                print(f"🎯 [DEBUG] Tile detectado: {coords}")
+        except Exception as e:
+            if DEBUG:
+                print(f"❌ [DEBUG] Erro no picking: {e}")
+            coords = None
+        finally:
+            self.doneCurrent()
 
-        # === Botão ESQUERDO: mostrar TEXTURA do bioma ===
+        # === Distribuir por botão ===
         if event.button() == Qt.MouseButton.LeftButton:
             if DEBUG:
-                print("🟢 [DEBUG] Botão ESQUERDO pressionado — iniciando fluxo de textura.")
-
-            if not self.modulo_jogo or not self.mundo:
-                if DEBUG:
-                    print("❌ [DEBUG] Módulo jogo ou mundo não disponíveis.")
-                super().mousePressEvent(event)
-                return
-            if DEBUG:
-                print("✅ [DEBUG] Módulo jogo e mundo estão ativos.")
-
-            try:
-                self.makeCurrent()
-                coords = self.color_picking.detectar_tile(self, x, y)
-                if DEBUG:
-                    print(f"🎯 [DEBUG] Resultado do picking: coords = {coords}")
-            except Exception as e:
-                if DEBUG:
-                    print(f"❌ [DEBUG] Erro no picking: {e}")
-                coords = None
-            finally:
-                self.doneCurrent()
-
+                print("🟢 [DEBUG] Botão ESQUERDO pressionado.")
             if coords:
-                node_data = self.mundo.planeta.geografia.nodes.get(coords, {})
-                if not node_data:
-                    if DEBUG:
-                        print("⚠️ [DEBUG] Nenhum dado encontrado para este tile.")
-                else:
-                    bioma = node_data.get("bioma", "Unknown").lower().strip()
-                    tipo_poligono = node_data.get("tipo", "e")
-                    if DEBUG:
-                        print(f"📊 [DEBUG] Dados do tile -> Bioma: '{bioma}', Tipo: '{tipo_poligono}'")
-
-                    # --- Mapeamento tipo → sufixo da textura ---
-                    if tipo_poligono in ['pn', 'ntn']:
-                        sufixo = 'pent_up'
-                    elif tipo_poligono in ['ps', 'nts']:
-                        sufixo = 'pent_down'
-                    elif tipo_poligono in ['ipn', 'ips']:
-                        sufixo = 'hex_side'
-                    else:  # hex_up: cpn, cps, itn, its, e
-                        sufixo = 'hex_up'
-
-                    caminho_textura = f"assets/textures/biomes/{bioma}_{sufixo}.png"
-
-                    import os
-                    if not os.path.exists(caminho_textura):
-                        if DEBUG:
-                            print(f"❌ [DEBUG] Textura não encontrada: {caminho_textura}")
-                        caminho_textura = "assets/textures/biomes/fallback.png"
-                        if not os.path.exists(caminho_textura):
-                            if DEBUG:
-                                print("❌ [DEBUG] Fallback também não existe. Abortando.")
-                            super().mousePressEvent(event)
-                            return
-                        elif DEBUG:
-                            print("✅ [DEBUG] Usando fallback.png")
-                    elif DEBUG:
-                        print("✅ [DEBUG] Arquivo de textura CONFIRMADO no disco.")
-
-                    # Criar ou acessar TileOverlay
-                    if not hasattr(parent_widget, 'tile_overlay'):
-                        from client.widgets.tile_overlay import TileOverlay
-                        parent_widget.tile_overlay = TileOverlay(parent=container)
-
-                        def fechar_overlay():
-                            parent_widget.tile_overlay.hide()
-
-                        parent_widget.tile_overlay.btn_close.clicked.connect(fechar_overlay)
-                        parent_widget.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-
-                    overlay = parent_widget.tile_overlay
-                    overlay.carregar_textura(caminho_textura)
-                    overlay.set_reference_widget(self)  # ✅ Passa o OpenGLWidget como referência
-                    overlay.show_centered()
-
+                self.on_left_click(coords)
             else:
-                if DEBUG:
-                    print("🟥 [DEBUG] NENHUM TILE DETECTADO pelo picking.")
-                if hasattr(parent_widget, 'tile_overlay'):
-                    parent_widget.tile_overlay.hide()
+                # Clique fora do mapa: fecha overlay
+                container = getattr(parent_widget, 'opengl_container', parent_widget)
+                if hasattr(container, 'tile_overlay'):
+                    container.tile_overlay.hide()
+                    if DEBUG:
+                        print("CloseOperation: Fechando overlay por clique fora.")
 
-        # === Botão DIREITO: apenas centralizar ===
         elif event.button() == Qt.MouseButton.RightButton:
             if DEBUG:
-                print("🔵 [DEBUG] Botão DIREITO pressionado — tentando centralizar.")
-
-            if not self.isVisible() or not self.isValid():
+                print("🔵 [DEBUG] Botão DIREITO pressionado.")
+            if coords:
+                self.on_right_click(coords)
+            else:
                 if DEBUG:
-                    print("❌ [DEBUG] Widget OpenGL inválido ou invisível.")
-                super().mousePressEvent(event)
-                return
-
-            try:
-                self.makeCurrent()
-                coords = self.color_picking.detectar_tile(self, x, y)
-                if coords:
-                    if DEBUG:
-                        print(f"🎯 [DEBUG] Centralizando no tile: {coords}")
-                    self.centralizar_em(coords)
-                elif DEBUG:
                     print("🟥 [DEBUG] Nenhum tile detectado com botão direito.")
-            except Exception as e:
-                if DEBUG:
-                    print(f"❌ [DEBUG] Erro no picking (botão direito): {e}")
-            finally:
-                self.doneCurrent()
 
         # Propagar evento para suportar arraste
         super().mousePressEvent(event)
@@ -200,54 +121,6 @@ class OpenGLWidget(QOpenGLWidget):
             return
         if event.key() in self.keys_pressed:
             self.keys_pressed.remove(event.key())
-
-    def on_tile_clicado(self, coords):
-        """
-        Chamado quando um tile é clicado com o botão esquerdo.
-        Mostra a textura do bioma no TileOverlay, sem mover a câmera.
-        """
-        print(f"🖼️ Exibindo textura do tile: {coords}")
-
-        if not self.mundo or not self.mundo.planeta:
-            return
-
-        G = self.mundo.planeta.geografia
-        node_data = G.nodes.get(coords, {})
-        bioma = node_data.get("bioma", "Unknown").lower().strip()
-        tipo_poligono = node_data.get("tipo", "e")
-
-        # --- Mapeamento tipo → sufixo ---
-        if tipo_poligono in ['pn', 'ntn']:
-            sufixo = 'pent_up'
-        elif tipo_poligono in ['ps', 'nts']:
-            sufixo = 'pent_down'
-        elif tipo_poligono in ['ipn', 'ips']:
-            sufixo = 'hex_side'
-        else:
-            sufixo = 'hex_up'
-
-        caminho_textura = f"assets/textures/biomes/{bioma}_{sufixo}.png"
-
-        import os
-        if not os.path.exists(caminho_textura):
-            print(f"⚠️ Textura não encontrada: {caminho_textura}")
-            return
-
-        # --- Mostrar no TileOverlay ---
-        container = getattr(self.parent(), 'opengl_container', self.parent())
-        if not hasattr(container, 'tile_overlay'):
-            from client.widgets.tile_overlay import TileOverlay
-            container.tile_overlay = TileOverlay(parent=container)
-
-            def fechar_overlay():
-                container.tile_overlay.hide()
-
-            container.tile_overlay.btn_close.clicked.connect(fechar_overlay)
-            container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
-
-        overlay = container.tile_overlay
-        overlay.carregar_textura(caminho_textura)
-        overlay.show_centered()
 
     def _atualizar_camera_por_tecla(self):
         """Aplica rotação com base nas teclas pressionadas."""
@@ -275,6 +148,55 @@ class OpenGLWidget(QOpenGLWidget):
         if dtheta != 0 or dphi != 0 or dzoom != 0:
             self.camera.orbit(dtheta, dphi, dzoom)
             self.update()  # ✅ Força redraw quando houver mudança
+
+    def on_left_click(self, coords):
+        """Mostra a textura do bioma ao clicar com botão esquerdo."""
+        if not self.mundo or not self.mundo.planeta:
+            return
+
+        node_data = self.mundo.planeta.geografia.nodes.get(coords, {})
+        if not node_data:
+            return
+
+        bioma = node_data.get("bioma", "Unknown").lower().strip()
+        tipo_poligono = node_data.get("tipo", "e")
+
+        # Mapeamento tipo → sufixo
+        sufixo = 'hex_up'
+        if tipo_poligono in ['pn', 'nts']:
+            sufixo = 'pent_up'
+        elif tipo_poligono in ['ps', 'ntn']:
+            sufixo = 'pent_down'
+        elif tipo_poligono in ['ipn', 'ips']:
+            sufixo = 'hex_side'
+
+        caminho_textura = f"assets/textures/biomes/{bioma}_{sufixo}.png"
+
+        import os
+        if not os.path.exists(caminho_textura):
+            caminho_textura = "assets/textures/biomes/fallback.png"
+            if not os.path.exists(caminho_textura):
+                return
+
+        container = getattr(self.parent(), 'opengl_container', self.parent())
+        if not hasattr(container, 'tile_overlay'):
+            from client.widgets.tile_overlay import TileOverlay
+            container.tile_overlay = TileOverlay(parent=container)
+
+            def fechar():
+                container.tile_overlay.hide()
+
+            container.tile_overlay.btn_close.clicked.connect(fechar)
+            container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+
+        overlay = container.tile_overlay
+        overlay.carregar_textura(caminho_textura)
+        overlay.set_reference_widget(self)
+        overlay.show_centered()
+
+    def on_right_click(self, coords):
+        """Lida com clique direito: navegação (centralização)."""
+        self.centralizar_em(coords)
 
     def mudar_modo_mapa(self, modo: str):
         if modo in ["fisico", "politico"]:
