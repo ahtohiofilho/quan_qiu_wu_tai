@@ -1,4 +1,4 @@
-# client/widgets/tile_overlay.py
+# client/widgets/tile.py
 import os
 from PyQt6 import QtCore
 from PyQt6.QtWidgets import (
@@ -10,16 +10,20 @@ from PyQt6.QtGui import QPixmap, QCursor
 
 class TileOverlay(QWidget):
     """
-    Overlay flutuante para exibir a textura do bioma do tile.
+    Overlay flutuante para exibir a textura do bioma do tile e máscaras regionais ao passar o mouse.
     - Imagem centralizada com escala responsiva
     - Botão '✕' redondo no canto superior direito
+    - Widget Regiao sobreposto à imagem para mostrar regiões ao passar o mouse
     - Centralizado fisicamente no widget de referência (OpenGLWidget)
     - Fecha com clique fora, no botão ou em ESC
     """
     closed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, mundo, parent=None):
         super().__init__(parent)
+        self.mundo = mundo  # Referência ao mundo atual
+        self.region_widget = None # Widget Regiao para máscaras
+        self.image_label = QLabel("...") # QLabel para a imagem do bioma
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
             Qt.WindowType.Popup |           # Fecha com clique fora
@@ -34,7 +38,6 @@ class TileOverlay(QWidget):
         layout.setSpacing(0)
 
         # --- Label da imagem ---
-        self.image_label = QLabel("...")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("background: transparent;")
 
@@ -79,7 +82,10 @@ class TileOverlay(QWidget):
         """Define o widget de referência (ex: OpenGLWidget) para centralização."""
         self.reference_widget = widget
 
-    def carregar_textura(self, caminho_imagem):
+    def carregar_imagem(self, caminho_imagem, formato="hex_up"):
+        from client.utils.scaling import scale
+        from client.widgets.region import Regiao
+
         if not os.path.exists(caminho_imagem):
             print(f"❌ Textura não encontrada: {caminho_imagem}")
             return
@@ -97,19 +103,12 @@ class TileOverlay(QWidget):
             rect = ref.rect()
             max_w, max_h = rect.width(), rect.height()
 
-        from client.utils.scaling import scale
-
         # === 🔽 LIMITES BASEADOS NA TELA ===
-        # Use 75% do menor lado, mas impõe limite rígido
         target_size = int(min(max_w, max_h) * 1.0)
-
-        # ✅ Novo: limite máximo com margem segura
-        MAX_SIZE_ALLOWED = int(min(max_w, max_h) * 0.85)  # Nunca mais que 85%
-        MAX_SIZE_HARD = scale(700)  # Limite absoluto físico (para telas pequenas)
-
+        MAX_SIZE_ALLOWED = int(min(max_w, max_h) * 0.85)
+        MAX_SIZE_HARD = scale(700)
         target_size = min(target_size, MAX_SIZE_ALLOWED, MAX_SIZE_HARD)
 
-        # Redimensiona mantendo proporção
         scaled_pixmap = pixmap.scaled(
             target_size,
             target_size,
@@ -118,11 +117,60 @@ class TileOverlay(QWidget):
         )
         self.image_label.setPixmap(scaled_pixmap)
 
-        # Ajusta tamanho mínimo do overlay
         self.setMinimumSize(
             scaled_pixmap.width() + scale(32),
             scaled_pixmap.height() + scale(32)
         )
+
+        # ======= INTEGRAÇÃO DA REGIAO (color picking 2D para hover) =======
+        # As cores no picking_path são usadas *internamente* pelo Regiao para detectar regiões.
+        # O mapa de overlays define *o que é exibido* quando uma região é detectada (hover).
+
+        # --- Picking path (arquivo invisível para detectar regiões) ---
+        picking_path = f"assets/picking/{formato}.png"
+
+        # --- Mapa de cor para as regiões (deve bater com as cores do arquivo de picking) ---
+        region_color_map = {
+            (255, 0, 0): "center",
+            (0, 255, 0): "top",
+            (255, 0, 255): "bottom",
+            (127, 127, 127): "left",
+            (127, 0, 127): "right",
+            (1, 11, 111): "topleft",
+            (0, 0, 255): "topright",
+            (0, 255, 255): "bottomleft",
+            (255, 255, 0): "bottomright"
+        }
+
+        # --- Overlays corretos para o formato atual (visíveis ao passar o mouse) ---
+        # Supõe que mundo.ref.overlay_paths[formato] é um dicionário
+        # mapeando nomes de regiões para caminhos de arquivos de overlay.
+        try:
+            overlay_pixmaps = {
+                reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()
+            }
+        except (AttributeError, KeyError) as e:
+            print(f"⚠️ Erro ao carregar overlays para formato '{formato}': {e}. Usando dicionário vazio.")
+            overlay_pixmaps = {}
+
+        # Remove o widget anterior se existir (evita leaks e sobreposição)
+        if self.region_widget:
+            self.region_widget.setParent(None)
+            self.region_widget.deleteLater()
+            self.region_widget = None
+
+        # Cria o novo widget Regiao sobre a image_label (tamanho igual à imagem exibida)
+        # O Regiao usa picking_path e region_color_map internamente para color picking.
+        # Ele exibe os pixmaps de overlay_pixmaps conforme a região detectada (hover).
+        self.region_widget = Regiao(picking_path, region_color_map, parent=self.image_label)
+        self.region_widget.set_overlay_pixmaps(overlay_pixmaps) # <-- Define os overlays visíveis
+        self.region_widget.setGeometry(0, 0, scaled_pixmap.width(), scaled_pixmap.height())
+
+        # Garantir que o Regiao receba eventos de mouse (hover)
+        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False) # Opcional, já é False por padrão
+        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regiao
+
+        self.region_widget.show()
 
     def show_centered(self):
         """Exibe o overlay com diagnóstico detalhado de posicionamento."""

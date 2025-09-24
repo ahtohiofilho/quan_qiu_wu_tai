@@ -159,29 +159,20 @@ class OpenGLWidget(QOpenGLWidget):
             return
 
         bioma = node_data.get("bioma", "Unknown").lower().strip()
-        tipo_poligono = node_data.get("tipo", "e")
+        formato = node_data.get("formato", "hex_up")  # <-- NOVO! Pega direto do nó
 
-        # Mapeamento tipo → sufixo
-        sufixo = 'hex_up'
-        if tipo_poligono in ['pn', 'nts']:
-            sufixo = 'pent_up'
-        elif tipo_poligono in ['ps', 'ntn']:
-            sufixo = 'pent_down'
-        elif tipo_poligono in ['ipn', 'ips']:
-            sufixo = 'hex_side'
-
-        caminho_textura = f"assets/textures/biomes/{bioma}_{sufixo}.png"
+        caminho_imagem = f"assets/solid_colors/biomes/{bioma}_{formato}.png"
 
         import os
-        if not os.path.exists(caminho_textura):
-            caminho_textura = "assets/textures/biomes/fallback.png"
-            if not os.path.exists(caminho_textura):
+        if not os.path.exists(caminho_imagem):
+            caminho_imagem = "assets/textures/biomes/fallback.png"
+            if not os.path.exists(caminho_imagem):
                 return
 
         container = getattr(self.parent(), 'opengl_container', self.parent())
         if not hasattr(container, 'tile_overlay'):
-            from client.widgets.tile_overlay import TileOverlay
-            container.tile_overlay = TileOverlay(parent=container)
+            from client.widgets.tile import TileOverlay
+            container.tile_overlay = TileOverlay(self.mundo, parent=container)
 
             def fechar():
                 container.tile_overlay.hide()
@@ -190,7 +181,7 @@ class OpenGLWidget(QOpenGLWidget):
             container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         overlay = container.tile_overlay
-        overlay.carregar_textura(caminho_textura)
+        overlay.carregar_imagem(caminho_imagem, formato=formato)  # <-- Passe formato!
         overlay.set_reference_widget(self)
         overlay.show_centered()
 

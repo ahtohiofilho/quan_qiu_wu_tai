@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-15 23:34:07
+Gerado em: 2025-09-24 16:47:40
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -61,7 +61,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── widgets
 │   │   ├── match_overlay.py
 │   │   ├── offline_setup_overlay.py
-│   │   ├── tile_overlay.py
+│   │   ├── region.py
+│   │   ├── tile.py
 │   │   └── waiting_room_overlay.py
 │   └── main.py
 ├── shared
@@ -4680,9 +4681,9 @@ class OfflineSetupOverlay(QWidget):
             self.move(x, y)
 
 ================================================================================
-📄 client/widgets/tile_overlay.py
+📄 client/widgets/tile.py
 ================================================================================
-# client/widgets/tile_overlay.py
+# client/widgets/tile.py
 import os
 from PyQt6 import QtCore
 from PyQt6.QtWidgets import (
@@ -4702,8 +4703,9 @@ class TileOverlay(QWidget):
     """
     closed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, mundo, parent=None):
         super().__init__(parent)
+        self.mundo = mundo  # Referência ao mundo atual
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
             Qt.WindowType.Popup |           # Fecha com clique fora
@@ -4763,8 +4765,10 @@ class TileOverlay(QWidget):
         """Define o widget de referência (ex: OpenGLWidget) para centralização."""
         self.reference_widget = widget
 
-    def carregar_textura(self, caminho_imagem):
-        """Carrega e dimensiona a textura com base no tamanho do widget de referência."""
+    def carregar_imagem(self, caminho_imagem, formato="hex_up"):
+        from client.utils.scaling import scale
+        from client.widgets.region import Regiao
+
         if not os.path.exists(caminho_imagem):
             print(f"❌ Textura não encontrada: {caminho_imagem}")
             return
@@ -4782,10 +4786,11 @@ class TileOverlay(QWidget):
             rect = ref.rect()
             max_w, max_h = rect.width(), rect.height()
 
-        from client.utils.scaling import scale
-        target_size = int(min(max_w, max_h) * 1.1)
-        MAX_SIZE = scale(1024)
-        target_size = min(target_size, MAX_SIZE)
+        # === 🔽 LIMITES BASEADOS NA TELA ===
+        target_size = int(min(max_w, max_h) * 1.0)
+        MAX_SIZE_ALLOWED = int(min(max_w, max_h) * 0.85)
+        MAX_SIZE_HARD = scale(700)
+        target_size = min(target_size, MAX_SIZE_ALLOWED, MAX_SIZE_HARD)
 
         scaled_pixmap = pixmap.scaled(
             target_size,
@@ -4800,39 +4805,82 @@ class TileOverlay(QWidget):
             scaled_pixmap.height() + scale(32)
         )
 
+        # ======= INTEGRAÇÃO DA REGIAO (color picking 2D) =======
+
+        # --- Picking path (arquivo invisível para detectar regiões) ---
+        picking_path = f"assets/picking/{formato}.png"
+
+        # --- Mapa de cor para as regiões (deve bater com as cores do arquivo de picking) ---
+        region_color_map = {
+            (255, 0, 0): "center",
+            (0, 255, 0): "top",
+            (255, 0, 255): "bottom",
+            (127, 127, 127): "left",
+            (127, 0, 127): "right",
+            (1, 11, 111): "topleft",
+            (0, 0, 255): "topright",
+            (0, 255, 255): "bottomleft",
+            (255, 255, 0): "bottomright"
+        }
+
+        # --- Overlays corretos para o formato atual (visíveis) ---
+        overlays = {reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()}
+
+        # Remove o widget anterior se existir (evita leaks e sobreposição)
+        if hasattr(self, "region_widget") and self.region_widget:
+            self.region_widget.setParent(None)
+            self.region_widget.deleteLater()
+            self.region_widget = None
+
+        # Cria o novo widget Regiao sobre a image_label (tamanho igual à imagem exibida)
+        self.region_widget = Regiao(picking_path, region_color_map, parent=self.image_label)
+        self.region_widget.set_overlay_pixmaps(overlays)
+        self.region_widget.setGeometry(0, 0, scaled_pixmap.width(), scaled_pixmap.height())
+        self.region_widget.show()
+
     def show_centered(self):
-        """Exibe o overlay centralizado no centro da área visível do opengl_container."""
-        if not self.reference_widget or not self.reference_widget.parent():
-            print("❌ [TileOverlay] Widget de referência inválido.")
+        """Exibe o overlay com diagnóstico detalhado de posicionamento."""
+        from PyQt6.QtWidgets import QApplication
+
+        # --- 1. Obter janela principal ---
+        app = QApplication.instance()
+        window = app.activeWindow()
+        if not window:
+            print("❌ [DEBUG - SHOW] Nenhuma janela ativa encontrada.")
             return
+        else:
+            print(f"✅ [DEBUG - SHOW] Janela ativa: {window}")
 
-        # Obter o container (onde o OpenGLWidget está centralizado)
-        container = getattr(self.reference_widget.parent(), 'opengl_container', self.reference_widget.parent())
+        # --- 2. Obter geometria da área disponível (sem barra de tarefas) ---
+        screen = app.primaryScreen()
+        screen_rect = screen.availableGeometry()
+        print(f"📏 [DEBUG - SHOW] availableGeometry(): {screen_rect}")
 
-        # Obter posição global do canto superior esquerdo do container
-        top_left_global = container.mapToGlobal(QtCore.QPoint(0, 0))
+        center_x = screen_rect.center().x()
+        center_y = screen_rect.center().y()
+        print(f"🎯 [DEBUG - SHOW] Centro absoluto da tela: ({center_x}, {center_y})")
 
-        # Obter dimensões locais
-        width = container.width()
-        height = container.height()
-
-        # Calcular centro absoluto
-        center_x = top_left_global.x() + width // 2
-        center_y = top_left_global.y() + height // 2
-
-        # Tamanho do overlay
+        # --- 3. Tamanho do overlay ---
         self.adjustSize()
         w, h = self.width(), self.height()
+        print(f"🖼️ [DEBUG - SHOW] Tamanho calculado do overlay: {w}x{h}")
 
-        # Posição final
+        # --- 4. Posição final ---
         x = center_x - w // 2
         y = center_y - h // 2
+        print(f"📌 [DEBUG - SHOW] Posição final calculada: ({x}, {y})")
 
-        # Aplicar
+        # --- 5. Informações adicionais para depuração visual ---
+        print(f"🔍 [DEBUG - SHOW] Altura total da tela física: {screen.geometry().height()}")
+        print(f"🔍 [DEBUG - SHOW] Margem superior (barra de tarefas?): {screen.geometry().top()}")
+        print(f"🔍 [DEBUG - SHOW] Margem inferior estimada: {screen.geometry().bottom() - screen_rect.bottom()}")
+
+        # --- 6. Aplicar posição ---
         self.move(x, y)
         self.show()
         self.raise_()
         self.activateWindow()
+        print(f"✅ [DEBUG - SHOW] Overlay mostrado em ({x}, {y}), tamanho {w}x{h}")
 
     def closeEvent(self, event):
         self.closed.emit()
@@ -4844,6 +4892,79 @@ class TileOverlay(QWidget):
             self.close()
         else:
             super().keyPressEvent(event)
+
+================================================================================
+📄 client/widgets/region.py
+================================================================================
+from PyQt6.QtWidgets import QWidget, QLabel
+from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QMouseEvent
+from PyQt6.QtCore import Qt, QPoint
+
+class Regiao(QWidget):
+    """
+    Widget para overlays regionais em tiles (hexágonos/pentágonos).
+    Mostra uma máscara diferente ao passar o mouse em regiões definidas por cores em uma imagem.
+    """
+    def __init__(self, mask_image_path, region_color_map, parent=None):
+        """
+        :param mask_image_path: Caminho para a imagem da máscara colorida (PNG).
+        :param region_color_map: Dict mapeando (QColor ou RGB tuple) para nome/código da região.
+        """
+        super().__init__(parent)
+        self.mask_image = QImage(mask_image_path)
+        self.region_color_map = region_color_map  # Ex: {(255,0,0): "centro", (0,255,0): "lado1", ...}
+        self.current_region = None
+        self.setMouseTracking(True)
+        self.overlay_pixmap = None  # Para exibir a máscara por cima
+
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        x, y = int(event.position().x()), int(event.position().y())
+        if 0 <= x < self.mask_image.width() and 0 <= y < self.mask_image.height():
+            pixel_color = QColor(self.mask_image.pixel(x, y))
+            key = (pixel_color.red(), pixel_color.green(), pixel_color.blue())
+            region = self.region_color_map.get(key)
+            if region != self.current_region:
+                print(f"[DEBUG] Color picking: ({x},{y}) color={key} → region={region}")
+                self.current_region = region
+                self.update()  # Dispara o repaint
+        else:
+            if self.current_region is not None:
+                self.current_region = None
+                self.update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.current_region = None
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        if self.overlay_pixmap and "center" in self.overlay_pixmap:
+            pixmap = self.overlay_pixmap["center"]
+            # Ajuste para centralizar se necessário
+            if pixmap.size() == self.size():
+                painter.drawPixmap(0, 0, pixmap)
+            else:
+                # Centraliza o overlay se for menor
+                x = (self.width() - pixmap.width()) // 2
+                y = (self.height() - pixmap.height()) // 2
+                painter.drawPixmap(x, y, pixmap)
+        painter.end()
+
+    def set_overlay_pixmaps(self, overlays_dict):
+        """
+        overlays_dict: {region_name: QPixmap}
+        """
+        self.overlay_pixmap = overlays_dict
+
+    def sizeHint(self):
+        return self.mask_image.size()
 
 ================================================================================
 📄 client/shaders/basic.frag
@@ -5843,29 +5964,20 @@ class OpenGLWidget(QOpenGLWidget):
             return
 
         bioma = node_data.get("bioma", "Unknown").lower().strip()
-        tipo_poligono = node_data.get("tipo", "e")
+        formato = node_data.get("formato", "hex_up")  # <-- NOVO! Pega direto do nó
 
-        # Mapeamento tipo → sufixo
-        sufixo = 'hex_up'
-        if tipo_poligono in ['pn', 'nts']:
-            sufixo = 'pent_up'
-        elif tipo_poligono in ['ps', 'ntn']:
-            sufixo = 'pent_down'
-        elif tipo_poligono in ['ipn', 'ips']:
-            sufixo = 'hex_side'
-
-        caminho_textura = f"assets/textures/biomes/{bioma}_{sufixo}.png"
+        caminho_imagem = f"assets/solid_colors/biomes/{bioma}_{formato}.png"
 
         import os
-        if not os.path.exists(caminho_textura):
-            caminho_textura = "assets/textures/biomes/fallback.png"
-            if not os.path.exists(caminho_textura):
+        if not os.path.exists(caminho_imagem):
+            caminho_imagem = "assets/textures/biomes/fallback.png"
+            if not os.path.exists(caminho_imagem):
                 return
 
         container = getattr(self.parent(), 'opengl_container', self.parent())
         if not hasattr(container, 'tile_overlay'):
-            from client.widgets.tile_overlay import TileOverlay
-            container.tile_overlay = TileOverlay(parent=container)
+            from client.widgets.tile import TileOverlay
+            container.tile_overlay = TileOverlay(self.mundo, parent=container)
 
             def fechar():
                 container.tile_overlay.hide()
@@ -5874,7 +5986,7 @@ class OpenGLWidget(QOpenGLWidget):
             container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         overlay = container.tile_overlay
-        overlay.carregar_textura(caminho_textura)
+        overlay.carregar_imagem(caminho_imagem, formato=formato)  # <-- Passe formato!
         overlay.set_reference_widget(self)
         overlay.show_centered()
 
@@ -7412,36 +7524,47 @@ def definir_geografia(poligonos, fator, bioma):
     def tipo_de_poligono(c):
         if c == (0, 0):
             geografia.nodes[c]['tipo'] = 'pn' # Polar-Norte
+            geografia.nodes[c]['formato'] = 'pent_up'
             return "pn"
         elif 0 < c[0] < fator and c[1] % c[0] == 0:
             geografia.nodes[c]['tipo'] = 'ipn' # Internodular-Polar-Norte
+            geografia.nodes[c]['formato'] = 'hex_side'
             return "ipn"
         elif 0 < c[0] < fator and c[1] % c[0] != 0:
             geografia.nodes[c]['tipo'] = 'cpn' # Central-Polar-Norte
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "cpn"
         elif c[0] == fator and c[1] % c[0] == 0:
             geografia.nodes[c]['tipo'] = 'ntn' # Nodular-Tropical-Norte
+            geografia.nodes[c]['formato'] = 'pent_down'
             return "ntn"
         elif c[0] == fator and c[1] % c[0] != 0:
             geografia.nodes[c]['tipo'] = 'itn' # Internodular-Tropical-Norte
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "itn"
         elif fator < c[0] < fator * 2:
             geografia.nodes[c]['tipo'] = 'e' # Equatorial
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "e"
         elif c[0] == fator * 2 and c[1] % fator != 0:
             geografia.nodes[c]['tipo'] = 'its' # Internodular-Tropical-Sul
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "its"
         elif c[0] == fator * 2 and c[1] % fator == 0:
             geografia.nodes[c]['tipo'] = 'nts' # Nodular-Tropical-Sul
+            geografia.nodes[c]['formato'] = 'pent_up'
             return "nts"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) != 0:
             geografia.nodes[c]['tipo'] = 'cps' # Central-Polar-Sul
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "cps"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) == 0:
             geografia.nodes[c]['tipo'] = 'ips' # Internodular-Polar-Sul
+            geografia.nodes[c]['formato'] = 'hex_side'
             return "ips"
         elif c[0] == fator * 3:
             geografia.nodes[c]['tipo'] = 'ps' # Polar-Sul
+            geografia.nodes[c]['formato'] = 'pent_down'
             return "ps"
 
     for n in list(geografia.nodes):
@@ -8539,7 +8662,44 @@ class Referencias:
             'Ice':        0.0
         }
 
+        self.overlay_paths = {
+            "hex_up": {
+                "center": "assets/hover/hexagon/up/center.png",
+                "top": "assets/hover/hexagon/up/left.png",
+                "bottom": "assets/hover/hexagon/up/right.png",
+                "topleft": "assets/hover/hexagon/up/topleft.png",
+                "topright": "assets/hover/hexagon/up/topright.png",
+                "bottomleft": "assets/hover/hexagon/up/bottomleft.png",
+                "bottomright": "assets/hover/hexagon/up/bottomright.png",
+            },
+            "hex_side": {
+                "center": "assets/hover/hexagon/side/center.png",
+                "top": "assets/hover/hexagon/side/top.png",
+                "bottom": "assets/hover/hexagon/side/bottom.png",
+                "topleft": "assets/hover/hexagon/side/topleft.png",
+                "topright": "assets/hover/hexagon/side/topright.png",
+                "bottomleft": "assets/hover/hexagon/side/bottomleft.png",
+                "bottomright": "assets/hover/hexagon/side/bottomright.png",
+            },
+            "pent_up": {
+                "center": "assets/hover/pentagon/up/center.png",
+                "topleft": "assets/hover/pentagon/up/topleft.png",
+                "topright": "assets/hover/pentagon/up/topright.png",
+                "bottom": "assets/hover/pentagon/up/bottom.png",
+                "bottomleft": "assets/hover/pentagon/up/bottomleft.png",
+                "bottomright": "assets/hover/pentagon/up/bottomright.png",
+            },
+            "pent_down": {
+                "center": "assets/hover/pentagon/down/center.png",
+                "top": "assets/hover/pentagon/down/top.png",
+                "topleft": "assets/hover/pentagon/down/topleft.png",
+                "topright": "assets/hover/pentagon/down/topright.png",
+                "bottomleft": "assets/hover/pentagon/down/bottomleft.png",
+                "bottomright": "assets/hover/pentagon/down/bottomright.png",
+            }
+        }
+
 
 ================================================================================
-✅ Total de 45 arquivos incluídos.
+✅ Total de 46 arquivos incluídos.
 ================================================================================

@@ -41,36 +41,47 @@ def definir_geografia(poligonos, fator, bioma):
     def tipo_de_poligono(c):
         if c == (0, 0):
             geografia.nodes[c]['tipo'] = 'pn' # Polar-Norte
+            geografia.nodes[c]['formato'] = 'pent_up'
             return "pn"
         elif 0 < c[0] < fator and c[1] % c[0] == 0:
             geografia.nodes[c]['tipo'] = 'ipn' # Internodular-Polar-Norte
+            geografia.nodes[c]['formato'] = 'hex_side'
             return "ipn"
         elif 0 < c[0] < fator and c[1] % c[0] != 0:
             geografia.nodes[c]['tipo'] = 'cpn' # Central-Polar-Norte
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "cpn"
         elif c[0] == fator and c[1] % c[0] == 0:
             geografia.nodes[c]['tipo'] = 'ntn' # Nodular-Tropical-Norte
+            geografia.nodes[c]['formato'] = 'pent_down'
             return "ntn"
         elif c[0] == fator and c[1] % c[0] != 0:
             geografia.nodes[c]['tipo'] = 'itn' # Internodular-Tropical-Norte
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "itn"
         elif fator < c[0] < fator * 2:
             geografia.nodes[c]['tipo'] = 'e' # Equatorial
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "e"
         elif c[0] == fator * 2 and c[1] % fator != 0:
             geografia.nodes[c]['tipo'] = 'its' # Internodular-Tropical-Sul
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "its"
         elif c[0] == fator * 2 and c[1] % fator == 0:
             geografia.nodes[c]['tipo'] = 'nts' # Nodular-Tropical-Sul
+            geografia.nodes[c]['formato'] = 'pent_up'
             return "nts"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) != 0:
             geografia.nodes[c]['tipo'] = 'cps' # Central-Polar-Sul
+            geografia.nodes[c]['formato'] = 'hex_up'
             return "cps"
         elif fator * 2 < c[0] < fator * 3 and c[1] % (fator * 3 - c[0]) == 0:
             geografia.nodes[c]['tipo'] = 'ips' # Internodular-Polar-Sul
+            geografia.nodes[c]['formato'] = 'hex_side'
             return "ips"
         elif c[0] == fator * 3:
             geografia.nodes[c]['tipo'] = 'ps' # Polar-Sul
+            geografia.nodes[c]['formato'] = 'pent_down'
             return "ps"
 
     for n in list(geografia.nodes):

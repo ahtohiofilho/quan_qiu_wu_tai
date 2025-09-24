@@ -37,3 +37,40 @@ class Referencias:
             'Ocean':      1.0,
             'Ice':        0.0
         }
+
+        self.overlay_paths = {
+            "hex_up": {
+                "center": "assets/hover/hexagon/up/center.png",
+                "left": "assets/hover/hexagon/up/left.png",
+                "right": "assets/hover/hexagon/up/right.png",
+                "topleft": "assets/hover/hexagon/up/topleft.png",
+                "topright": "assets/hover/hexagon/up/topright.png",
+                "bottomleft": "assets/hover/hexagon/up/bottomleft.png",
+                "bottomright": "assets/hover/hexagon/up/bottomright.png",
+            },
+            "hex_side": {
+                "center": "assets/hover/hexagon/side/center.png",
+                "top": "assets/hover/hexagon/side/top.png",
+                "bottom": "assets/hover/hexagon/side/bottom.png",
+                "topleft": "assets/hover/hexagon/side/topleft.png",
+                "topright": "assets/hover/hexagon/side/topright.png",
+                "bottomleft": "assets/hover/hexagon/side/bottomleft.png",
+                "bottomright": "assets/hover/hexagon/side/bottomright.png",
+            },
+            "pent_up": {
+                "center": "assets/hover/pentagon/up/center.png",
+                "topleft": "assets/hover/pentagon/up/topleft.png",
+                "topright": "assets/hover/pentagon/up/topright.png",
+                "bottom": "assets/hover/pentagon/up/bottom.png",
+                "bottomleft": "assets/hover/pentagon/up/bottomleft.png",
+                "bottomright": "assets/hover/pentagon/up/bottomright.png",
+            },
+            "pent_down": {
+                "center": "assets/hover/pentagon/down/center.png",
+                "top": "assets/hover/pentagon/down/top.png",
+                "topleft": "assets/hover/pentagon/down/topleft.png",
+                "topright": "assets/hover/pentagon/down/topright.png",
+                "bottomleft": "assets/hover/pentagon/down/bottomleft.png",
+                "bottomright": "assets/hover/pentagon/down/bottomright.png",
+            }
+        }
