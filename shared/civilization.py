@@ -11,7 +11,7 @@ class Civilizacao:
     A produção total é a soma da produtividade de todos os assentamentos.
     """
 
-    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None):
+    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None, chamado_pelo_cliente=False):
         """
         :param ref: Instância de Referencias (culturas, cores, etc)
         :param indice: Índice para seleção de cultura e cor
@@ -25,7 +25,14 @@ class Civilizacao:
         self.cultura = ref.culturas[indice % len(ref.culturas)]
         self.cor = ref.civs_cores[self.nome]
         self.modalidade_bandeira = random.randint(0, 82)
-        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira)
+        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira) # Sem incluir chamado_pelo_cliente por enquanto
+        '''
+        self.cores_bandeira = (
+            bandeira(self.nome, self.modalidade_bandeira)
+            if not chamado_pelo_cliente
+            else bandeira(self.nome, self.modalidade_bandeira, chamado_pelo_cliente)
+        )
+        ''' # Comentada para evitar criar arquivos de imagem por enquanto
         self.ponto_inicial = ponto_inicial
         self.assentamentos = []
         self.unidades = []

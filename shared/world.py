@@ -18,7 +18,7 @@ class Mundo:
     - Estado de renderização (físico ou político)
     """
 
-    def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
+    def __init__(self, fator=4, bioma='Meadow', chamado_pelo_cliente=False, id_mundo=None):
         self.id_mundo = id_mundo or str(uuid4())
         self.ref = Referencias()
         random.shuffle(self.ref.culturas)
@@ -37,13 +37,13 @@ class Mundo:
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self)
+            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self, chamado_pelo_cliente=chamado_pelo_cliente)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self)
+            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self, chamado_pelo_cliente=chamado_pelo_cliente)
             self.civs.append(civ)
 
         # Criar assentamento inicial para cada civilização

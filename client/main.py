@@ -333,7 +333,7 @@ class JanelaPrincipal(QMainWindow):
     def _configurar_modo_offline(self, fator, bioma):
         try:
             from shared.world import Mundo
-            self.mundo = Mundo(fator=fator, bioma=bioma)
+            self.mundo = Mundo(fator=fator, bioma=bioma, chamado_pelo_cliente=True)
             print(
                 f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
             self.opengl_widget.carregar_mundo(self.mundo)

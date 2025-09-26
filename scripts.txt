@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-24 16:47:40
+Gerado em: 2025-09-26 01:51:18
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -4695,9 +4695,10 @@ from PyQt6.QtGui import QPixmap, QCursor
 
 class TileOverlay(QWidget):
     """
-    Overlay flutuante para exibir a textura do bioma do tile.
+    Overlay flutuante para exibir a textura do bioma do tile e máscaras regionais ao passar o mouse.
     - Imagem centralizada com escala responsiva
     - Botão '✕' redondo no canto superior direito
+    - Widget Regiao sobreposto à imagem para mostrar regiões ao passar o mouse
     - Centralizado fisicamente no widget de referência (OpenGLWidget)
     - Fecha com clique fora, no botão ou em ESC
     """
@@ -4706,6 +4707,8 @@ class TileOverlay(QWidget):
     def __init__(self, mundo, parent=None):
         super().__init__(parent)
         self.mundo = mundo  # Referência ao mundo atual
+        self.region_widget = None # Widget Regiao para máscaras
+        self.image_label = QLabel("...") # QLabel para a imagem do bioma
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
             Qt.WindowType.Popup |           # Fecha com clique fora
@@ -4720,7 +4723,6 @@ class TileOverlay(QWidget):
         layout.setSpacing(0)
 
         # --- Label da imagem ---
-        self.image_label = QLabel("...")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("background: transparent;")
 
@@ -4805,7 +4807,9 @@ class TileOverlay(QWidget):
             scaled_pixmap.height() + scale(32)
         )
 
-        # ======= INTEGRAÇÃO DA REGIAO (color picking 2D) =======
+        # ======= INTEGRAÇÃO DA REGIAO (color picking 2D para hover) =======
+        # As cores no picking_path são usadas *internamente* pelo Regiao para detectar regiões.
+        # O mapa de overlays define *o que é exibido* quando uma região é detectada (hover).
 
         # --- Picking path (arquivo invisível para detectar regiões) ---
         picking_path = f"assets/picking/{formato}.png"
@@ -4823,19 +4827,34 @@ class TileOverlay(QWidget):
             (255, 255, 0): "bottomright"
         }
 
-        # --- Overlays corretos para o formato atual (visíveis) ---
-        overlays = {reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()}
+        # --- Overlays corretos para o formato atual (visíveis ao passar o mouse) ---
+        # Supõe que mundo.ref.overlay_paths[formato] é um dicionário
+        # mapeando nomes de regiões para caminhos de arquivos de overlay.
+        try:
+            overlay_pixmaps = {
+                reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()
+            }
+        except (AttributeError, KeyError) as e:
+            print(f"⚠️ Erro ao carregar overlays para formato '{formato}': {e}. Usando dicionário vazio.")
+            overlay_pixmaps = {}
 
         # Remove o widget anterior se existir (evita leaks e sobreposição)
-        if hasattr(self, "region_widget") and self.region_widget:
+        if self.region_widget:
             self.region_widget.setParent(None)
             self.region_widget.deleteLater()
             self.region_widget = None
 
         # Cria o novo widget Regiao sobre a image_label (tamanho igual à imagem exibida)
+        # O Regiao usa picking_path e region_color_map internamente para color picking.
+        # Ele exibe os pixmaps de overlay_pixmaps conforme a região detectada (hover).
         self.region_widget = Regiao(picking_path, region_color_map, parent=self.image_label)
-        self.region_widget.set_overlay_pixmaps(overlays)
+        self.region_widget.set_overlay_pixmaps(overlay_pixmaps) # <-- Define os overlays visíveis
         self.region_widget.setGeometry(0, 0, scaled_pixmap.width(), scaled_pixmap.height())
+
+        # Garantir que o Regiao receba eventos de mouse (hover)
+        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False) # Opcional, já é False por padrão
+        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regiao
+
         self.region_widget.show()
 
     def show_centered(self):
@@ -4896,6 +4915,7 @@ class TileOverlay(QWidget):
 ================================================================================
 📄 client/widgets/region.py
 ================================================================================
+# client/widgets/region.py
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QMouseEvent
 from PyQt6.QtCore import Qt, QPoint
@@ -4904,6 +4924,7 @@ class Regiao(QWidget):
     """
     Widget para overlays regionais em tiles (hexágonos/pentágonos).
     Mostra uma máscara diferente ao passar o mouse em regiões definidas por cores em uma imagem.
+    Agora com correção de centralização para o color picking e para o overlay.
     """
     def __init__(self, mask_image_path, region_color_map, parent=None):
         """
@@ -4912,31 +4933,87 @@ class Regiao(QWidget):
         """
         super().__init__(parent)
         self.mask_image = QImage(mask_image_path)
+        if self.mask_image.isNull():
+             print(f"❌ [Regiao] Falha ao carregar imagem de máscara: {mask_image_path}")
+             # Carregar uma imagem vazia ou placeholder para evitar erros
+             self.mask_image = QImage(100, 100, QImage.Format.Format_RGB32)
+             self.mask_image.fill(Qt.GlobalColor.black)
+
         self.region_color_map = region_color_map  # Ex: {(255,0,0): "centro", (0,255,0): "lado1", ...}
         self.current_region = None
         self.setMouseTracking(True)
-        self.overlay_pixmap = None  # Para exibir a máscara por cima
+        # self.overlay_pixmap agora é um dicionário {region_name: QPixmap}
+        self.overlay_pixmaps = {} # Nome alterado para evitar confusão
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        print(f"🟢 [Regiao] Inicializado com mask: {mask_image_path}, regions: {list(region_color_map.values())}")
+        print(f"📏 [Regiao] Tamanho da mask_image carregada: {self.mask_image.size()}")
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        x, y = int(event.position().x()), int(event.position().y())
-        if 0 <= x < self.mask_image.width() and 0 <= y < self.mask_image.height():
-            pixel_color = QColor(self.mask_image.pixel(x, y))
-            key = (pixel_color.red(), pixel_color.green(), pixel_color.blue())
-            region = self.region_color_map.get(key)
-            if region != self.current_region:
-                print(f"[DEBUG] Color picking: ({x},{y}) color={key} → region={region}")
-                self.current_region = region
-                self.update()  # Dispara o repaint
+        mouse_x, mouse_y = int(event.position().x()), int(event.position().y())
+        print(f"🔍 [Regiao] MouseMoveEvent em ({mouse_x}, {mouse_y})")
+
+        # --- CORREÇÃO DE CENTRALIZAÇÃO (Mesma lógica usada para picking) ---
+        widget_width = self.width()
+        widget_height = self.height()
+        image_width = self.mask_image.width()
+        image_height = self.mask_image.height()
+
+        if image_width > 0 and image_height > 0:
+            scale_w = widget_width / image_width
+            scale_h = widget_height / image_height
+            scale = min(scale_w, scale_h)
+
+            scaled_image_w = int(image_width * scale)
+            scaled_image_h = int(image_height * scale)
+
+            offset_x = (widget_width - scaled_image_w) // 2
+            offset_y = (widget_height - scaled_image_h) // 2
+
+            print(f"📏 [Regiao] Widget: ({widget_width}x{widget_height}), Mask: ({image_width}x{image_height})")
+            print(f"📏 [Regiao] Scaled Mask: ({scaled_image_w}x{scaled_image_h}), Offset: ({offset_x}, {offset_y})")
+
+            if (offset_x <= mouse_x < offset_x + scaled_image_w and
+                offset_y <= mouse_y < offset_y + scaled_image_h):
+
+                relative_x = mouse_x - offset_x
+                relative_y = mouse_y - offset_y
+
+                original_x = int(relative_x / scale)
+                original_y = int(relative_y / scale)
+
+                if 0 <= original_x < self.mask_image.width() and 0 <= original_y < self.mask_image.height():
+                    pixel_color = QColor(self.mask_image.pixel(original_x, original_y))
+                    key = (pixel_color.red(), pixel_color.green(), pixel_color.blue())
+                    region = self.region_color_map.get(key)
+                    if region != self.current_region:
+                        print(f"🔍 [Regiao] Coordenadas corrigidas ({original_x},{original_y}) - Cor: {key} → Região: {region}")
+                        self.current_region = region
+                        self.update()  # Dispara o repaint
+                    else:
+                        # print(f"🔍 [Regiao] Mesma região '{region}' detectada em ({original_x},{original_y})") # Muito verboso
+                        pass
+                else:
+                    print(f"🟡 [Regiao] Coordenadas corrigidas ({original_x},{original_y}) fora dos limites da mask_image.")
+                    if self.current_region is not None:
+                        self.current_region = None
+                        self.update()
+            else:
+                print(f"🟡 [Regiao] Mouse fora do retângulo centralizado da imagem em ({mouse_x},{mouse_y}).")
+                if self.current_region is not None:
+                    self.current_region = None
+                    self.update()
         else:
+            print(f"⚠️ [Regiao] Dimensões da mask_image inválidas: ({image_width}x{image_height}).")
             if self.current_region is not None:
                 self.current_region = None
                 self.update()
+
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event):
+        print(f"🚪 [Regiao] Mouse saiu do widget. Limpando região.")
         self.current_region = None
         self.update()
         super().leaveEvent(event)
@@ -4945,23 +5022,68 @@ class Regiao(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        if self.overlay_pixmap and "center" in self.overlay_pixmap:
-            pixmap = self.overlay_pixmap["center"]
-            # Ajuste para centralizar se necessário
-            if pixmap.size() == self.size():
-                painter.drawPixmap(0, 0, pixmap)
+        # CORREÇÃO: Desenhar o pixmap da região atual, se existir, com a mesma centralização
+        overlay_to_draw = None
+        if self.current_region and self.overlay_pixmaps:
+            overlay_to_draw = self.overlay_pixmaps.get(self.current_region)
+            if overlay_to_draw:
+                 # print(f"🎨 [Regiao] paintEvent: Tentando desenhar overlay para '{self.current_region}'") # Muito verboso
+                 pass
             else:
-                # Centraliza o overlay se for menor
-                x = (self.width() - pixmap.width()) // 2
-                y = (self.height() - pixmap.height()) // 2
-                painter.drawPixmap(x, y, pixmap)
+                 print(f"🟡 [Regiao] paintEvent: Região '{self.current_region}' detectada, mas overlay não encontrado.")
+        else:
+            # print(f"🎨 [Regiao] paintEvent: Nenhuma região ativa ou overlays não definidos.") # Muito verboso
+            pass # Nada para desenhar
+
+        if overlay_to_draw:
+            # --- Calcular o retângulo de centralização (mesma lógica do mouseMoveEvent) ---
+            widget_width = self.width()
+            widget_height = self.height()
+            image_width = self.mask_image.width() # Usar a mesma imagem base para cálculo
+            image_height = self.mask_image.height()
+
+            if image_width > 0 and image_height > 0:
+                # Calcular o tamanho do pixmap da máscara se fosse dimensionado para caber no widget
+                # Aqui, assumimos que overlay_to_draw deve ser dimensionado proporcionalmente
+                # da mesma forma que a imagem base e a picking. Se já estiver dimensionado corretamente,
+                # isso é redundante, mas garante consistência se não estiver.
+                # Se os overlays já estiverem com as dimensões exatas da imagem base/picking, o scale será 1.
+                scale_w = widget_width / image_width
+                scale_h = widget_height / image_height
+                scale = min(scale_w, scale_h)
+
+                scaled_image_w = int(image_width * scale)
+                scaled_image_h = int(image_height * scale)
+
+                # Calcula a posição (x, y) do retângulo centralizado
+                offset_x = (widget_width - scaled_image_w) // 2
+                offset_y = (widget_height - scaled_image_h) // 2
+
+                # --- Dimensionar o overlay para caber no retângulo centralizado ---
+                # Isso garante que o overlay se alinhe com a área centralizada da imagem base/picking
+                # Mesmo se o pixmap original do overlay tiver tamanho diferente.
+                scaled_overlay_pixmap = overlay_to_draw.scaled(
+                    scaled_image_w,
+                    scaled_image_h,
+                    Qt.AspectRatioMode.KeepAspectRatio, # Mantém proporção
+                    Qt.TransformationMode.SmoothTransformation # Suaviza
+                )
+
+                # --- Desenhar o overlay dimensionado no retângulo centralizado ---
+                painter.drawPixmap(offset_x, offset_y, scaled_overlay_pixmap)
+
+                print(f"🎨 [Regiao] paintEvent: Desenhou overlay para '{self.current_region}' em ({offset_x}, {offset_y}), tamanho ({scaled_image_w}x{scaled_image_h})")
+            else:
+                print(f"⚠️ [Regiao] paintEvent: Dimensões da mask_image inválidas, não foi possível centralizar o overlay.")
+
         painter.end()
 
     def set_overlay_pixmaps(self, overlays_dict):
         """
         overlays_dict: {region_name: QPixmap}
         """
-        self.overlay_pixmap = overlays_dict
+        self.overlay_pixmaps = overlays_dict # Nome alterado
+        print(f"🔵 [Regiao] Overlays definidos: {list(overlays_dict.keys())}")
 
     def sizeHint(self):
         return self.mask_image.size()
@@ -8665,8 +8787,8 @@ class Referencias:
         self.overlay_paths = {
             "hex_up": {
                 "center": "assets/hover/hexagon/up/center.png",
-                "top": "assets/hover/hexagon/up/left.png",
-                "bottom": "assets/hover/hexagon/up/right.png",
+                "left": "assets/hover/hexagon/up/left.png",
+                "right": "assets/hover/hexagon/up/right.png",
                 "topleft": "assets/hover/hexagon/up/topleft.png",
                 "topright": "assets/hover/hexagon/up/topright.png",
                 "bottomleft": "assets/hover/hexagon/up/bottomleft.png",
