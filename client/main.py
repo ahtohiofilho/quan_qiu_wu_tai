@@ -35,6 +35,12 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_sala = None
         self.polling_timer = None
         self.game_placeholder = None
+        # --- Novos Atributos ---
+        self.partida_iniciada = False
+        self.mundo = None
+        self.civ_jogador = None
+        self.id_mundo_cliente = None  # Armazena o ID do mundo em modo cliente para exclusão posterior
+        # --- Fim Novos Atributos ---
 
         # === Dimensões da Tela ===
         screen_geometry = self.screen().availableGeometry()
@@ -268,8 +274,7 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
-        self.partida_iniciada = False
-
+        # --- Instanciação do Overlay de Partida ---
         self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
         self.overlay_partida.hide()  # Começa escondido
 
@@ -336,6 +341,13 @@ class JanelaPrincipal(QMainWindow):
             self.mundo = Mundo(fator=fator, bioma=bioma, chamado_pelo_cliente=True)
             print(
                 f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
+
+            # --- Modificação ---
+            # Armazena o ID do mundo criado no modo cliente para exclusão posterior
+            self.id_mundo_cliente = self.mundo.id_mundo
+            print(f"🔑 [DEBUG] ID do mundo cliente definido: {self.id_mundo_cliente}")
+            # --- Fim da Modificação ---
+
             self.opengl_widget.carregar_mundo(self.mundo)
 
             # --- 🔁 Forçar reset da câmera para enxergar o planeta ---
@@ -758,6 +770,8 @@ class JanelaPrincipal(QMainWindow):
                 print("✅ [DEBUG] _limpeza_local: overlay_partida escondido e resetado.")
             else:
                 print("🟡 [DEBUG] _limpeza_local: overlay_partida já removido ou inexistente")
+            # NÃO resetar self.id_mundo_cliente aqui, pois ele é usado na exclusão antes de _limpeza_local
+            # self.id_mundo_cliente = None # <- Comentado/removido
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay_partida: {e}")
 
@@ -780,6 +794,8 @@ class JanelaPrincipal(QMainWindow):
         self.partida_iniciada = False
         self.mundo = None  # ✅ Nova linha
         self.civ_jogador = None  # ✅ Nova linha
+        # NÃO resetar self.id_mundo_cliente aqui, pois ele é usado na exclusão antes de _limpeza_local
+        # self.id_mundo_cliente = None # <- Comentado/removido
         print("✅ [DEBUG] _limpeza_local: Estado de partida resetado (partida_iniciada = False)")
         print("✅ [DEBUG] _limpeza_local: Referências ao mundo e jogador local limpas.")
 
@@ -805,7 +821,7 @@ class JanelaPrincipal(QMainWindow):
         """)
 
         layout = QVBoxLayout()
-        label = QLabel("O que você gostaria de fazer?")
+        label = QLabel("What would you like to do?")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
 
@@ -829,29 +845,57 @@ class JanelaPrincipal(QMainWindow):
         dialog.exec()
 
     def _sair_para_menu(self, dialog, username: str):
-        """Volta ao menu principal, limpa estado, mas não fecha o jogo."""
+        """
+        Volta ao menu principal, limpa estado, mas não fecha o jogo.
+        Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
+        """
+        print("🔵 [DEBUG] _sair_para_menu: Chamando confirmação de saída.")
+        # --- Correção 1: Fecha o diálogo de saída principal (Main Menu/Quit) imediatamente ---
         dialog.accept()
+        # --- Fim da Correção 1 ---
+        # Passa a função '_real_sair_para_menu' como a ação de saída
+        # O 'dialog' ainda é necessário para a ação real, então passamos ele também
+        self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_para_menu)
 
-        self._limpar_estado_servidor(username)
-        self._limpeza_local()
-
+    def _real_sair_para_menu(self, dialog, username: str):  # Mantém a assinatura existente
+        """Realiza a saída para o menu após exclusão da pasta de bandeiras (se aplicável)."""
+        print("🔵 [DEBUG] _real_sair_para_menu: Executando ações de saída.")
+        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_para_menu
+        self._limpar_estado_servidor(username)  # Ajuste se necessário
+        self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         self.partida_iniciada = False  # ✅ Resetar flag
-
+        # Resetar o ID do mundo cliente
+        self.id_mundo_cliente = None
         # Restaurar overlay inicial
         if hasattr(self, 'overlay_widget') and self.overlay_widget:
             self.overlay_widget.show()
             self.overlay_widget.raise_()
-
         print("✅ Retornou ao menu principal.")
 
     def _sair_do_jogo(self, dialog, username: str):
-        """Fecha o aplicativo após limpar estado."""
+        """
+        Fecha o aplicativo após limpar estado.
+        Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
+        """
+        print("🔴 [DEBUG] _sair_do_jogo: Chamando confirmação de saída.")
+        # --- Correção 1: Fecha o diálogo de saída principal (Main Menu/Quit) imediatamente ---
         dialog.accept()
+        # --- Fim da Correção 1 ---
+        # Passa a função '_real_sair_do_jogo' como a ação de saída
+        # O 'dialog' ainda é necessário para a ação real, então passamos ele também
+        self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_do_jogo)
 
-        self._limpar_estado_servidor(username)
-        self._limpeza_local()
-
-        self.close()
+    def _real_sair_do_jogo(self, dialog, username: str):  # Mantém a assinatura existente
+        """Realiza o fechamento do jogo após exclusão da pasta de bandeiras (se aplicável)."""
+        print("🔴 [DEBUG] _real_sair_do_jogo: Executando ações de fechamento.")
+        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_do_jogo
+        self._limpar_estado_servidor(username)  # Ajuste se necessário
+        self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
+        # Resetar o ID do mundo cliente
+        self.id_mundo_cliente = None
+        print("🟢 [DEBUG] _real_sair_do_jogo: Estado limpo. Fechando aplicativo...")
+        from PyQt6.QtWidgets import QApplication  # Importa aqui
+        QApplication.quit()  # Fecha a aplicação PyQt6
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
         """Abre o diálogo completo de autenticação (login + registro)."""
@@ -1519,6 +1563,66 @@ class JanelaPrincipal(QMainWindow):
         # Opcional: forçar update do OpenGL (para garantir render)
         if hasattr(self, 'opengl_widget'):
             self.opengl_widget.update()
+
+    def _confirmar_saida_antes_da_limpeza(self, dialog_pai, username: str, acao_saida):
+        """
+        Mostra uma caixa de diálogo perguntando se deseja salvar antes de sair.
+        Chama acao_saida (função) após lidar com a exclusão das bandeiras.
+        """
+        print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Iniciando.")
+        from PyQt6.QtWidgets import QMessageBox  # Importa aqui para evitar conflitos globais
+        reply = QMessageBox.question(
+            dialog_pai,  # O diálogo que chamou (ou a própria janela principal)
+            "Save World?",
+            "Do you want to save the current world before exiting?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No  # 'No' como padrão
+        )
+
+        # --- Correção 2: Alterar lógica de exclusão ---
+        if reply == QMessageBox.StandardButton.Yes:
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'Yes'. NÃO exclui bandeiras.")
+            # Por enquanto, NÃO exclui as bandeiras. Poderia chamar uma função de salvar aqui futuramente.
+        elif reply == QMessageBox.StandardButton.No:
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'No'. Exclui bandeiras.")
+            # Neste caso, exclui as bandeiras criadas pelo cliente
+            self._excluir_pasta_bandeiras_cliente()
+        else:  # Se fechar a caixa ou pressionar ESC, assume 'No' ou cancela
+            print(
+                "🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Diálogo cancelado ou fechado, tratando como 'No'. Exclui bandeiras.")
+            # Excluir bandeiras também ao cancelar ou fechar, se for o comportamento desejado
+            self._excluir_pasta_bandeiras_cliente()
+            # return # Se quiser cancelar a saída, descomente. Senão, continua como 'No'.
+        # --- Fim da Correção 2 ---
+
+        # Depois de lidar com a exclusão (ou não), chama a ação de saída original
+        # A assinatura da acao_saida (e.g., _real_sair_para_menu) ainda espera (self, dialog, username)
+        acao_saida(dialog_pai, username)  # Passa o dialog_pai e username para a ação real
+
+    # --- Adicionar ou modificar _excluir_pasta_bandeiras_cliente ---
+    def _excluir_pasta_bandeiras_cliente(self):
+        """
+        Exclui a pasta contendo as bandeiras criadas pelo cliente para o mundo atual (assets/{id_mundo}),
+        se o ID do mundo estiver definido e a pasta existir.
+        """
+        import os
+        import shutil
+        print("🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Iniciando...")
+        if self.id_mundo_cliente:
+            # Caminho para a pasta raiz do mundo (onde 'flags' estaria dentro)
+            caminho_pasta_mundo = os.path.join("assets", "worlds", self.id_mundo_cliente)
+            print(f"🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Tentando excluir pasta do mundo: {caminho_pasta_mundo}")
+            try:
+                if os.path.exists(caminho_pasta_mundo):
+                    shutil.rmtree(caminho_pasta_mundo)
+                    print(f"✅ [DEBUG] Pasta do mundo (e bandeiras) excluída: {caminho_pasta_mundo}")
+                else:
+                    print(
+                        f"🟡 [DEBUG] Pasta do mundo (e bandeiras) não encontrada (já excluída?): {caminho_pasta_mundo}")
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao excluir pasta do mundo {caminho_pasta_mundo}: {e}")
+        else:
+            print("🟡 [DEBUG] id_mundo_cliente não definido, nenhuma pasta de mundo para excluir.")
 
 
 # --- Ponto de Entrada da Aplicação ---

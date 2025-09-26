@@ -51,7 +51,8 @@ def estrela(surface, color, center, radius):
     pg.draw.polygon(surface, color, points)
 
 
-def franca(name, criar_arquivo=False):
+# --- Modificar a função franca (e outras funções específicas de bandeira) ---
+def franca(name, criar_arquivo=False, id_mundo=None): # <-- Adicionado id_mundo
     modalidade = list(range(6))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -59,6 +60,9 @@ def franca(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] < 3:
@@ -152,12 +156,17 @@ def franca(name, criar_arquivo=False):
                 superficie.fill(cores[0])
                 pg.draw.rect(superficie, cores[1], (lt / 3, 0, lt / 3, at))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_franca.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/worlds/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        # Caminho alterado: Adicionado 'worlds' como subpasta de 'assets'
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo dentro de 'assets/worlds'
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/worlds/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -166,7 +175,7 @@ def franca(name, criar_arquivo=False):
     return cores
 
 
-def alemanha(name, criar_arquivo=False):
+def alemanha(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(6))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -174,6 +183,9 @@ def alemanha(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] < 3:
@@ -267,12 +279,16 @@ def alemanha(name, criar_arquivo=False):
                 superficie.fill(cores[0])
                 pg.draw.rect(superficie, cores[1], (0, at / 3, lt, at / 3))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_alemanha.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -281,7 +297,7 @@ def alemanha(name, criar_arquivo=False):
     return cores
 
 
-def indonesia(name, criar_arquivo=False):
+def indonesia(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -289,6 +305,9 @@ def indonesia(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -318,12 +337,16 @@ def indonesia(name, criar_arquivo=False):
             superficie.fill(cores[0])
             pg.draw.rect(superficie, cores[1], (0, 0, lt, at / 2))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_indonesia.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -332,7 +355,7 @@ def indonesia(name, criar_arquivo=False):
     return cores
 
 
-def argelia(name, criar_arquivo=False):
+def argelia(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -340,6 +363,9 @@ def argelia(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -369,12 +395,16 @@ def argelia(name, criar_arquivo=False):
             superficie.fill(cores[0])
             pg.draw.rect(superficie, cores[1], (0, 0, lt / 2, at))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_argelia.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -383,7 +413,7 @@ def argelia(name, criar_arquivo=False):
     return cores
 
 
-def japao(name, criar_arquivo=False):
+def japao(name, criar_arquivo=False, id_mundo=None):
     p_cor = dic_cores[name]
     s_cor = cores_padrao[random.choice(basic_color)]
     while s_cor == p_cor:
@@ -395,16 +425,23 @@ def japao(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
         superficie.fill(cores[0])
         pg.draw.circle(superficie, cores[1], (lt / 2, at / 2), at / 4)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_japao.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -413,7 +450,7 @@ def japao(name, criar_arquivo=False):
     return cores
 
 
-def butao(name, criar_arquivo=False):
+def butao(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -421,6 +458,9 @@ def butao(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -450,12 +490,16 @@ def butao(name, criar_arquivo=False):
             superficie.fill(cores[0])
             pg.draw.polygon(superficie, cores[1], ((0, at), (lt, 0), (lt, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_butao.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -464,7 +508,7 @@ def butao(name, criar_arquivo=False):
     return cores
 
 
-def butao_invertido(name, criar_arquivo=False):
+def butao_invertido(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -472,6 +516,9 @@ def butao_invertido(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -501,12 +548,16 @@ def butao_invertido(name, criar_arquivo=False):
             superficie.fill(cores[0])
             pg.draw.polygon(superficie, cores[1], ((0, 0), (lt, at), (0, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_butao_invertido.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -515,7 +566,7 @@ def butao_invertido(name, criar_arquivo=False):
     return cores
 
 
-def cuba(name, criar_arquivo=False):
+def cuba(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(3))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -523,6 +574,9 @@ def cuba(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -579,12 +633,16 @@ def cuba(name, criar_arquivo=False):
             pg.draw.polygon(superficie, cores[2], ((0, 0), (lt / 3, at / 2), (0, at)))
             estrela(superficie, cores[1], (lt / 9, at / 2), lt / 9)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_cuba.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -593,7 +651,7 @@ def cuba(name, criar_arquivo=False):
     return cores
 
 
-def jordania(name, criar_arquivo=False):
+def jordania(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(4))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -601,6 +659,9 @@ def jordania(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] < 2:
@@ -676,12 +737,16 @@ def jordania(name, criar_arquivo=False):
                 pg.draw.rect(superficie, cores[1], (0, at / 3, lt, at / 3))
                 pg.draw.polygon(superficie, cores[2], ((0, 0), (lt / 3, at / 2), (0, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_jordania.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -690,7 +755,7 @@ def jordania(name, criar_arquivo=False):
     return cores
 
 
-def madagascar(name, criar_arquivo=False):
+def madagascar(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(3))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -698,6 +763,9 @@ def madagascar(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] < 2:
@@ -752,12 +820,16 @@ def madagascar(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[2], (lt / 3, 0, lt * 2 / 3, at / 2))
             estrela(superficie, cores[3], (lt / 6, at / 2), lt / 9)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_madagascar.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -766,7 +838,7 @@ def madagascar(name, criar_arquivo=False):
     return cores
 
 
-def jamaica(name, criar_arquivo=False):
+def jamaica(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -774,6 +846,9 @@ def jamaica(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -808,12 +883,16 @@ def jamaica(name, criar_arquivo=False):
             pg.draw.polygon(superficie, cores[1], ((lt, lt / 12), (lt / 2 + lt / 6, at / 2), (lt, at - lt / 12)))
             pg.draw.polygon(superficie, cores[2], ((lt / 6, at), (lt - lt / 6, at), (lt / 2, at / 2 + lt / 12)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_jamaica.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -822,7 +901,7 @@ def jamaica(name, criar_arquivo=False):
     return cores
 
 
-def suecia(name, criar_arquivo=False):
+def suecia(name, criar_arquivo=False, id_mundo=None):
     p_cor = dic_cores[name]
     s_cor = cores_padrao[random.choice(basic_color)]
     while s_cor == p_cor:
@@ -834,6 +913,9 @@ def suecia(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
         l1 = 0
         l2 = lt / 3 - lt / 12
@@ -847,12 +929,16 @@ def suecia(name, criar_arquivo=False):
         pg.draw.polygon(superficie, cores[1], ((l1, a2), (l2, a2), (l2, a1), (l3, a1), (l3, a2), (l4, a2), (l4, a3),
                                                (l3, a3), (l3, a4), (l2, a4), (l2, a3), (l1, a3)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_suecia.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -861,7 +947,7 @@ def suecia(name, criar_arquivo=False):
     return cores
 
 
-def china(name, criar_arquivo=False):
+def china(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -869,6 +955,9 @@ def china(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -888,12 +977,16 @@ def china(name, criar_arquivo=False):
         if criar_arquivo and superficie:
             superficie.fill(p_cor)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_china.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -902,7 +995,7 @@ def china(name, criar_arquivo=False):
     return cores
 
 
-def samoa(name, criar_arquivo=False):
+def samoa(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(2))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -910,6 +1003,9 @@ def samoa(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 1:
@@ -939,21 +1035,25 @@ def samoa(name, criar_arquivo=False):
             superficie.fill(cores[0])
             pg.draw.rect(superficie, cores[1], (0, 0, lt / 4, lt / 4))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_samo.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
-        print(f"🖼️ Bandeira 'samo' salva em: {caminho_completo}") # Mensagem de confirmação (opcional)
+        print(f"🖼️ Bandeira 'samoa' salva em: {caminho_completo}") # Mensagem de confirmação (opcional)
 
     return cores
 
 
-def eua(name, criar_arquivo=False):
+def eua(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(5))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -961,6 +1061,9 @@ def eua(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1052,12 +1155,16 @@ def eua(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[1], (0, at * 5 / 7, lt, at / 7))
             pg.draw.rect(superficie, cores[0], (0, 0, at * 3 / 7, at * 3 / 7))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_eua.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1066,7 +1173,7 @@ def eua(name, criar_arquivo=False):
     return cores
 
 
-def tanzania(name, criar_arquivo=False):
+def tanzania(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(4))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1074,6 +1181,9 @@ def tanzania(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1139,12 +1249,16 @@ def tanzania(name, criar_arquivo=False):
             pg.draw.polygon(superficie, cores[1], ((0, 0), (lt - lt / 6, 0), (0, at - lt / 12)))
             pg.draw.polygon(superficie, cores[1], ((lt / 6, at), (lt, lt / 12), (lt, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_tanzania.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1153,7 +1267,7 @@ def tanzania(name, criar_arquivo=False):
     return cores
 
 
-def tanzania_invertida(name, criar_arquivo=False):
+def tanzania_invertida(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(4))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1161,6 +1275,9 @@ def tanzania_invertida(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1229,12 +1346,16 @@ def tanzania_invertida(name, criar_arquivo=False):
             pg.draw.polygon(superficie, cores[1], ((lt / 6, 0), (lt, 0), (lt, at - lt / 12)))
             pg.draw.polygon(superficie, cores[2], ((0, lt / 12), (lt - lt / 6, at), (0, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_tanzania_invertida.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1243,7 +1364,7 @@ def tanzania_invertida(name, criar_arquivo=False):
     return cores
 
 
-def republica_dominicana(name, criar_arquivo=False):
+def republica_dominicana(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(8))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1251,6 +1372,9 @@ def republica_dominicana(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     a = lt / 2 - lt / 10
@@ -1356,12 +1480,16 @@ def republica_dominicana(name, criar_arquivo=False):
                 estrela(superficie, cores[0], (a / 2, d + c / 2), at / 9)
                 estrela(superficie, cores[0], (b + a / 2, d + c / 2), at / 9)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_republica_dominicana.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1370,7 +1498,7 @@ def republica_dominicana(name, criar_arquivo=False):
     return cores
 
 
-def chile(name, criar_arquivo=False):
+def chile(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(3))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1378,6 +1506,9 @@ def chile(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1431,12 +1562,16 @@ def chile(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[1], (0, 0, at / 2, at / 2))
             pg.draw.rect(superficie, cores[2], (0, at / 2, lt, at / 2))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_chile.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1445,7 +1580,7 @@ def chile(name, criar_arquivo=False):
     return cores
 
 
-def eau(name, criar_arquivo=False):
+def eau(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(4))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1453,6 +1588,9 @@ def eau(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] < 2:
@@ -1528,12 +1666,16 @@ def eau(name, criar_arquivo=False):
                 pg.draw.rect(superficie, cores[2], (0, at / 3, lt, at / 3))
                 pg.draw.rect(superficie, cores[3], (0, 0, lt / 4, at))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_eau.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1542,7 +1684,7 @@ def eau(name, criar_arquivo=False):
     return cores
 
 
-def filipinas(name, criar_arquivo=False):
+def filipinas(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(3))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1550,6 +1692,9 @@ def filipinas(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1603,12 +1748,16 @@ def filipinas(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[1], (0, 0, lt, at / 2))
             pg.draw.polygon(superficie, cores[2], ((0, 0), (lt / 3, at / 2), (0, at)))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_filipinas.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1617,7 +1766,7 @@ def filipinas(name, criar_arquivo=False):
     return cores
 
 
-def espanha(name, criar_arquivo=False):
+def espanha(name, criar_arquivo=False, id_mundo=None):
     modalidade = list(range(4))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1625,6 +1774,9 @@ def espanha(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1688,12 +1840,16 @@ def espanha(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[1], (0, at * 4 / 5, lt, at / 4))
             estrela(superficie, cores[1], (lt / 2, at / 2), at / 4)
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_espanha.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1702,7 +1858,7 @@ def espanha(name, criar_arquivo=False):
     return cores
 
 
-def tailandia(name, criar_arquivo=False):
+def tailandia(name, criar_arquivo=False, id_mundo=None): # <-- Adicionado id_mundo
     modalidade = list(range(6))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1710,6 +1866,9 @@ def tailandia(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     if modalidade[0] == 0:
@@ -1819,12 +1978,16 @@ def tailandia(name, criar_arquivo=False):
             pg.draw.rect(superficie, cores[1], (0, at * 4 / 6, lt, at / 6))
             pg.draw.rect(superficie, cores[0], (0, at * 5 / 6, lt, at / 6))
 
-    # --- Salvar a imagem apenas se criar_arquivo for True ---
+    # --- Salvar a imagem apenas se criar_arquivo for True e id_mundo estiver definido ---
     if criar_arquivo and superficie:
-        # --- Definir o caminho para a pasta assets/flags ---
-        nome_arquivo = f"bandeira_{name}_tailandia.png" # Nome do arquivo pode ser personalizado
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1833,7 +1996,7 @@ def tailandia(name, criar_arquivo=False):
     return cores
 
 
-def panama(name, criar_arquivo=False):
+def panama(name, criar_arquivo=False, id_mundo=None): # <-- Adicionado id_mundo
     modalidade = list(range(3))
     random.shuffle(modalidade)
     random.shuffle(modalidade)
@@ -1841,6 +2004,9 @@ def panama(name, criar_arquivo=False):
     # --- Inicializar superfície apenas se for necessário ---
     superficie = None
     if criar_arquivo:
+        # --- Validação ---
+        if not id_mundo:
+            raise ValueError("id_mundo é obrigatório quando criar_arquivo=True")
         superficie = pg.Surface((lt, at))
 
     p_cor = dic_cores[name]
@@ -1870,11 +2036,14 @@ def panama(name, criar_arquivo=False):
             estrela(superficie, cores[2], (lt / 4, at * 3 / 4), at / 6)
             estrela(superficie, cores[2], (lt * 3 / 4, at * 3 / 4), at / 6)
 
-        # --- Definir o caminho para a pasta assets/flags ---
-        # Certifique-se de que a pasta 'assets/flags' exista no seu projeto
-        nome_arquivo = f"bandeira_{name}.png"
-        caminho_pasta_flags = "assets/flags"
-        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo)
+        # --- Modificação: Definir o caminho para a pasta assets/{id_mundo}/flags ---
+        nome_arquivo = f"{name}.png" # <-- Nome do arquivo é o nome da civilização
+        caminho_pasta_mundo = os.path.join("assets", "worlds", id_mundo) # Pasta do mundo
+        caminho_pasta_flags = os.path.join(caminho_pasta_mundo, "flags") # Subpasta 'flags'
+        caminho_completo = os.path.join(caminho_pasta_flags, nome_arquivo) # Caminho final
+
+        # --- Garantir que a pasta 'assets/{id_mundo}/flags' exista ---
+        os.makedirs(caminho_pasta_flags, exist_ok=True)
 
         # --- Salvar a imagem ---
         pg.image.save(superficie, caminho_completo)
@@ -1883,54 +2052,54 @@ def panama(name, criar_arquivo=False):
     return cores
 
 
-def bandeira(name, numero, criar_arquivo=False):
+def bandeira(name, numero, criar_arquivo=False, id_mundo=None): # <-- Adicionado id_mundo
     if numero < 6:
-        return franca(name, criar_arquivo)
+        return franca(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 12:
-        return alemanha(name, criar_arquivo)
+        return alemanha(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 14:
-        return indonesia(name, criar_arquivo)
+        return indonesia(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 16:
-        return argelia(name, criar_arquivo)
+        return argelia(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 17:
-        return japao(name, criar_arquivo)
+        return japao(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 19:
-        return butao(name, criar_arquivo)
+        return butao(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 21:
-        return butao_invertido(name, criar_arquivo)
+        return butao_invertido(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 24:
-        return cuba(name, criar_arquivo)
+        return cuba(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 28:
-        return jordania(name, criar_arquivo)
+        return jordania(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 31:
-        return madagascar(name, criar_arquivo)
+        return madagascar(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 33:
-        return jamaica(name, criar_arquivo)
+        return jamaica(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 34:
-        return suecia(name, criar_arquivo)
+        return suecia(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 36:
-        return china(name, criar_arquivo)
+        return china(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 38:
-        return samoa(name, criar_arquivo)
+        return samoa(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 43:
-        return eua(name, criar_arquivo)
+        return eua(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 47:
-        return tanzania(name, criar_arquivo)
+        return tanzania(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 51:
-        return tanzania_invertida(name, criar_arquivo)
+        return tanzania_invertida(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 59:
-        return republica_dominicana(name, criar_arquivo)
+        return republica_dominicana(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 62:
-        return chile(name, criar_arquivo)
+        return chile(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 66:
-        return eau(name, criar_arquivo)
+        return eau(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 69:
-        return filipinas(name, criar_arquivo)
+        return filipinas(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 74:
-        return espanha(name, criar_arquivo)
+        return espanha(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 80:
-        return tailandia(name, criar_arquivo)
+        return tailandia(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     elif numero < 83:
-        return panama(name, criar_arquivo)
+        return panama(name, criar_arquivo, id_mundo) # <-- Passa id_mundo
     print("Número fora do alcance")
     return None

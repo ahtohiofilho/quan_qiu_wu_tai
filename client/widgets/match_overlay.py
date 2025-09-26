@@ -124,7 +124,20 @@ class OverlayPartida(QWidget):
 
     def atualizar_display(self, mundo):
         """Atualiza os labels de turno, população e produção."""
+        # --- Modificação ---
+        # Verificar se mundo e mundo.turno existem antes de acessar
+        if not mundo or not hasattr(mundo, 'turno') or mundo.turno is None:
+            print("❌ [DEBUG] OverlayPartida.atualizar_display: mundo ou mundo.turno é None. Não é possível atualizar.")
+            # Atualizar com valores padrão ou placeholders
+            self.label_turno.setText("Turno: ?")
+            self.label_pop.setText("Pop: ?")
+            self.label_prod.setText("Produção: ?")
+            return  # Sai da função se mundo ou turno forem None
+        # --- Fim da Modificação ---
+
+        # Agora, mundo e mundo.turno são válidos
         self.label_turno.setText(f"Turno: {mundo.turno.numero}")
+
         h, m, t = mundo.get_populacao_global()
         pop_formatada = self._formatar_numero(t)
         homens_formatado = self._formatar_numero(h)
@@ -134,12 +147,20 @@ class OverlayPartida(QWidget):
         # 🔥 Produção da civilização do jogador
         janela_principal = self._obter_janela_principal()
         civ_jogador = janela_principal.civ_jogador if janela_principal else None
-        if civ_jogador and hasattr(civ_jogador, 'get_producao_total'):
-            print(f"ℹ️ Produção da civilização do jogador: {civ_jogador.get_producao_total():.1f}")
-            producao = civ_jogador.get_producao_total()
-            self.label_prod.setText(f"Produção: {producao:.1f}")
+        if civ_jogador and hasattr(civ_jogador, 'assentamentos'):
+            # Calcula produção total da civ do jogador
+            producao_total = sum(
+                assentamento.calcular_producao_total()
+                for assentamento in civ_jogador.assentamentos
+                if hasattr(assentamento, 'calcular_producao_total')
+            )
+            prod_formatada = self._formatar_numero(producao_total)
+            self.label_prod.setText(f"Produção: {prod_formatada}")
         else:
-            self.label_prod.setText("Produção: 0.0")
+            self.label_prod.setText("Produção: 0")  # ou "Produção: ?" se não houver jogador ainda
+
+        print(
+            f"✅ [DEBUG] OverlayPartida.atualizar_display: Turno {mundo.turno.numero}, População: {pop_formatada}, Produção: {prod_formatada}")
 
     def conectar_mundo(self, mundo):
         """Conecta o overlay a um mundo e atualiza o display inicial."""

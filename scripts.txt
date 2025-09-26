@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-26 01:51:18
+Gerado em: 2025-09-26 16:54:05
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -2709,6 +2709,12 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_sala = None
         self.polling_timer = None
         self.game_placeholder = None
+        # --- Novos Atributos ---
+        self.partida_iniciada = False
+        self.mundo = None
+        self.civ_jogador = None
+        self.id_mundo_cliente = None  # Armazena o ID do mundo em modo cliente para exclusão posterior
+        # --- Fim Novos Atributos ---
 
         # === Dimensões da Tela ===
         screen_geometry = self.screen().availableGeometry()
@@ -2942,8 +2948,7 @@ class JanelaPrincipal(QMainWindow):
         print("🔍 Geometria do overlay:", self.overlay_widget.geometry())
         print("🔍 Overlay visível?", self.overlay_widget.isVisible())
 
-        self.partida_iniciada = False
-
+        # --- Instanciação do Overlay de Partida ---
         self.overlay_partida = OverlayPartida(parent=self.barra_esquerda)
         self.overlay_partida.hide()  # Começa escondido
 
@@ -3007,9 +3012,16 @@ class JanelaPrincipal(QMainWindow):
     def _configurar_modo_offline(self, fator, bioma):
         try:
             from shared.world import Mundo
-            self.mundo = Mundo(fator=fator, bioma=bioma)
+            self.mundo = Mundo(fator=fator, bioma=bioma, chamado_pelo_cliente=True)
             print(
                 f"✅ Mundo criado: fator={fator}, bioma='{bioma}', províncias={len(self.mundo.planeta.geografia.nodes)}")
+
+            # --- Modificação ---
+            # Armazena o ID do mundo criado no modo cliente para exclusão posterior
+            self.id_mundo_cliente = self.mundo.id_mundo
+            print(f"🔑 [DEBUG] ID do mundo cliente definido: {self.id_mundo_cliente}")
+            # --- Fim da Modificação ---
+
             self.opengl_widget.carregar_mundo(self.mundo)
 
             # --- 🔁 Forçar reset da câmera para enxergar o planeta ---
@@ -3432,6 +3444,8 @@ class JanelaPrincipal(QMainWindow):
                 print("✅ [DEBUG] _limpeza_local: overlay_partida escondido e resetado.")
             else:
                 print("🟡 [DEBUG] _limpeza_local: overlay_partida já removido ou inexistente")
+            # NÃO resetar self.id_mundo_cliente aqui, pois ele é usado na exclusão antes de _limpeza_local
+            # self.id_mundo_cliente = None # <- Comentado/removido
         except Exception as e:
             print(f"⚠️ Falha ao esconder overlay_partida: {e}")
 
@@ -3454,6 +3468,8 @@ class JanelaPrincipal(QMainWindow):
         self.partida_iniciada = False
         self.mundo = None  # ✅ Nova linha
         self.civ_jogador = None  # ✅ Nova linha
+        # NÃO resetar self.id_mundo_cliente aqui, pois ele é usado na exclusão antes de _limpeza_local
+        # self.id_mundo_cliente = None # <- Comentado/removido
         print("✅ [DEBUG] _limpeza_local: Estado de partida resetado (partida_iniciada = False)")
         print("✅ [DEBUG] _limpeza_local: Referências ao mundo e jogador local limpas.")
 
@@ -3479,7 +3495,7 @@ class JanelaPrincipal(QMainWindow):
         """)
 
         layout = QVBoxLayout()
-        label = QLabel("O que você gostaria de fazer?")
+        label = QLabel("What would you like to do?")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
 
@@ -3503,29 +3519,50 @@ class JanelaPrincipal(QMainWindow):
         dialog.exec()
 
     def _sair_para_menu(self, dialog, username: str):
-        """Volta ao menu principal, limpa estado, mas não fecha o jogo."""
-        dialog.accept()
+        """
+        Volta ao menu principal, limpa estado, mas não fecha o jogo.
+        Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
+        """
+        print("🔵 [DEBUG] _sair_para_menu: Chamando confirmação de saída.")
+        # Passa a função '_real_sair_para_menu' como a ação de saída
+        self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_para_menu)
 
-        self._limpar_estado_servidor(username)
-        self._limpeza_local()
-
+    def _real_sair_para_menu(self, dialog, username: str):
+        """Realiza a saída para o menu após exclusão da pasta de bandeiras."""
+        print("🔵 [DEBUG] _real_sair_para_menu: Executando ações de saída.")
+        # dialog.accept() # O diálogo já foi aceito em _confirmar_saida_antes_da_limpeza
+        self._limpar_estado_servidor(username)  # Ajuste se necessário
+        self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         self.partida_iniciada = False  # ✅ Resetar flag
-
+        # Resetar o ID do mundo cliente
+        self.id_mundo_cliente = None
         # Restaurar overlay inicial
         if hasattr(self, 'overlay_widget') and self.overlay_widget:
             self.overlay_widget.show()
             self.overlay_widget.raise_()
-
         print("✅ Retornou ao menu principal.")
 
     def _sair_do_jogo(self, dialog, username: str):
-        """Fecha o aplicativo após limpar estado."""
-        dialog.accept()
+        """
+        Fecha o aplicativo após limpar estado.
+        Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
+        """
+        print("🔴 [DEBUG] _sair_do_jogo: Chamando confirmação de saída.")
+        # Passa a função '_real_sair_do_jogo' como a ação de saída
+        self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_do_jogo)
 
-        self._limpar_estado_servidor(username)
-        self._limpeza_local()
-
-        self.close()
+    def _real_sair_do_jogo(self, dialog, username: str):
+        """Realiza o fechamento do jogo após exclusão da pasta de bandeiras."""
+        print("🔴 [DEBUG] _real_sair_do_jogo: Executando ações de fechamento.")
+        # dialog.accept() # O diálogo já foi aceito em _confirmar_saida_antes_da_limpeza
+        self._limpar_estado_servidor(username)  # Ajuste se necessário
+        self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
+        # Resetar o ID do mundo cliente
+        self.id_mundo_cliente = None
+        print("🟢 [DEBUG] _real_sair_do_jogo: Estado limpo. Fechando aplicativo...")
+        from PyQt6.QtWidgets import QApplication  # Importa aqui para evitar conflitos globais
+        QApplication.quit()  # Fecha a aplicação PyQt6
+        # sys.exit() # Alternativa, se QApplication.quit() não for suficiente em todos os casos
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
         """Abre o diálogo completo de autenticação (login + registro)."""
@@ -4194,6 +4231,62 @@ class JanelaPrincipal(QMainWindow):
         if hasattr(self, 'opengl_widget'):
             self.opengl_widget.update()
 
+    def _confirmar_saida_antes_da_limpeza(self, dialog_pai, username: str, acao_saida):
+        """
+        Mostra uma caixa de diálogo perguntando se deseja salvar antes de sair.
+        Chama acao_saida (função) após lidar com a exclusão das bandeiras.
+        """
+        print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Iniciando...")
+        from PyQt6.QtWidgets import QMessageBox # Importa aqui para evitar conflitos globais
+        reply = QMessageBox.question(
+            dialog_pai, # O diálogo que chamou (ou a própria janela principal)
+            "Save World?",
+            "Do you want to save the current world before exiting?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No # 'No' como padrão
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'Yes'.")
+            # Por enquanto, age como 'No'. Poderia chamar uma função de salvar aqui futuramente.
+            # A exclusão da bandeira ainda acontece, conforme a lógica abaixo.
+        elif reply == QMessageBox.StandardButton.No:
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'No'.")
+        else: # Se fechar a caixa ou pressionar ESC, assume 'No' ou cancela
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Diálogo cancelado ou fechado, tratando como 'No'.")
+            # return # Se quiser cancelar a saída, descomente. Senão, continua como 'No'.
+
+        # Independentemente da escolha (Yes ou No), exclui a pasta de bandeiras criadas pelo cliente
+        self._excluir_pasta_bandeiras_cliente()
+
+        # Depois de excluir a pasta, chama a ação de saída original
+        acao_saida(dialog_pai, username)
+
+    # --- Adicionar ou modificar _excluir_pasta_bandeiras_cliente ---
+    def _excluir_pasta_bandeiras_cliente(self):
+        """
+        Exclui a pasta contendo as bandeiras criadas pelo cliente para o mundo atual (assets/{id_mundo}),
+        se o ID do mundo estiver definido e a pasta existir.
+        """
+        import os
+        import shutil
+        print("🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Iniciando...")
+        if self.id_mundo_cliente:
+            # Caminho para a pasta raiz do mundo (onde 'flags' estaria dentro)
+            caminho_pasta_mundo = os.path.join("assets", self.id_mundo_cliente)
+            print(f"🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Tentando excluir pasta do mundo: {caminho_pasta_mundo}")
+            try:
+                if os.path.exists(caminho_pasta_mundo):
+                    shutil.rmtree(caminho_pasta_mundo)
+                    print(f"✅ [DEBUG] Pasta do mundo (e bandeiras) excluída: {caminho_pasta_mundo}")
+                else:
+                    print(
+                        f"🟡 [DEBUG] Pasta do mundo (e bandeiras) não encontrada (já excluída?): {caminho_pasta_mundo}")
+            except Exception as e:
+                print(f"❌ [DEBUG] Erro ao excluir pasta do mundo {caminho_pasta_mundo}: {e}")
+        else:
+            print("🟡 [DEBUG] id_mundo_cliente não definido, nenhuma pasta de mundo para excluir.")
+
 
 # --- Ponto de Entrada da Aplicação ---
 def main():
@@ -4370,7 +4463,20 @@ class OverlayPartida(QWidget):
 
     def atualizar_display(self, mundo):
         """Atualiza os labels de turno, população e produção."""
+        # --- Modificação ---
+        # Verificar se mundo e mundo.turno existem antes de acessar
+        if not mundo or not hasattr(mundo, 'turno') or mundo.turno is None:
+            print("❌ [DEBUG] OverlayPartida.atualizar_display: mundo ou mundo.turno é None. Não é possível atualizar.")
+            # Atualizar com valores padrão ou placeholders
+            self.label_turno.setText("Turno: ?")
+            self.label_pop.setText("Pop: ?")
+            self.label_prod.setText("Produção: ?")
+            return  # Sai da função se mundo ou turno forem None
+        # --- Fim da Modificação ---
+
+        # Agora, mundo e mundo.turno são válidos
         self.label_turno.setText(f"Turno: {mundo.turno.numero}")
+
         h, m, t = mundo.get_populacao_global()
         pop_formatada = self._formatar_numero(t)
         homens_formatado = self._formatar_numero(h)
@@ -4380,12 +4486,20 @@ class OverlayPartida(QWidget):
         # 🔥 Produção da civilização do jogador
         janela_principal = self._obter_janela_principal()
         civ_jogador = janela_principal.civ_jogador if janela_principal else None
-        if civ_jogador and hasattr(civ_jogador, 'get_producao_total'):
-            print(f"ℹ️ Produção da civilização do jogador: {civ_jogador.get_producao_total():.1f}")
-            producao = civ_jogador.get_producao_total()
-            self.label_prod.setText(f"Produção: {producao:.1f}")
+        if civ_jogador and hasattr(civ_jogador, 'assentamentos'):
+            # Calcula produção total da civ do jogador
+            producao_total = sum(
+                assentamento.calcular_producao_total()
+                for assentamento in civ_jogador.assentamentos
+                if hasattr(assentamento, 'calcular_producao_total')
+            )
+            prod_formatada = self._formatar_numero(producao_total)
+            self.label_prod.setText(f"Produção: {prod_formatada}")
         else:
-            self.label_prod.setText("Produção: 0.0")
+            self.label_prod.setText("Produção: 0")  # ou "Produção: ?" se não houver jogador ainda
+
+        print(
+            f"✅ [DEBUG] OverlayPartida.atualizar_display: Turno {mundo.turno.numero}, População: {pop_formatada}, Produção: {prod_formatada}")
 
     def conectar_mundo(self, mundo):
         """Conecta o overlay a um mundo e atualiza o display inicial."""
@@ -4460,6 +4574,7 @@ class OverlayPartida(QWidget):
             return f"{valor / 1_000_000_000:.1f}b"
         else:
             return f"{valor / 1_000_000_000_000:.1f}t"
+
 
 ================================================================================
 📄 client/widgets/waiting_room_overlay.py
@@ -6569,8 +6684,29 @@ class OpenGLWidget(QOpenGLWidget):
         print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")
 
     def __del__(self):
-        if hasattr(self, 'timer_keyboard'):
-            self.timer_keyboard.stop()
+        print("🧹 [DEBUG] OpenGLWidget.__del__: Chamando destrutor.")
+        # Limpar recursos OpenGL primeiro (VAO, VBO, Shaders) - Se tiver
+        # self._descartar_geometria() # Exemplo: talvez você tenha isso
+        # self._descartar_shaders()   # Exemplo: talvez você tenha isso
+
+        # --- Modificação ---
+        # Tornar a parada do timer mais robusta
+        try:
+            if hasattr(self, 'timer_keyboard') and self.timer_keyboard:
+                # Verifica se o objeto Qt ainda é válido antes de parar
+                # hasattr pode retornar True mesmo se o objeto Qt interno tenha sido deletado,
+                # por isso o try-except é crucial.
+                print("⏸️ [DEBUG] OpenGLWidget.__del__: Tentando parar timer do teclado")
+                self.timer_keyboard.stop()
+                # Opcional: Marcar para deleção posterior pelo Qt
+                # self.timer_keyboard.deleteLater()
+                print("✅ [DEBUG] Timer do teclado parado no __del__ (se ainda existia).")
+        except RuntimeError as e:
+            # Captura o erro específico quando o objeto C++ já foi deletado
+            print(f"⚠️ [DEBUG] Timer do teclado já havia sido deletado no Qt (ignorando erro no __del__): {e}")
+        # --- Fim da Modificação ---
+
+        print("✅ [DEBUG] OpenGLWidget.__del__ concluído.")
 
 ================================================================================
 📄 client/rendering/shader.py
@@ -8106,21 +8242,35 @@ class Civilizacao:
     A produção total é a soma da produtividade de todos os assentamentos.
     """
 
-    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None):
+    def __init__(self, ref, indice, nome, player=False, ponto_inicial=None, mundo=None, chamado_pelo_cliente=False):
         """
         :param ref: Instância de Referencias (culturas, cores, etc)
         :param indice: Índice para seleção de cultura e cor
         :param nome: Nome da civilização (ex: "Red", "Blue")
         :param player: Se é uma civilização controlada por jogador
         :param ponto_inicial: Coordenadas (q, r) do assentamento inicial
-        :param mundo: Referência ao mundo (para verificar se o tile é pentágono)
+        :param mundo: Referência ao mundo (para consulta de pentágonos ou outros dados globais)
+        :param chamado_pelo_cliente: Se True, bandeiras devem ser salvas em disco.
         """
         self.player = player
         self.nome = nome
         self.cultura = ref.culturas[indice % len(ref.culturas)]
         self.cor = ref.civs_cores[self.nome]
         self.modalidade_bandeira = random.randint(0, 82)
-        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira)
+
+        # --- Modificação ---
+        # Chama a função 'bandeira' passando o id_mundo se chamado_pelo_cliente for True
+        if chamado_pelo_cliente and mundo and hasattr(mundo, 'id_mundo'):
+            # Chamada modificada: passa o id_mundo do mundo criado
+            from shared.flags import bandeira  # Importa localmente para evitar dependências circulares potenciais
+            self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira, criar_arquivo=True,
+                                           id_mundo=mundo.id_mundo)
+        else:
+            # Chamada original (não cria arquivo) ou quando chamado_pelo_cliente é False
+            from shared.flags import bandeira  # Importa localmente
+            self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira, criar_arquivo=False, id_mundo=None)
+        # --- Fim da Modificação ---
+
         self.ponto_inicial = ponto_inicial
         self.assentamentos = []
         self.unidades = []
@@ -8170,7 +8320,7 @@ class Mundo:
     - Estado de renderização (físico ou político)
     """
 
-    def __init__(self, fator=4, bioma='Meadow', id_mundo=None):
+    def __init__(self, fator=4, bioma='Meadow', chamado_pelo_cliente=False, id_mundo=None):
         self.id_mundo = id_mundo or str(uuid4())
         self.ref = Referencias()
         random.shuffle(self.ref.culturas)
@@ -8189,13 +8339,13 @@ class Mundo:
         # Criar civilizações com capitais corretas
         for i, capital in enumerate(self.planeta.capitais_players):
             nome = lista_de_cores[i % len(lista_de_cores)]
-            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self)
+            civ = Civilizacao(self.ref, i, nome, True, capital, mundo=self, chamado_pelo_cliente=chamado_pelo_cliente)
             self.civs.append(civ)
 
         for i, capital in enumerate(self.planeta.capitais_neutros):
             indice = i + len(self.planeta.capitais_players)
             nome = lista_de_cores[indice % len(lista_de_cores)]
-            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self)
+            civ = Civilizacao(self.ref, indice, nome, False, capital, mundo=self, chamado_pelo_cliente=chamado_pelo_cliente)
             self.civs.append(civ)
 
         # Criar assentamento inicial para cada civilização

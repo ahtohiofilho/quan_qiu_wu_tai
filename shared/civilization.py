@@ -18,21 +18,28 @@ class Civilizacao:
         :param nome: Nome da civilização (ex: "Red", "Blue")
         :param player: Se é uma civilização controlada por jogador
         :param ponto_inicial: Coordenadas (q, r) do assentamento inicial
-        :param mundo: Referência ao mundo (para verificar se o tile é pentágono)
+        :param mundo: Referência ao mundo (para consulta de pentágonos ou outros dados globais)
+        :param chamado_pelo_cliente: Se True, bandeiras devem ser salvas em disco.
         """
         self.player = player
         self.nome = nome
         self.cultura = ref.culturas[indice % len(ref.culturas)]
         self.cor = ref.civs_cores[self.nome]
         self.modalidade_bandeira = random.randint(0, 82)
-        self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira) # Sem incluir chamado_pelo_cliente por enquanto
-        '''
-        self.cores_bandeira = (
-            bandeira(self.nome, self.modalidade_bandeira)
-            if not chamado_pelo_cliente
-            else bandeira(self.nome, self.modalidade_bandeira, chamado_pelo_cliente)
-        )
-        ''' # Comentada para evitar criar arquivos de imagem por enquanto
+
+        # --- Modificação ---
+        # Chama a função 'bandeira' passando o id_mundo se chamado_pelo_cliente for True
+        if chamado_pelo_cliente and mundo and hasattr(mundo, 'id_mundo'):
+            # Chamada modificada: passa o id_mundo do mundo criado
+            from shared.flags import bandeira  # Importa localmente para evitar dependências circulares potenciais
+            self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira, criar_arquivo=True,
+                                           id_mundo=mundo.id_mundo)
+        else:
+            # Chamada original (não cria arquivo) ou quando chamado_pelo_cliente é False
+            from shared.flags import bandeira  # Importa localmente
+            self.cores_bandeira = bandeira(self.nome, self.modalidade_bandeira, criar_arquivo=False, id_mundo=None)
+        # --- Fim da Modificação ---
+
         self.ponto_inicial = ponto_inicial
         self.assentamentos = []
         self.unidades = []

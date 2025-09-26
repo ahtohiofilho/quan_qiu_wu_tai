@@ -642,5 +642,26 @@ class OpenGLWidget(QOpenGLWidget):
         print(f"   → distância={distance:.2f}, theta={math.degrees(theta):.1f}°, phi={math.degrees(phi):.1f}°")
 
     def __del__(self):
-        if hasattr(self, 'timer_keyboard'):
-            self.timer_keyboard.stop()
+        print("🧹 [DEBUG] OpenGLWidget.__del__: Chamando destrutor.")
+        # Limpar recursos OpenGL primeiro (VAO, VBO, Shaders) - Se tiver
+        # self._descartar_geometria() # Exemplo: talvez você tenha isso
+        # self._descartar_shaders()   # Exemplo: talvez você tenha isso
+
+        # --- Modificação ---
+        # Tornar a parada do timer mais robusta
+        try:
+            if hasattr(self, 'timer_keyboard') and self.timer_keyboard:
+                # Verifica se o objeto Qt ainda é válido antes de parar
+                # hasattr pode retornar True mesmo se o objeto Qt interno tenha sido deletado,
+                # por isso o try-except é crucial.
+                print("⏸️ [DEBUG] OpenGLWidget.__del__: Tentando parar timer do teclado")
+                self.timer_keyboard.stop()
+                # Opcional: Marcar para deleção posterior pelo Qt
+                # self.timer_keyboard.deleteLater()
+                print("✅ [DEBUG] Timer do teclado parado no __del__ (se ainda existia).")
+        except RuntimeError as e:
+            # Captura o erro específico quando o objeto C++ já foi deletado
+            print(f"⚠️ [DEBUG] Timer do teclado já havia sido deletado no Qt (ignorando erro no __del__): {e}")
+        # --- Fim da Modificação ---
+
+        print("✅ [DEBUG] OpenGLWidget.__del__ concluído.")
