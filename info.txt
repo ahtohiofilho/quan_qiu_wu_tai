@@ -33,3 +33,16 @@ def valor_oferta(quantidades, base=2.0):
     quantidades_ordenadas = sorted(quantidades, reverse=True)
     # soma aplicando a fórmula
     return sum(q * (base ** (p)) for p, q in enumerate(quantidades_ordenadas))
+
+A = Ataque
+D = Defesa
+HP = Pontos de Vida
+R = Alcance
+M = Movimento
+
+Unidade         A   D   HP   R   M
+
+Soldado Leve    1   1   1    0   1
+Soldado Pesado  2   3   1    0   1
+Cavaleiro       2   2   3    0   2
+Arqueiro        1   2   1    1   1

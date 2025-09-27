@@ -250,6 +250,12 @@ class TileOverlay(QWidget):
         painter = QPainter(pixmap_bioma)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing) # Opcional
 
+        # --- Constante para escala da bandeira no bioma/layout central ---
+        # Este valor define a proporção da área da região da parcela que a bandeira ocupará.
+        # Ex: 0.7 significa que a bandeira tentará ocupar 70% da largura/altura da região disponível.
+        ESCALA_BANDA_BIOMA = 0.7 # <-- Ajuste este valor para aumentar/diminuir a escala relativa no bioma
+        # --- Fim Constante ---
+
         # --- Definir regiões aproximadas no pixmap do bioma/layout ---
         # Esta é a parte crucial. Vamos definir áreas fixas relativas ao pixmap
         # para representar a parcela central e as periféricas.
@@ -375,7 +381,8 @@ class TileOverlay(QWidget):
             bandeira_h = pixmap_bandeira.height()
 
             # Calcular escala para caber na região com uma margem de segurança
-            escala_fator = 0.8 # Por exemplo, 80% do tamanho da região
+            # Usa a constante definida acima
+            escala_fator = ESCALA_BANDA_BIOMA # <-- Usa a constante
             max_largura = regiao_w * escala_fator
             max_altura = regiao_h * escala_fator
 
@@ -387,14 +394,14 @@ class TileOverlay(QWidget):
                 altura_final = max_altura
                 largura_final = altura_final * proporcao
 
-            print(f"   - Dimensionando bandeira para região {assentamento.indice_parcela}: Original ({bandeira_w}x{bandeira_h}), Região ({regiao_w:.2f}x{regiao_h:.2f}), Escala ({largura_final:.2f}x{altura_final:.2f})") # DEBUG
+            print(f"   - Dimensionando bandeira (bioma): Original ({bandeira_w}x{bandeira_h}), Região ({regiao_w:.2f}x{regiao_h:.2f}), Escala Base ({escala_fator}), Escala ({largura_final:.2f}x{altura_final:.2f})") # DEBUG
 
             # Calcular coordenadas do canto superior esquerdo da bandeira
             # para centralizá-la dentro da região definida
             x_bandeira = regiao_x + (regiao_w - largura_final) / 2.0
             y_bandeira = regiao_y + (regiao_h - altura_final) / 2.0
 
-            print(f"   - Posicionando bandeira em ({x_bandeira:.2f}, {y_bandeira:.2f})") # DEBUG
+            print(f"   - Posicionando bandeira (bioma) em ({x_bandeira:.2f}, {y_bandeira:.2f})") # DEBUG
 
             # --- Desenhar a bandeira ---
             painter.drawPixmap(int(x_bandeira), int(y_bandeira), int(largura_final), int(altura_final), pixmap_bandeira)

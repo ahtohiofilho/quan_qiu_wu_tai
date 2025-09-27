@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-26 21:31:17
+Gerado em: 2025-09-27 18:09:43
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -4811,12 +4811,12 @@ class OfflineSetupOverlay(QWidget):
 ================================================================================
 # client/widgets/tile.py
 import os
-from PyQt6 import QtCore
+import math
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QGridLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QCursor, QPainter, QColor, QPen
+from PyQt6.QtGui import QPixmap, QCursor, QPainter
 
 
 class TileOverlay(QWidget):
@@ -4936,12 +4936,33 @@ class TileOverlay(QWidget):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation
         )
-        self.image_label.setPixmap(scaled_pixmap)
+        # self.image_label.setPixmap(scaled_pixmap) # <-- Comentado temporariamente
 
         self.setMinimumSize(
             scaled_pixmap.width() + scale(32),
             scaled_pixmap.height() + scale(32)
         )
+
+        # --- NOVO: Sobrepor Bandeiras no Bioma/Layout Central ---
+        if coords_tile_alvo:
+            print(f"🔍 [TileOverlay] Carregando assentamentos para tile {coords_tile_alvo} para sobreposição direta.")
+            # Encontrar assentamentos no tile alvo
+            assentamentos_no_tile = []
+            for civ in self.mundo.civs: # <-- Itera pelas civilizações (civs)
+                for assentamento in civ.assentamentos: # <-- Itera pelos assentamentos da civilização
+                    if assentamento.coordenadas_tile == coords_tile_alvo: # <-- Verifica as coordenadas
+                        assentamentos_no_tile.append(assentamento) # <-- Adiciona à lista se for do tile certo
+
+            if assentamentos_no_tile:
+                print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile)} assentamento(s) encontrado(s) no tile {coords_tile_alvo}, sobrepondo bandeiras...")
+                # Chama a função que desenha as bandeiras diretamente no pixmap do bioma/layout
+                self._desenhar_bandeiras_no_bioma(scaled_pixmap, assentamentos_no_tile, formato)
+            else:
+                print(f"🟢 [TileOverlay] Nenhum assentamento encontrado no tile {coords_tile_alvo}.")
+
+        # Define o pixmap (original ou modificado com bandeiras) no QLabel
+        self.image_label.setPixmap(scaled_pixmap) # <-- Agora define o pixmap com ou sem bandeiras
+        # --- FIM NOVO ---
 
         # ======= INTEGRAÇÃO DA REGIAO (color picking 2D para hover) =======
         # As cores no picking_path são usadas *internamente* pelo Regiao para detectar regiões.
@@ -4971,42 +4992,45 @@ class TileOverlay(QWidget):
             overlay_pixmaps_originais = {
                 reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()
             }
+            print(f"🟢 [TileOverlay] {len(overlay_pixmaps_originais)} pixmaps de overlay originais carregados para formato '{formato}'.")
         except (AttributeError, KeyError) as e:
             print(f"⚠️ Erro ao carregar overlays para formato '{formato}': {e}. Usando dicionário vazio.")
             overlay_pixmaps_originais = {}
 
         # --- NOVO: Modificar Overlays com Bandeiras (se coords_tile_alvo for fornecido e mundo/civs carregados) ---
+        # (Esta parte é opcional agora, pois as bandeiras principais estão no bioma)
+        # Se você quiser *também* mostrar bandeiras no hover, mantenha esta lógica.
+        # Caso contrário, pode removê-la ou simplificar.
         if coords_tile_alvo:
-            print(f"🔍 [TileOverlay] Carregando assentamentos para tile {coords_tile_alvo}")
-            # Encontrar assentamentos no tile alvo - CORREÇÃO AQUI
-            # Itera pelas civilizações (self.mundo.civs) e depois pelos assentamentos de cada uma
-            assentamentos_no_tile = []
-            # Correção: usar 'civs' em vez de 'civilizacoes'
-            for civ in self.mundo.civs: # <-- Itera pelas civilizações (civs)
-                for assentamento in civ.assentamentos: # <-- Itera pelos assentamentos da civilização
-                    if assentamento.coordenadas_tile == coords_tile_alvo: # <-- Verifica as coordenadas
-                        assentamentos_no_tile.append(assentamento) # <-- Adiciona à lista se for do tile certo
+            print(f"🔍 [TileOverlay] Carregando assentamentos para tile {coords_tile_alvo} para overlays de hover (opcional).")
+            # Encontrar assentamentos no tile alvo (já feito acima, poderia ser otimizado)
+            assentamentos_no_tile_hover = []
+            for civ in self.mundo.civs:
+                for assentamento in civ.assentamentos:
+                    if assentamento.coordenadas_tile == coords_tile_alvo:
+                        assentamentos_no_tile_hover.append(assentamento)
 
-            if assentamentos_no_tile:
-                print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile)} assentamento(s) encontrado(s), modificando overlays...")
+            if assentamentos_no_tile_hover:
+                print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile_hover)} assentamento(s) encontrado(s) para overlays de hover, modificando...")
                 # Chama a função que sobrepõe as bandeiras nos pixmaps de overlay
                 # Passando a lista já filtrada de assentamentos
                 overlay_pixmaps_modificados = self._sobrepor_bandeiras_nos_overlays(
                     overlay_pixmaps_originais,
-                    assentamentos_no_tile # <-- Passa a lista filtrada
+                    assentamentos_no_tile_hover # <-- Passa a lista filtrada
                 )
                 # Usa os pixmaps modificados
                 overlay_pixmaps_para_usar = overlay_pixmaps_modificados
             else:
-                print(f"🟢 [TileOverlay] Nenhum assentamento encontrado no tile {coords_tile_alvo}, usando overlays padrão.")
+                print(f"🟢 [TileOverlay] Nenhum assentamento encontrado para overlays de hover, usando originais.")
                 # Usa os pixmaps originais
                 overlay_pixmaps_para_usar = overlay_pixmaps_originais
         else:
             if not coords_tile_alvo:
-                print("⚠️ [TileOverlay] Nenhuma coordenada de tile fornecida, usando overlays padrão.")
+                print("⚠️ [TileOverlay] Nenhuma coordenada de tile fornecida para overlays de hover, usando originais.")
             # Caso não haja coordenadas ou mundo/civs inválido, usa os originais
             overlay_pixmaps_para_usar = overlay_pixmaps_originais
         # --- FIM NOVO ---
+
 
         # Remove o widget anterior se existir (evita leaks e sobreposição)
         if self.region_widget:
@@ -5018,7 +5042,8 @@ class TileOverlay(QWidget):
         # O Regiao usa picking_path e region_color_map internamente para color picking.
         # Ele exibe os pixmaps de overlay_pixmaps_para_usar conforme a região detectada (hover).
         self.region_widget = Regiao(picking_path, region_color_map, parent=self.image_label)
-        self.region_widget.set_overlay_pixmaps(overlay_pixmaps_para_usar) # <-- Define os overlays (modificados ou não)
+        print(f"🔵 [TileOverlay] Configurando Regiao com {len(overlay_pixmaps_para_usar)} overlays de hover.")
+        self.region_widget.set_overlay_pixmaps(overlay_pixmaps_para_usar) # <-- Define os overlays de hover (modificados ou não)
         self.region_widget.setGeometry(0, 0, scaled_pixmap.width(), scaled_pixmap.height())
 
         # Garantir que o Regiao receba eventos de mouse (hover)
@@ -5027,26 +5052,177 @@ class TileOverlay(QWidget):
 
         self.region_widget.show()
 
-    def _sobrepor_bandeiras_nos_overlays(self, overlay_pixmaps, coords_tile_alvo): # Adiciona coords_tile_alvo como parâmetro
-        """Sobrepõe as bandeiras dos assentamentos no tile especificado nos pixmaps de overlay correspondentes."""
-        if not self.mundo or not self.mundo.planeta:
-            print("⚠️ [TileOverlay] Mundo ou Planeta não definido, não é possível sobrepor bandeiras.")
-            return overlay_pixmaps # Retorna os originais se não houver mundo/planeta
+    def _desenhar_bandeiras_no_bioma(self, pixmap_bioma, assentamentos_no_tile, formato_tile):
+        """Desenha as bandeiras dos assentamentos diretamente no pixmap do bioma/layout."""
+        if pixmap_bioma.isNull():
+            print("⚠️ [TileOverlay] Pixmap do bioma é nulo, não é possível desenhar bandeiras.")
+            return
 
-        # --- ENCONTRAR ASSENTAMENTOS NO TILE ESPECÍFICO ---
-        # Acessar os assentamentos através do planeta
-        assentamentos_no_tile = [
-            a for a in self.mundo.planeta.assentamentos # <-- CORREÇÃO AQUI: self.mundo.planeta.assentamentos
-            if a.coordenadas_tile == coords_tile_alvo
-        ]
+        painter = QPainter(pixmap_bioma)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing) # Opcional
 
-        if not assentamentos_no_tile:
-            print(f"🟢 [TileOverlay] Nenhum assentamento encontrado no tile {coords_tile_alvo}.")
-            # Retorna os pixmaps originais se não houver assentamentos
-            return overlay_pixmaps
+        # --- Constante para escala da bandeira no bioma/layout central ---
+        # Este valor define a proporção da área da região da parcela que a bandeira ocupará.
+        # Ex: 0.7 significa que a bandeira tentará ocupar 70% da largura/altura da região disponível.
+        ESCALA_BANDA_BIOMA = 0.7 # <-- Ajuste este valor para aumentar/diminuir a escala relativa no bioma
+        # --- Fim Constante ---
 
-        print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile)} assentamento(s) encontrado(s) no tile {coords_tile_alvo}, modificando overlays...")
+        # --- Definir regiões aproximadas no pixmap do bioma/layout ---
+        # Esta é a parte crucial. Vamos definir áreas fixas relativas ao pixmap
+        # para representar a parcela central e as periféricas.
+        # A imagem do bioma/layout é uma representação 2D estilizada.
+        # Vamos usar proporções fixas para simplificar.
+        # Supondo que a imagem tenha uma forma que represente bem um hexágono/pentágono.
+        pixmap_w = pixmap_bioma.width()
+        pixmap_h = pixmap_bioma.height()
 
+        # Margens para evitar desenhar exatamente na borda
+        margem_x = pixmap_w * 0.05
+        margem_y = pixmap_h * 0.05
+        area_w = pixmap_w - 2 * margem_x
+        area_h = pixmap_h - 2 * margem_y
+
+        # --- Mapeamento de parcela para região 2D no pixmap ---
+        # Este mapeamento deve refletir a geometria descrita (hexágono/pentágono central, trapézios periféricos),
+        # mas de forma simplificada para coordenadas 2D.
+        # O formato_tile pode influenciar levemente a orientação, mas usaremos uma divisão genérica por enquanto.
+        # O formato 'hex_up' e 'hex_side' provavelmente precisam de tratamento ligeiramente diferente
+        # para mapear as direções periféricas corretamente, mas vamos começar com uma base comum.
+
+        # Definir regiões fixas (x, y, w, h) para cada parcela
+        # Supondo layout hexagonal de pé como base para as regiões
+        regioes_parcelas = {}
+
+        # Parcela Central (índice 0)
+        regioes_parcelas[0] = {
+            'x': pixmap_w / 2 - area_w * 0.2 / 2, # Aproximadamente 20% da largura da área
+            'y': pixmap_h / 2 - area_h * 0.2 / 2, # Aproximadamente 20% da altura da área
+            'w': area_w * 0.2,
+            'h': area_h * 0.2
+        }
+
+        # Parcelas Periféricas (índices 1 a 6 para hexágono, 1 a 5 para pentágono)
+        # Vamos mapear índices para direções aproximadas e calcular regiões
+        # com base em divisões radiais ou trapézios em torno da área central.
+        # Este é o ponto mais delicado e pode exigir ajustes visuais.
+        # Usaremos divisões radiais em torno do centro para simplificar.
+        # Índices periféricos: 1 (topo), 2 (topo-direita), 3 (baixo-direita),
+        #                       4 (baixo), 5 (baixo-esquerda), 6 (topo-esquerda)
+        num_parcelas_perifericas = 6 # Assume hexágono por padrão
+        if formato_tile in ["pent_up", "pent_side"]: # Ajuste se os nomes forem diferentes
+            num_parcelas_perifericas = 5
+
+        angulo_inicio = -30 if formato_tile.startswith("hex") else -36 # Ajuste inicial para hex (e aprox pent)
+        angulo_setor = 360 / num_parcelas_perifericas # 60 graus para hex, 72 para pent
+
+        for i in range(1, num_parcelas_perifericas + 1):
+            idx_parcela = i
+            angulo_central = angulo_inicio + (idx_parcela - 1) * angulo_setor
+            angulo_rad = math.radians(angulo_central)
+
+            # Calcular centro da região periférica baseado em um raio proporcional
+            # ao tamanho da área, fora da área central.
+            raio_proporcional = (area_w + area_h) / 4 # Aproximadamente metade da média
+            offset_x = math.cos(angulo_rad) * raio_proporcional
+            offset_y = math.sin(angulo_rad) * raio_proporcional
+
+            centro_x = pixmap_w / 2 + offset_x
+            centro_y = pixmap_h / 2 + offset_y
+
+            # Dimensões da região da bandeira
+            regiao_w = area_w * 0.15 # Aprox 15% da largura da área total
+            regiao_h = area_h * 0.15 # Aprox 15% da altura da área total
+
+            regioes_parcelas[idx_parcela] = {
+                'x': centro_x - regiao_w / 2,
+                'y': centro_y - regiao_h / 2,
+                'w': regiao_w,
+                'h': regiao_h
+            }
+
+        # --- Iterar sobre os assentamentos e desenhar as bandeiras ---
+        for assentamento in assentamentos_no_tile:
+            regiao_dados = regioes_parcelas.get(assentamento.indice_parcela)
+
+            if not regiao_dados:
+                print(f"⚠️ [TileOverlay] Índice de parcela {assentamento.indice_parcela} não mapeado para região 2D no bioma.")
+                continue # Pula este assentamento
+
+            # --- Pegar a bandeira da civilização do assentamento ---
+            civ = assentamento.civilizacao
+            if not civ:
+                 print(f"⚠️ [TileOverlay] Civilização não definida para assentamento em parcela {assentamento.indice_parcela}.")
+                 continue
+
+            # --- Construir o caminho da bandeira com base no nome da civilização e no ID do mundo ---
+            # Verifica se o mundo e o ID do mundo estão disponíveis
+            if not self.mundo or not hasattr(self.mundo, 'id_mundo'):
+                 print(f"⚠️ [TileOverlay] ID do mundo não disponível para construir caminho da bandeira de {civ.nome}.")
+                 continue
+
+            # Supõe que o nome do arquivo da bandeira é '{civ.nome}.png'
+            # e que ele está em 'assets/worlds/{id_mundo}/flags/'
+            nome_arquivo_bandeira = f"{civ.nome}.png"
+            caminho_bandeira = f"assets/worlds/{self.mundo.id_mundo}/flags/{nome_arquivo_bandeira}"
+
+            print(f"   - Tentando caminho da bandeira para {civ.nome}: {caminho_bandeira}") # DEBUG
+
+            # --- Verificar se o arquivo existe ---
+            import os
+            if not os.path.exists(caminho_bandeira):
+                 print(f"❌ [TileOverlay] Arquivo da bandeira não encontrado: {caminho_bandeira}")
+                 continue # Pula este assentamento
+
+            # --- Carregar a imagem da bandeira ---
+            pixmap_bandeira = QPixmap(caminho_bandeira)
+            if pixmap_bandeira.isNull():
+                 print(f"❌ [TileOverlay] Erro ao carregar imagem da bandeira (pixmap nulo): {caminho_bandeira}")
+                 continue # Pula este assentamento
+
+            print(f"   - Bandeira carregada com sucesso: {pixmap_bandeira.width()}x{pixmap_bandeira.height()} para parcela {assentamento.indice_parcela}") # DEBUG
+
+            # --- Calcular posição e escala da bandeira dentro da região definida ---
+            regiao_x = regiao_dados['x']
+            regiao_y = regiao_dados['y']
+            regiao_w = regiao_dados['w']
+            regiao_h = regiao_dados['h']
+
+            # Dimensões da bandeira
+            bandeira_w = pixmap_bandeira.width()
+            bandeira_h = pixmap_bandeira.height()
+
+            # Calcular escala para caber na região com uma margem de segurança
+            # Usa a constante definida acima
+            escala_fator = ESCALA_BANDA_BIOMA # <-- Usa a constante
+            max_largura = regiao_w * escala_fator
+            max_altura = regiao_h * escala_fator
+
+            proporcao = bandeira_w / bandeira_h
+            if (max_largura / proporcao) <= max_altura:
+                largura_final = max_largura
+                altura_final = largura_final / proporcao
+            else:
+                altura_final = max_altura
+                largura_final = altura_final * proporcao
+
+            print(f"   - Dimensionando bandeira (bioma): Original ({bandeira_w}x{bandeira_h}), Região ({regiao_w:.2f}x{regiao_h:.2f}), Escala Base ({escala_fator}), Escala ({largura_final:.2f}x{altura_final:.2f})") # DEBUG
+
+            # Calcular coordenadas do canto superior esquerdo da bandeira
+            # para centralizá-la dentro da região definida
+            x_bandeira = regiao_x + (regiao_w - largura_final) / 2.0
+            y_bandeira = regiao_y + (regiao_h - altura_final) / 2.0
+
+            print(f"   - Posicionando bandeira (bioma) em ({x_bandeira:.2f}, {y_bandeira:.2f})") # DEBUG
+
+            # --- Desenhar a bandeira ---
+            painter.drawPixmap(int(x_bandeira), int(y_bandeira), int(largura_final), int(altura_final), pixmap_bandeira)
+
+
+        painter.end() # Sempre finalize o QPainter
+        print(f"🖼️ [TileOverlay] Bandeiras desenhadas diretamente no pixmap do bioma/layout.")
+
+    def _sobrepor_bandeiras_nos_overlays(self, overlay_pixmaps, assentamentos_no_tile): # Recebe a lista de assentamentos filtrada
+        """Sobrepõe as bandeiras dos assentamentos nos pixmaps de overlay correspondentes."""
         # Dicionário para armazenar os pixmaps modificados
         pixmaps_modificados = {}
 
@@ -5068,7 +5244,13 @@ class TileOverlay(QWidget):
             6: "topleft", # Parcela Periférica 6
         }
 
-        # --- Iterar sobre os assentamentos ---
+        # --- Constante para escala da bandeira no overlay de hover ---
+        # Este valor define a proporção da área da região do overlay que a bandeira ocupará.
+        # Ex: 0.6 significa que a bandeira tentará ocupar 60% da largura/altura da região disponível.
+        ESCALA_BANDA_HOVER = 0.15 # <-- Ajuste este valor para aumentar/diminuir a escala relativa no hover
+        # --- Fim Constante ---
+
+        # --- Iterar sobre os assentamentos já filtrados ---
         for assentamento in assentamentos_no_tile:
             regiao_nome = parcela_idx_para_regiao_nome.get(assentamento.indice_parcela)
 
@@ -5084,31 +5266,50 @@ class TileOverlay(QWidget):
 
             # --- Pegar a bandeira da civilização do assentamento ---
             civ = assentamento.civilizacao
-            if not civ or not civ.cores_bandeira:
-                 print(f"⚠️ [TileOverlay] Civilização ou bandeira não definida para assentamento em parcela {assentamento.indice_parcela}.")
+            if not civ:
+                 print(f"⚠️ [TileOverlay] Civilização não definida para assentamento em parcela {assentamento.indice_parcela}.")
                  continue
 
-            caminho_bandeira = civ.cores_bandeira[0] if isinstance(civ.cores_bandeira, list) else civ.cores_bandeira
-            if not caminho_bandeira:
-                 print(f"⚠️ [TileOverlay] Caminho da bandeira não encontrado para civilização {civ.nome}.")
+            # --- Construir o caminho da bandeira com base no nome da civilização e no ID do mundo ---
+            # Verifica se o mundo e o ID do mundo estão disponíveis
+            if not self.mundo or not hasattr(self.mundo, 'id_mundo'):
+                 print(f"⚠️ [TileOverlay] ID do mundo não disponível para construir caminho da bandeira de {civ.nome}.")
                  continue
 
+            # Supõe que o nome do arquivo da bandeira é '{civ.nome}.png'
+            # e que ele está em 'assets/worlds/{id_mundo}/flags/'
+            nome_arquivo_bandeira = f"{civ.nome}.png"
+            caminho_bandeira = f"assets/worlds/{self.mundo.id_mundo}/flags/{nome_arquivo_bandeira}"
+
+            print(f"   - Tentando caminho da bandeira para {civ.nome}: {caminho_bandeira}") # DEBUG
+
+            # --- Verificar se o arquivo existe ---
+            import os
+            if not os.path.exists(caminho_bandeira):
+                 print(f"❌ [TileOverlay] Arquivo da bandeira não encontrado: {caminho_bandeira}")
+                 continue # Pula este assentamento
+
+            # --- Carregar a imagem da bandeira ---
             pixmap_bandeira = QPixmap(caminho_bandeira)
             if pixmap_bandeira.isNull():
-                 print(f"❌ [TileOverlay] Erro ao carregar imagem da bandeira: {caminho_bandeira}")
+                 print(f"❌ [TileOverlay] Erro ao carregar imagem da bandeira (pixmap nulo): {caminho_bandeira}")
                  continue # Pula este assentamento
+
+            print(f"   - Bandeira carregada com sucesso: {pixmap_bandeira.width()}x{pixmap_bandeira.height()}") # DEBUG
 
             # --- Preparar para desenhar ---
             # Se este pixmap_overlay ainda não foi modificado, usamos o original
             if regiao_nome not in pixmaps_modificados:
                 # Cria uma cópia editável do pixmap original
                 pixmap_editavel = pixmap_overlay.copy()
+                print(f"   - Criando cópia editável do overlay '{regiao_nome}' ({pixmap_overlay.width()}x{pixmap_overlay.height()})") # DEBUG
             else:
                 # Se já foi modificado por outro assentamento nesta mesma região (raro),
                 # pegamos a versão já modificada para adicionar a nova bandeira.
                 # Para simplificar, assumimos que NÃO haverá dois assentamentos na mesma parcela.
                 # Se houver, a segunda bandeira sobrescreverá a primeira.
                 pixmap_editavel = pixmaps_modificados[regiao_nome]
+                print(f"   - Usando overlay já modificado para '{regiao_nome}'") # DEBUG
 
             painter = QPainter(pixmap_editavel)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing) # Opcional
@@ -5124,7 +5325,8 @@ class TileOverlay(QWidget):
             bandeira_h = pixmap_bandeira.height()
 
             # Calcular escala para caber na área do overlay com uma margem de segurança
-            escala_fator = 0.7 # Por exemplo, 70% do tamanho da área da parcela
+            # Usa a constante definida acima
+            escala_fator = ESCALA_BANDA_HOVER # <-- Usa a constante
             max_largura = overlay_w * escala_fator
             max_altura = overlay_h * escala_fator
 
@@ -5136,13 +5338,17 @@ class TileOverlay(QWidget):
                 altura_final = max_altura
                 largura_final = altura_final * proporcao
 
+            print(f"   - Dimensionando bandeira (hover): Original ({bandeira_w}x{bandeira_h}), Overlay ({overlay_w}x{overlay_h}), Escala Base ({escala_fator}), Escala ({largura_final:.2f}x{altura_final:.2f})") # DEBUG
+
             # Calcular coordenadas do canto superior esquerdo da bandeira
             # para centralizá-la dentro do pixmap_overlay
             x_bandeira = (overlay_w - largura_final) / 2.0
             y_bandeira = (overlay_h - altura_final) / 2.0
 
+            print(f"   - Posicionando bandeira (hover) em ({x_bandeira:.2f}, {y_bandeira:.2f})") # DEBUG
+
             # --- Desenhar a bandeira ---
-            painter.drawPixmap(x_bandeira, y_bandeira, largura_final, altura_final, pixmap_bandeira)
+            painter.drawPixmap(int(x_bandeira), int(y_bandeira), int(largura_final), int(altura_final), pixmap_bandeira)
             painter.end()
 
             # --- Armazenar o pixmap modificado ---
@@ -5154,6 +5360,7 @@ class TileOverlay(QWidget):
         # Se um overlay não foi modificado, retornamos o original
         pixmaps_finais = overlay_pixmaps.copy() # Começa com os originais
         pixmaps_finais.update(pixmaps_modificados) # Atualiza com os modificados
+        print(f"🔵 [TileOverlay] _sobrepor_bandeiras_nos_overlays retornando {len(pixmaps_finais)} pixmaps (originais + modificados).") # DEBUG
         return pixmaps_finais
 
     def show_centered(self):
