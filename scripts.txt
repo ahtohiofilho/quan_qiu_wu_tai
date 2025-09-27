@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-26 16:54:05
+Gerado em: 2025-09-26 21:31:17
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -3524,13 +3524,17 @@ class JanelaPrincipal(QMainWindow):
         Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
         """
         print("🔵 [DEBUG] _sair_para_menu: Chamando confirmação de saída.")
+        # --- Correção 1: Fecha o diálogo de saída principal (Main Menu/Quit) imediatamente ---
+        dialog.accept()
+        # --- Fim da Correção 1 ---
         # Passa a função '_real_sair_para_menu' como a ação de saída
+        # O 'dialog' ainda é necessário para a ação real, então passamos ele também
         self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_para_menu)
 
-    def _real_sair_para_menu(self, dialog, username: str):
-        """Realiza a saída para o menu após exclusão da pasta de bandeiras."""
+    def _real_sair_para_menu(self, dialog, username: str):  # Mantém a assinatura existente
+        """Realiza a saída para o menu após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔵 [DEBUG] _real_sair_para_menu: Executando ações de saída.")
-        # dialog.accept() # O diálogo já foi aceito em _confirmar_saida_antes_da_limpeza
+        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_para_menu
         self._limpar_estado_servidor(username)  # Ajuste se necessário
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         self.partida_iniciada = False  # ✅ Resetar flag
@@ -3548,21 +3552,24 @@ class JanelaPrincipal(QMainWindow):
         Pergunta se deseja salvar e exclui a pasta de bandeiras criadas pelo cliente.
         """
         print("🔴 [DEBUG] _sair_do_jogo: Chamando confirmação de saída.")
+        # --- Correção 1: Fecha o diálogo de saída principal (Main Menu/Quit) imediatamente ---
+        dialog.accept()
+        # --- Fim da Correção 1 ---
         # Passa a função '_real_sair_do_jogo' como a ação de saída
+        # O 'dialog' ainda é necessário para a ação real, então passamos ele também
         self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_do_jogo)
 
-    def _real_sair_do_jogo(self, dialog, username: str):
-        """Realiza o fechamento do jogo após exclusão da pasta de bandeiras."""
+    def _real_sair_do_jogo(self, dialog, username: str):  # Mantém a assinatura existente
+        """Realiza o fechamento do jogo após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔴 [DEBUG] _real_sair_do_jogo: Executando ações de fechamento.")
-        # dialog.accept() # O diálogo já foi aceito em _confirmar_saida_antes_da_limpeza
+        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_do_jogo
         self._limpar_estado_servidor(username)  # Ajuste se necessário
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         # Resetar o ID do mundo cliente
         self.id_mundo_cliente = None
         print("🟢 [DEBUG] _real_sair_do_jogo: Estado limpo. Fechando aplicativo...")
-        from PyQt6.QtWidgets import QApplication  # Importa aqui para evitar conflitos globais
+        from PyQt6.QtWidgets import QApplication  # Importa aqui
         QApplication.quit()  # Fecha a aplicação PyQt6
-        # sys.exit() # Alternativa, se QApplication.quit() não for suficiente em todos os casos
 
     def _abrir_dialogo_autenticacao_completo(self, success_callback=None):
         """Abre o diálogo completo de autenticação (login + registro)."""
@@ -4236,31 +4243,35 @@ class JanelaPrincipal(QMainWindow):
         Mostra uma caixa de diálogo perguntando se deseja salvar antes de sair.
         Chama acao_saida (função) após lidar com a exclusão das bandeiras.
         """
-        print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Iniciando...")
-        from PyQt6.QtWidgets import QMessageBox # Importa aqui para evitar conflitos globais
+        print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Iniciando.")
+        from PyQt6.QtWidgets import QMessageBox  # Importa aqui para evitar conflitos globais
         reply = QMessageBox.question(
-            dialog_pai, # O diálogo que chamou (ou a própria janela principal)
+            dialog_pai,  # O diálogo que chamou (ou a própria janela principal)
             "Save World?",
             "Do you want to save the current world before exiting?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No # 'No' como padrão
+            QMessageBox.StandardButton.No  # 'No' como padrão
         )
 
+        # --- Correção 2: Alterar lógica de exclusão ---
         if reply == QMessageBox.StandardButton.Yes:
-            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'Yes'.")
-            # Por enquanto, age como 'No'. Poderia chamar uma função de salvar aqui futuramente.
-            # A exclusão da bandeira ainda acontece, conforme a lógica abaixo.
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'Yes'. NÃO exclui bandeiras.")
+            # Por enquanto, NÃO exclui as bandeiras. Poderia chamar uma função de salvar aqui futuramente.
         elif reply == QMessageBox.StandardButton.No:
-            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'No'.")
-        else: # Se fechar a caixa ou pressionar ESC, assume 'No' ou cancela
-            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Diálogo cancelado ou fechado, tratando como 'No'.")
+            print("🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Usuário escolheu 'No'. Exclui bandeiras.")
+            # Neste caso, exclui as bandeiras criadas pelo cliente
+            self._excluir_pasta_bandeiras_cliente()
+        else:  # Se fechar a caixa ou pressionar ESC, assume 'No' ou cancela
+            print(
+                "🔵 [DEBUG] _confirmar_saida_antes_da_limpeza: Diálogo cancelado ou fechado, tratando como 'No'. Exclui bandeiras.")
+            # Excluir bandeiras também ao cancelar ou fechar, se for o comportamento desejado
+            self._excluir_pasta_bandeiras_cliente()
             # return # Se quiser cancelar a saída, descomente. Senão, continua como 'No'.
+        # --- Fim da Correção 2 ---
 
-        # Independentemente da escolha (Yes ou No), exclui a pasta de bandeiras criadas pelo cliente
-        self._excluir_pasta_bandeiras_cliente()
-
-        # Depois de excluir a pasta, chama a ação de saída original
-        acao_saida(dialog_pai, username)
+        # Depois de lidar com a exclusão (ou não), chama a ação de saída original
+        # A assinatura da acao_saida (e.g., _real_sair_para_menu) ainda espera (self, dialog, username)
+        acao_saida(dialog_pai, username)  # Passa o dialog_pai e username para a ação real
 
     # --- Adicionar ou modificar _excluir_pasta_bandeiras_cliente ---
     def _excluir_pasta_bandeiras_cliente(self):
@@ -4273,7 +4284,7 @@ class JanelaPrincipal(QMainWindow):
         print("🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Iniciando...")
         if self.id_mundo_cliente:
             # Caminho para a pasta raiz do mundo (onde 'flags' estaria dentro)
-            caminho_pasta_mundo = os.path.join("assets", self.id_mundo_cliente)
+            caminho_pasta_mundo = os.path.join("assets", "worlds", self.id_mundo_cliente)
             print(f"🧹 [DEBUG] _excluir_pasta_bandeiras_cliente: Tentando excluir pasta do mundo: {caminho_pasta_mundo}")
             try:
                 if os.path.exists(caminho_pasta_mundo):
@@ -4805,7 +4816,7 @@ from PyQt6.QtWidgets import (
     QWidget, QLabel, QPushButton, QGridLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QCursor
+from PyQt6.QtGui import QPixmap, QCursor, QPainter, QColor, QPen
 
 
 class TileOverlay(QWidget):
@@ -4821,9 +4832,9 @@ class TileOverlay(QWidget):
 
     def __init__(self, mundo, parent=None):
         super().__init__(parent)
-        self.mundo = mundo  # Referência ao mundo atual
-        self.region_widget = None # Widget Regiao para máscaras
-        self.image_label = QLabel("...") # QLabel para a imagem do bioma
+        self.mundo = mundo  # Referência ao mundo atual (Já estava correto)
+        self.region_widget = None # Widget Regiao para máscaras (Já estava correto)
+        self.image_label = QLabel("...") # QLabel para a imagem do bioma (Já estava correto)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowFlags(
             Qt.WindowType.Popup |           # Fecha com clique fora
@@ -4878,17 +4889,27 @@ class TileOverlay(QWidget):
         # Widget de referência para centralização
         self.reference_widget = None
 
+        # Dicionário para armazenar QPixmap carregadas: chave = caminho_da_imagem, valor = QPixmap
+        self.bandeira_pixmaps = {}
+
     def set_reference_widget(self, widget):
         """Define o widget de referência (ex: OpenGLWidget) para centralização."""
         self.reference_widget = widget
 
-    def carregar_imagem(self, caminho_imagem, formato="hex_up"):
+    def carregar_imagem(self, caminho_imagem, formato="hex_up", coords_tile_alvo=None): # Adiciona coords_tile_alvo
         from client.utils.scaling import scale
         from client.widgets.region import Regiao
 
+        # --- Verificações iniciais ---
         if not os.path.exists(caminho_imagem):
             print(f"❌ Textura não encontrada: {caminho_imagem}")
             return
+
+        # Verifica se o mundo e as civilizações estão carregados para acessar assentamentos e overlays
+        # Correção: usar 'civs' em vez de 'civilizacoes'
+        if coords_tile_alvo and (not self.mundo or not hasattr(self.mundo, 'civs')):
+             print("⚠️ [TileOverlay] Mundo ou Civilizações ('civs') não carregadas, não é possível processar assentamentos.")
+             coords_tile_alvo = None # Desativa a lógica de bandeira se o mundo/civs não estiver disponível
 
         pixmap = QPixmap(caminho_imagem)
         if pixmap.isNull():
@@ -4942,16 +4963,50 @@ class TileOverlay(QWidget):
             (255, 255, 0): "bottomright"
         }
 
-        # --- Overlays corretos para o formato atual (visíveis ao passar o mouse) ---
+        # --- Carregar Overlays corretos para o formato atual (visíveis ao passar o mouse) ---
         # Supõe que mundo.ref.overlay_paths[formato] é um dicionário
         # mapeando nomes de regiões para caminhos de arquivos de overlay.
         try:
-            overlay_pixmaps = {
+            # Carregar os pixmaps originais
+            overlay_pixmaps_originais = {
                 reg: QPixmap(path) for reg, path in self.mundo.ref.overlay_paths[formato].items()
             }
         except (AttributeError, KeyError) as e:
             print(f"⚠️ Erro ao carregar overlays para formato '{formato}': {e}. Usando dicionário vazio.")
-            overlay_pixmaps = {}
+            overlay_pixmaps_originais = {}
+
+        # --- NOVO: Modificar Overlays com Bandeiras (se coords_tile_alvo for fornecido e mundo/civs carregados) ---
+        if coords_tile_alvo:
+            print(f"🔍 [TileOverlay] Carregando assentamentos para tile {coords_tile_alvo}")
+            # Encontrar assentamentos no tile alvo - CORREÇÃO AQUI
+            # Itera pelas civilizações (self.mundo.civs) e depois pelos assentamentos de cada uma
+            assentamentos_no_tile = []
+            # Correção: usar 'civs' em vez de 'civilizacoes'
+            for civ in self.mundo.civs: # <-- Itera pelas civilizações (civs)
+                for assentamento in civ.assentamentos: # <-- Itera pelos assentamentos da civilização
+                    if assentamento.coordenadas_tile == coords_tile_alvo: # <-- Verifica as coordenadas
+                        assentamentos_no_tile.append(assentamento) # <-- Adiciona à lista se for do tile certo
+
+            if assentamentos_no_tile:
+                print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile)} assentamento(s) encontrado(s), modificando overlays...")
+                # Chama a função que sobrepõe as bandeiras nos pixmaps de overlay
+                # Passando a lista já filtrada de assentamentos
+                overlay_pixmaps_modificados = self._sobrepor_bandeiras_nos_overlays(
+                    overlay_pixmaps_originais,
+                    assentamentos_no_tile # <-- Passa a lista filtrada
+                )
+                # Usa os pixmaps modificados
+                overlay_pixmaps_para_usar = overlay_pixmaps_modificados
+            else:
+                print(f"🟢 [TileOverlay] Nenhum assentamento encontrado no tile {coords_tile_alvo}, usando overlays padrão.")
+                # Usa os pixmaps originais
+                overlay_pixmaps_para_usar = overlay_pixmaps_originais
+        else:
+            if not coords_tile_alvo:
+                print("⚠️ [TileOverlay] Nenhuma coordenada de tile fornecida, usando overlays padrão.")
+            # Caso não haja coordenadas ou mundo/civs inválido, usa os originais
+            overlay_pixmaps_para_usar = overlay_pixmaps_originais
+        # --- FIM NOVO ---
 
         # Remove o widget anterior se existir (evita leaks e sobreposição)
         if self.region_widget:
@@ -4961,16 +5016,145 @@ class TileOverlay(QWidget):
 
         # Cria o novo widget Regiao sobre a image_label (tamanho igual à imagem exibida)
         # O Regiao usa picking_path e region_color_map internamente para color picking.
-        # Ele exibe os pixmaps de overlay_pixmaps conforme a região detectada (hover).
+        # Ele exibe os pixmaps de overlay_pixmaps_para_usar conforme a região detectada (hover).
         self.region_widget = Regiao(picking_path, region_color_map, parent=self.image_label)
-        self.region_widget.set_overlay_pixmaps(overlay_pixmaps) # <-- Define os overlays visíveis
+        self.region_widget.set_overlay_pixmaps(overlay_pixmaps_para_usar) # <-- Define os overlays (modificados ou não)
         self.region_widget.setGeometry(0, 0, scaled_pixmap.width(), scaled_pixmap.height())
 
         # Garantir que o Regiao receba eventos de mouse (hover)
         # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False) # Opcional, já é False por padrão
-        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regiao
+        # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regia
 
         self.region_widget.show()
+
+    def _sobrepor_bandeiras_nos_overlays(self, overlay_pixmaps, coords_tile_alvo): # Adiciona coords_tile_alvo como parâmetro
+        """Sobrepõe as bandeiras dos assentamentos no tile especificado nos pixmaps de overlay correspondentes."""
+        if not self.mundo or not self.mundo.planeta:
+            print("⚠️ [TileOverlay] Mundo ou Planeta não definido, não é possível sobrepor bandeiras.")
+            return overlay_pixmaps # Retorna os originais se não houver mundo/planeta
+
+        # --- ENCONTRAR ASSENTAMENTOS NO TILE ESPECÍFICO ---
+        # Acessar os assentamentos através do planeta
+        assentamentos_no_tile = [
+            a for a in self.mundo.planeta.assentamentos # <-- CORREÇÃO AQUI: self.mundo.planeta.assentamentos
+            if a.coordenadas_tile == coords_tile_alvo
+        ]
+
+        if not assentamentos_no_tile:
+            print(f"🟢 [TileOverlay] Nenhum assentamento encontrado no tile {coords_tile_alvo}.")
+            # Retorna os pixmaps originais se não houver assentamentos
+            return overlay_pixmaps
+
+        print(f"🖼️ [TileOverlay] {len(assentamentos_no_tile)} assentamento(s) encontrado(s) no tile {coords_tile_alvo}, modificando overlays...")
+
+        # Dicionário para armazenar os pixmaps modificados
+        pixmaps_modificados = {}
+
+        # Mapeamento de índice de parcela para nome de região do overlay
+        # Este mapeamento deve refletir como o arquivo de picking e o Regiao interpretam os índices.
+        # Supondo que o Regiao use os nomes como "center", "top", "topleft", etc.
+        # E que os índices de parcela sejam:
+        # PARCELA_CENTRAL = 0
+        # Parcelas Periféricas: 1 (topo), 2 (topo-direita), 3 (baixo-direita),
+        #                       4 (baixo), 5 (baixo-esquerda), 6 (topo-esquerda)
+        # Mapeamento padrão para HEXÁGONO (ajuste para PENTÁGONO se necessário)
+        parcela_idx_para_regiao_nome = {
+            0: "center", # Parcela Central
+            1: "top",    # Parcela Periférica 1
+            2: "topright", # Parcela Periférica 2
+            3: "bottomright", # Parcela Periférica 3
+            4: "bottom", # Parcela Periférica 4
+            5: "bottomleft", # Parcela Periférica 5
+            6: "topleft", # Parcela Periférica 6
+        }
+
+        # --- Iterar sobre os assentamentos ---
+        for assentamento in assentamentos_no_tile:
+            regiao_nome = parcela_idx_para_regiao_nome.get(assentamento.indice_parcela)
+
+            if not regiao_nome:
+                print(f"⚠️ [TileOverlay] Índice de parcela {assentamento.indice_parcela} não mapeado para região 2D.")
+                continue # Pula este assentamento
+
+            # --- Pegar o pixmap do overlay para esta região ---
+            pixmap_overlay = overlay_pixmaps.get(regiao_nome)
+            if not pixmap_overlay or pixmap_overlay.isNull():
+                print(f"⚠️ [TileOverlay] Overlay para região '{regiao_nome}' não encontrado ou inválido.")
+                continue # Pula este assentamento
+
+            # --- Pegar a bandeira da civilização do assentamento ---
+            civ = assentamento.civilizacao
+            if not civ or not civ.cores_bandeira:
+                 print(f"⚠️ [TileOverlay] Civilização ou bandeira não definida para assentamento em parcela {assentamento.indice_parcela}.")
+                 continue
+
+            caminho_bandeira = civ.cores_bandeira[0] if isinstance(civ.cores_bandeira, list) else civ.cores_bandeira
+            if not caminho_bandeira:
+                 print(f"⚠️ [TileOverlay] Caminho da bandeira não encontrado para civilização {civ.nome}.")
+                 continue
+
+            pixmap_bandeira = QPixmap(caminho_bandeira)
+            if pixmap_bandeira.isNull():
+                 print(f"❌ [TileOverlay] Erro ao carregar imagem da bandeira: {caminho_bandeira}")
+                 continue # Pula este assentamento
+
+            # --- Preparar para desenhar ---
+            # Se este pixmap_overlay ainda não foi modificado, usamos o original
+            if regiao_nome not in pixmaps_modificados:
+                # Cria uma cópia editável do pixmap original
+                pixmap_editavel = pixmap_overlay.copy()
+            else:
+                # Se já foi modificado por outro assentamento nesta mesma região (raro),
+                # pegamos a versão já modificada para adicionar a nova bandeira.
+                # Para simplificar, assumimos que NÃO haverá dois assentamentos na mesma parcela.
+                # Se houver, a segunda bandeira sobrescreverá a primeira.
+                pixmap_editavel = pixmaps_modificados[regiao_nome]
+
+            painter = QPainter(pixmap_editavel)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing) # Opcional
+
+            # --- Calcular posição e escala da bandeira dentro do pixmap_overlay ---
+            # Esta é a parte mais importante e que precisa de ajuste fino.
+            # As dimensões do pixmap_overlay representam a área 2D da parcela.
+            overlay_w = pixmap_editavel.width()
+            overlay_h = pixmap_editavel.height()
+
+            # Dimensões da bandeira
+            bandeira_w = pixmap_bandeira.width()
+            bandeira_h = pixmap_bandeira.height()
+
+            # Calcular escala para caber na área do overlay com uma margem de segurança
+            escala_fator = 0.7 # Por exemplo, 70% do tamanho da área da parcela
+            max_largura = overlay_w * escala_fator
+            max_altura = overlay_h * escala_fator
+
+            proporcao = bandeira_w / bandeira_h
+            if (max_largura / proporcao) <= max_altura:
+                largura_final = max_largura
+                altura_final = largura_final / proporcao
+            else:
+                altura_final = max_altura
+                largura_final = altura_final * proporcao
+
+            # Calcular coordenadas do canto superior esquerdo da bandeira
+            # para centralizá-la dentro do pixmap_overlay
+            x_bandeira = (overlay_w - largura_final) / 2.0
+            y_bandeira = (overlay_h - altura_final) / 2.0
+
+            # --- Desenhar a bandeira ---
+            painter.drawPixmap(x_bandeira, y_bandeira, largura_final, altura_final, pixmap_bandeira)
+            painter.end()
+
+            # --- Armazenar o pixmap modificado ---
+            pixmaps_modificados[regiao_nome] = pixmap_editavel
+            print(f"🖼️ [TileOverlay] Bandeira de {civ.nome} desenhada no overlay da região '{regiao_nome}' (Parcela {assentamento.indice_parcela}).")
+
+
+        # --- Retornar o dicionário de pixmaps ---
+        # Se um overlay não foi modificado, retornamos o original
+        pixmaps_finais = overlay_pixmaps.copy() # Começa com os originais
+        pixmaps_finais.update(pixmaps_modificados) # Atualiza com os modificados
+        return pixmaps_finais
 
     def show_centered(self):
         """Exibe o overlay com diagnóstico detalhado de posicionamento."""
@@ -6192,7 +6376,7 @@ class OpenGLWidget(QOpenGLWidget):
             self.update()  # ✅ Força redraw quando houver mudança
 
     def on_left_click(self, coords):
-        """Mostra a textura do bioma ao clicar com botão esquerdo."""
+        """Mostra a textura do bioma ao clicar com botão esquerdo e sobrepõe bandeiras se houver assentamentos."""
         if not self.mundo or not self.mundo.planeta:
             return
 
@@ -6201,7 +6385,7 @@ class OpenGLWidget(QOpenGLWidget):
             return
 
         bioma = node_data.get("bioma", "Unknown").lower().strip()
-        formato = node_data.get("formato", "hex_up")  # <-- NOVO! Pega direto do nó
+        formato = node_data.get("formato", "hex_up")  # <-- Pega direto do nó
 
         caminho_imagem = f"assets/solid_colors/biomes/{bioma}_{formato}.png"
 
@@ -6223,7 +6407,11 @@ class OpenGLWidget(QOpenGLWidget):
             container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         overlay = container.tile_overlay
-        overlay.carregar_imagem(caminho_imagem, formato=formato)  # <-- Passe formato!
+        # --- MODIFICAÇÃO: Passar as coordenadas do tile clicado ---
+        # O TileOverlay agora usa essas coordenadas para encontrar assentamentos
+        # e sobrepor as bandeiras nos overlays de região correspondentes.
+        overlay.carregar_imagem(caminho_imagem, formato=formato, coords_tile_alvo=coords)  # <-- Passe formato e coords_tile_alvo!
+        # --- FIM MODIFICAÇÃO ---
         overlay.set_reference_widget(self)
         overlay.show_centered()
 

@@ -150,7 +150,7 @@ class OpenGLWidget(QOpenGLWidget):
             self.update()  # ✅ Força redraw quando houver mudança
 
     def on_left_click(self, coords):
-        """Mostra a textura do bioma ao clicar com botão esquerdo."""
+        """Mostra a textura do bioma ao clicar com botão esquerdo e sobrepõe bandeiras se houver assentamentos."""
         if not self.mundo or not self.mundo.planeta:
             return
 
@@ -159,7 +159,7 @@ class OpenGLWidget(QOpenGLWidget):
             return
 
         bioma = node_data.get("bioma", "Unknown").lower().strip()
-        formato = node_data.get("formato", "hex_up")  # <-- NOVO! Pega direto do nó
+        formato = node_data.get("formato", "hex_up")  # <-- Pega direto do nó
 
         caminho_imagem = f"assets/solid_colors/biomes/{bioma}_{formato}.png"
 
@@ -181,7 +181,11 @@ class OpenGLWidget(QOpenGLWidget):
             container.tile_overlay.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         overlay = container.tile_overlay
-        overlay.carregar_imagem(caminho_imagem, formato=formato)  # <-- Passe formato!
+        # --- MODIFICAÇÃO: Passar as coordenadas do tile clicado ---
+        # O TileOverlay agora usa essas coordenadas para encontrar assentamentos
+        # e sobrepor as bandeiras nos overlays de região correspondentes.
+        overlay.carregar_imagem(caminho_imagem, formato=formato, coords_tile_alvo=coords)  # <-- Passe formato e coords_tile_alvo!
+        # --- FIM MODIFICAÇÃO ---
         overlay.set_reference_widget(self)
         overlay.show_centered()
 
