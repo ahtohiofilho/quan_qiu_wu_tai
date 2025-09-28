@@ -2,10 +2,18 @@
 import os
 import math
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QGridLayout
+    QWidget, QLabel, QPushButton, QGridLayout,
+    # Componentes usados na JanelaInformacaoRegiao
+    QVBoxLayout, QHBoxLayout, QFrame, QListWidget, QTextEdit, QGroupBox, QScrollArea
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QCursor, QPainter
+from PyQt6.QtGui import QPixmap, QCursor, QPainter, QMouseEvent # Adicione QMouseEvent
+
+# --- Imports Adicionais Necessários ---
+from client.widgets.region import Regiao # Para o widget Regiao
+from client.widgets.information_window import JanelaInformacaoRegiao # Para a nova janela unificada
+from shared.settlement import Assentamento # Importar para Assentamento.PARCELA_CENTRAL e mapeamento
+# from client.utils.scaling import scale # Importe para scale() se for usado aqui dentro de TileOverlay
 
 
 class TileOverlay(QWidget):
@@ -19,9 +27,14 @@ class TileOverlay(QWidget):
     """
     closed = pyqtSignal()
 
-    def __init__(self, mundo, parent=None):
+    def __init__(self, mundo, parent=None, coords_tile_alvo=None, modo_inicial="fisico"):
         super().__init__(parent)
         self.mundo = mundo  # Referência ao mundo atual (Já estava correto)
+        # Armazenando coords_tile_alvo e modo_renderizacao
+        self.coords_tile_alvo = coords_tile_alvo # Coordenadas do tile alvo (adicionado)
+        self.modo_renderizacao = modo_inicial # Modo inicial de renderização (adicionado)
+        # Atributo para gerenciar a janela de informação atual
+        self.janela_info_atual = None
         self.region_widget = None # Widget Regiao para máscaras (Já estava correto)
         self.image_label = QLabel("...") # QLabel para a imagem do bioma (Já estava correto)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -240,6 +253,88 @@ class TileOverlay(QWidget):
         # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regia
 
         self.region_widget.show()
+
+        # Conectar o sinal *à nova instância correta*
+        self.region_widget.region_clicked.connect(self.on_region_clicked)
+
+    def on_region_clicked(self, region_name: str):
+        """Função chamada quando uma região é clicada no widget Regiao."""
+        print(f"✅ [TileOverlay] Recebido clique na região '{region_name}' do sinal region_clicked.")
+
+        # --- PASSO 0: Fechar a janela anterior (se existir e estiver aberta) ---
+        # Isso garante que apenas uma janela esteja aberta por vez.
+        if self.janela_info_atual and not self.janela_info_atual.isHidden(): # isHidden() verifica se está visível
+            print(f"🔍 [TileOverlay] Fechando janela anterior antes de abrir nova.")
+            self.janela_info_atual.close() # Fecha a janela (isso chama o evento closeEvent e esconde ela)
+            # Opcional: deletar a referência explicitamente após o fechamento
+            # self.janela_info_atual = None # Geralmente não é necessário se closeEvent limpar a referência
+        # --- FIM PASSO 0 ---
+
+        # --- PASSO 1: Mapear o nome da região clicada para o índice da parcela ---
+        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
+        # Exemplo de mapeamento (hexágono):
+        picking_region_to_parcela_idx = {
+            "center": Assentamento.PARCELA_CENTRAL, # 0
+            "top": 1,
+            "topright": 2,
+            "bottomright": 3,
+            "bottom": 4,
+            "bottomleft": 5,
+            "topleft": 6,
+            "left": 7,  # <-- ADICIONADO
+            "right": 8  # <-- ADICIONADO
+        }
+        # Exemplo para pentágono (exclui "bottomright"):
+        picking_region_to_parcela_idx_pentagono = {
+            "center": Assentamento.PARCELA_CENTRAL, # 0
+            "top": 1,
+            "topright": 2,
+            "bottom": 3,
+            "bottomleft": 4,
+            "topleft": 5,
+            # "left": 6, # Não incluído se pentágonos não tiverem 'left'
+            # "right": 7, # Não incluído se pentágonos não tiverem 'right'
+        }
+
+        # Determinar qual mapeamento usar com base no formato do tile
+        node_data = self.mundo.planeta.geografia.nodes.get(self.coords_tile_alvo, {})
+        eh_pentagono = node_data.get('formato', '').startswith('pent') # Verifica se o formato começa com 'pent'
+        picking_map = picking_region_to_parcela_idx_pentagono if eh_pentagono else picking_region_to_parcela_idx
+
+        indice_parcela_clicada = picking_map.get(region_name)
+
+        if indice_parcela_clicada is None:
+            print(f"❌ [TileOverlay] Nome de região '{region_name}' não mapeado para nenhum índice de parcela.")
+            # Opcional: Abrir uma janela vazia ou genérica para região não mapeada
+            # self.janela_info_atual = JanelaInformacaoRegiao(assentamento=None, region_clicked=region_name, tile_coords=self.coords_tile_alvo, mundo=self.mundo, parent=self)
+            # self.janela_info_atual.show()
+            return # Clique em uma área não mapeada para parcela
+
+        print(f"🔍 [TileOverlay] Região '{region_name}' mapeada para parcela {indice_parcela_clicada} no tile {self.coords_tile_alvo}.")
+
+        # --- PASSO 2: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
+        assentamento_alvo = None
+        for civ in self.mundo.civs:
+            for assentamento in civ.assentamentos:
+                if (assentamento.coordenadas_tile == self.coords_tile_alvo and
+                    assentamento.indice_parcela == indice_parcela_clicada):
+                    assentamento_alvo = assentamento
+                    break # Encontrou o assentamento
+            if assentamento_alvo:
+                break # Encontrou o assentamento
+
+        if not assentamento_alvo:
+            print(f"⚠️ [TileOverlay] Nenhum assentamento encontrado na parcela {indice_parcela_clicada} do tile {self.coords_tile_alvo}. Abrindo janela genérica de região.")
+        else:
+            print(f"✅ [TileOverlay] Assentamento encontrado: {assentamento_alvo.civilizacao.nome} - Parcela {assentamento_alvo.indice_parcela}")
+
+        # --- PASSO 3: Abrir a janela de informações genérica ---
+        # Passamos o objeto do assentamento (ou None) e o nome da região onde o clique ocorreu
+        from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo
+        # Armazena a nova janela na referência do atributo da classe
+        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, parent=self)
+        self.janela_info_atual.show()
+        print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
 
     def _desenhar_bandeiras_no_bioma(self, pixmap_bioma, assentamentos_no_tile, formato_tile):
         """Desenha as bandeiras dos assentamentos diretamente no pixmap do bioma/layout."""

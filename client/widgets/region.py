@@ -1,14 +1,16 @@
 # client/widgets/region.py
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QMouseEvent
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal # Adicionado pyqtSignal
 
 class Regiao(QWidget):
     """
     Widget para overlays regionais em tiles (hexágonos/pentágonos).
     Mostra uma máscara diferente ao passar o mouse em regiões definidas por cores em uma imagem.
     Agora com correção de centralização para o color picking e para o overlay.
+    Agora detecta clique esquerdo e emite sinal.
     """
+    region_clicked = pyqtSignal(str)
     def __init__(self, mask_image_path, region_color_map, parent=None):
         """
         :param mask_image_path: Caminho para a imagem da máscara colorida (PNG).
@@ -94,6 +96,22 @@ class Regiao(QWidget):
                 self.update()
 
         super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Verifica se há uma região ativa sob o mouse (detectada pelo color picking)
+            # A condição original incluía 'self.overlay_pixmaps.get(self.current_region)'
+            # para garantir um overlay visível. Se o objetivo é clicar em *qualquer* região
+            # detectada (onde o hover funciona), removemos essa verificação específica do overlay.
+            if self.current_region: # <-- Condição simplificada
+                print(f"🖱️ [Regiao] Clique esquerdo detectado na região: {self.current_region}") # Log de confirmação
+                # Emite o sinal com o nome da região
+                self.region_clicked.emit(self.current_region)
+            else:
+                print(f"🖱️ [Regiao] Clique esquerdo, mas nenhuma região detectada sob o mouse.")
+                print(f"   - self.current_region: {self.current_region}")
+        # Propaga o evento para outros widgets se necessário
+        super().mousePressEvent(event)
 
     def leaveEvent(self, event):
         print(f"🚪 [Regiao] Mouse saiu do widget. Limpando região.")
