@@ -38,10 +38,17 @@ class TileOverlay(QWidget):
         self.region_widget = None # Widget Regiao para máscaras (Já estava correto)
         self.image_label = QLabel("...") # QLabel para a imagem do bioma (Já estava correto)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        # --- ALTERAÇÃO: Tipo de Janela ---
+        # Usar Tool para manter o overlay visível mesmo quando outras janelas (como JanelaInformacaoRegiao) são abertas.
+        # Mantém FramelessWindowHint para o aspecto flutuante.
         self.setWindowFlags(
-            Qt.WindowType.Popup |           # Fecha com clique fora
+            Qt.WindowType.Tool |            # Fica visível mesmo com outras janelas
             Qt.WindowType.FramelessWindowHint  # Sem bordas
         )
+        # Opcional: impedir que ganhe foco automaticamente, se necessário
+        # self.setWindowFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+        # --- FIM ALTERAÇÃO ---
 
         from client.utils.scaling import scale
 
@@ -263,6 +270,7 @@ class TileOverlay(QWidget):
 
         # --- PASSO 0: Fechar a janela anterior (se existir e estiver aberta) ---
         # Isso garante que apenas uma janela esteja aberta por vez.
+        # Agora, como a janela é independente, apenas chamamos close() e limpamos a ref.
         if self.janela_info_atual and not self.janela_info_atual.isHidden(): # isHidden() verifica se está visível
             print(f"🔍 [TileOverlay] Fechando janela anterior antes de abrir nova.")
             self.janela_info_atual.close() # Fecha a janela (isso chama o evento closeEvent e esconde ela)
@@ -331,10 +339,29 @@ class TileOverlay(QWidget):
         # --- PASSO 3: Abrir a janela de informações genérica ---
         # Passamos o objeto do assentamento (ou None) e o nome da região onde o clique ocorreu
         from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo
+
+        # --- Obter coordenadas globais do TileOverlay para posicionar a janela ---
+        # geometry() retorna QRect relativo ao pai. mapToGlobal() converte para coordenadas da tela.
+        # Pode ser necessário ajustar para a posição do widget pai se necessário.
+        overlay_global_pos = self.mapToGlobal(self.rect().topLeft())
+        overlay_width = self.width()
+        overlay_height = self.height()
+        overlay_coords = (overlay_global_pos.x(), overlay_global_pos.y(), overlay_width, overlay_height)
+        print(f"🔍 [TileOverlay] Coordenadas globais para posicionar janela: {overlay_coords}")
+        # --- FIM Obter coordenadas ---
+
         # Armazena a nova janela na referência do atributo da classe
-        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, parent=self)
+        # Passa overlay_coords em vez de parent
+        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, overlay_coords=overlay_coords)
         self.janela_info_atual.show()
         print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
+
+        # --- FORÇAR ATUALIZAÇÃO VISUAL DO TILEOVERLAY (Opcional, mas pode ajudar ao remover a janela filha) ---
+        # Como a janela não é mais filha, o TileOverlay não precisa necessariamente de update aqui,
+        # mas forçar pode ajudar a limpar seu próprio estado visual.
+        # self.raise_() # Traz o TileOverlay para frente (talvez desnecessário)
+        # self.update() # Força uma atualização do TileOverlay (talvez desnecessário agora)
+        # --- FIM FORÇAR ATUALIZAÇÃO VISUAL ---
 
     def _desenhar_bandeiras_no_bioma(self, pixmap_bioma, assentamentos_no_tile, formato_tile):
         """Desenha as bandeiras dos assentamentos diretamente no pixmap do bioma/layout."""

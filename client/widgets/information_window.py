@@ -10,22 +10,18 @@ class JanelaInformacaoRegiao(QWidget):
     Otherwise, it shows only general tile/region info.
     """
 
-    def __init__(self, assentamento: Assentamento, region_clicked: str, tile_coords, mundo, parent=None):
-        super().__init__(parent)
+    def __init__(self, assentamento: Assentamento, region_clicked: str, tile_coords, mundo, overlay_coords=None): # Removido parent, adicionado overlay_coords
+        super().__init__(parent=None) # <--- Janela independente
         self.assentamento = assentamento
         self.region_clicked = region_clicked # Name of the region where the click occurred
         self.tile_coords = tile_coords
         self.mundo = mundo # Reference to the world for fetching information
-        self.parent_widget = parent # Optional, for reference to TileOverlay or another parent
+        # self.parent_widget = parent # REMOVIDO
+        self.overlay_coords = overlay_coords # Coordenadas globais do TileOverlay para posicionar esta janela
 
         # --- Ensure opaque background ---
         # Remove the translucent background attribute (if inherited)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-
-        # Set window flags (optional, for a standard window with title bar and buttons)
-        # self.setWindowFlags(Qt.WindowType.Window) # Uncomment for standard title bar
-        # To keep it frameless but ensure it covers the parent:
-        # self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
         # Define title based on settlement existence
         if self.assentamento:
@@ -37,15 +33,7 @@ class JanelaInformacaoRegiao(QWidget):
         # Set initial size (this will be overridden if maximizing to parent)
         # self.resize(600, 500)
 
-        # --- Set Parent and Geometry (to cover the parent) ---
-        # This makes it behave more like an overlay on the parent widget
-        if self.parent_widget:
-            self.setParent(self.parent_widget)
-            # Optionally, you can set a stylesheet for the parent to see the overlay clearly
-            # self.parent_widget.setStyleSheet("background-color: rgba(0, 0, 0, 100);") # Example
-        # --- FIM NOVO ---
-
-        # Apply style sheet for opaque background and other styling
+        # --- Apply style sheet for opaque background and other styling ---
         self.setStyleSheet("""
             QWidget {
                 background-color: #2C3E50; /* Solid background color (e.g., dark gray) */
@@ -87,9 +75,25 @@ class JanelaInformacaoRegiao(QWidget):
         """)
 
         self.setup_ui()
-        # Adjust geometry after UI is set up
-        if self.parent_widget:
-             self.setGeometry(self.parent_widget.rect()) # Cover the entire parent
+        # --- Position the window based on overlay_coords ---
+        if self.overlay_coords:
+            overlay_x, overlay_y, overlay_width, overlay_height = self.overlay_coords
+            # Position near the overlay, maybe slightly offset
+            # You can adjust the offset (e.g., +20, +20) or center it relative to the overlay
+            window_width = 500 # Or get from sizeHint() after setup_ui
+            window_height = 400
+            # Example: Position top-left corner near the bottom-right of the overlay
+            pos_x = overlay_x + overlay_width + 5 # Small offset
+            pos_y = overlay_y + overlay_height + 5 # Small offset
+            # Ensure it doesn't go off-screen (optional)
+            # screen = self.screen().availableGeometry()
+            # pos_x = min(pos_x, screen.width() - window_width)
+            # pos_y = min(pos_y, screen.height() - window_height)
+
+            self.setGeometry(pos_x, pos_y, window_width, window_height)
+            print(f"🔍 [JanelaInformacaoRegiao] Posicionada em ({pos_x}, {pos_y}) com base em overlay_coords.")
+        # --- END Positioning ---
+
         self.load_region_data() # Load region data (always)
         if self.assentamento:
             self.load_settlement_data() # Load settlement data (if it exists)
@@ -226,3 +230,22 @@ class JanelaInformacaoRegiao(QWidget):
         self.units_list.addItem("Example Unit 1")
         self.units_list.addItem("Example Unit 2")
         # Add more placeholders or real data here
+
+    # --- Modificação do closeEvent ---
+    def closeEvent(self, event):
+        """
+        Evento chamado quando a janela é fechada.
+        Opcional: tentar forçar update do OpenGLWidget aqui também, embora sendo independente,
+        o problema de sobreposição com o Popup original possa ser resolvido.
+        """
+        print("🔍 [JanelaInformacaoRegiao] closeEvent chamado.")
+        # Chama o closeEvent original para garantir o fechamento padrão
+        super().closeEvent(event)
+
+        # Opcional: Tentar atualizar o OpenGLWidget pai (se acessível via módulo ou referência global)
+        # Isso é mais difícil agora que não é filha direta do TileOverlay.
+        # Talvez o TileOverlay, ao ver sua referência sendo limpa, force a atualização?
+        # A responsabilidade de atualização pode voltar para o TileOverlay.
+
+        print("✅ [JanelaInformacaoRegiao] closeEvent concluído.")
+    # --- Fim da modificação ---

@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-27 21:52:17
+Gerado em: 2025-09-28 23:48:42
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -59,6 +59,7 @@ Conteúdo dos scripts principais reunidos.
 │   ├── utils
 │   │   └── scaling.py
 │   ├── widgets
+│   │   ├── information_window.py
 │   │   ├── match_overlay.py
 │   │   ├── offline_setup_overlay.py
 │   │   ├── region.py
@@ -4807,16 +4808,256 @@ class OfflineSetupOverlay(QWidget):
             self.move(x, y)
 
 ================================================================================
+📄 client/widgets/information_window.py
+================================================================================
+# client/widgets/information_window.py
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                             QFrame, QTextEdit, QGroupBox, QListWidget)
+from PyQt6.QtCore import Qt
+from shared.settlement import Assentamento # Importar para usar PARCELA_CENTRAL e métodos
+
+class JanelaInformacaoRegiao(QWidget):
+    """Window for displaying information about a clicked region.
+    If there's a settlement on the clicked parcel, it also shows settlement information.
+    Otherwise, it shows only general tile/region info.
+    """
+
+    def __init__(self, assentamento: Assentamento, region_clicked: str, tile_coords, mundo, parent=None):
+        super().__init__(parent)
+        self.assentamento = assentamento
+        self.region_clicked = region_clicked # Name of the region where the click occurred
+        self.tile_coords = tile_coords
+        self.mundo = mundo # Reference to the world for fetching information
+        self.parent_widget = parent # Optional, for reference to TileOverlay or another parent
+
+        # --- Ensure opaque background ---
+        # Remove the translucent background attribute (if inherited)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+        # Set window flags (optional, for a standard window with title bar and buttons)
+        # self.setWindowFlags(Qt.WindowType.Window) # Uncomment for standard title bar
+        # To keep it frameless but ensure it covers the parent:
+        # self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+
+        # Define title based on settlement existence
+        if self.assentamento:
+            civ_nome = self.assentamento.civilizacao.nome if self.assentamento.civilizacao else "Unknown"
+            self.setWindowTitle(f"Settlement: {civ_nome} - Region: {region_clicked}")
+        else:
+            self.setWindowTitle(f"Region: {region_clicked} - Tile: {tile_coords}")
+
+        # Set initial size (this will be overridden if maximizing to parent)
+        # self.resize(600, 500)
+
+        # --- Set Parent and Geometry (to cover the parent) ---
+        # This makes it behave more like an overlay on the parent widget
+        if self.parent_widget:
+            self.setParent(self.parent_widget)
+            # Optionally, you can set a stylesheet for the parent to see the overlay clearly
+            # self.parent_widget.setStyleSheet("background-color: rgba(0, 0, 0, 100);") # Example
+        # --- FIM NOVO ---
+
+        # Apply style sheet for opaque background and other styling
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #2C3E50; /* Solid background color (e.g., dark gray) */
+                color: #ECF0F1; /* Text color */
+                border-radius: 8px; /* Rounded corners, optional */
+            }
+            QGroupBox {
+                border: 1px solid #34495E; /* Group box borders */
+                border-radius: 5px;
+                margin-top: 5px; /* Space above the group title */
+                padding-top: 5px; /* Internal padding above the group title */
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px; /* Title position */
+                padding: 0 5px 0 5px; /* Title internal padding */
+            }
+            QTextEdit {
+                background-color: #34495E; /* QTextEdit background */
+                border: 1px solid #34495E;
+                border-radius: 3px;
+            }
+            QListWidget {
+                background-color: #34495E; /* QListWidget background */
+                border: 1px solid #34495E;
+                border-radius: 3px;
+            }
+            QPushButton {
+                background-color: #3498DB; /* Button color */
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #2980B9; /* Button color on hover */
+            }
+        """)
+
+        self.setup_ui()
+        # Adjust geometry after UI is set up
+        if self.parent_widget:
+             self.setGeometry(self.parent_widget.rect()) # Cover the entire parent
+        self.load_region_data() # Load region data (always)
+        if self.assentamento:
+            self.load_settlement_data() # Load settlement data (if it exists)
+
+    def setup_ui(self):
+        """Sets up the UI widgets."""
+        # Use a main layout to position the close button and content
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10) # Add margins around the content
+        main_layout.setSpacing(5) # Add spacing between elements
+
+        # --- Title ---
+        if self.assentamento:
+            title_label = QLabel(f"Settlement of {self.assentamento.civilizacao.nome}")
+        else:
+            title_label = QLabel(f"Region: {self.region_clicked}")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #3498db;")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+
+        # --- Separator ---
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        main_layout.addWidget(separator)
+
+        # --- Region Info Group (Always Present) ---
+        info_region_group = QGroupBox("Region Information")
+        info_region_layout = QVBoxLayout(info_region_group)
+
+        self.info_region_text = QTextEdit()
+        self.info_region_text.setReadOnly(True)
+        info_region_layout.addWidget(self.info_region_text)
+        main_layout.addWidget(info_region_group)
+
+        # --- Settlement Info Group (Conditional) ---
+        if self.assentamento:
+            info_settlement_group = QGroupBox("Settlement Information")
+            info_settlement_layout = QVBoxLayout(info_settlement_group)
+
+            # --- Simple Settlement Data ---
+            self.info_settlement_text = QTextEdit()
+            self.info_settlement_text.setReadOnly(True)
+            self.info_settlement_text.setMaximumHeight(150) # Limit text box height
+            info_settlement_layout.addWidget(self.info_settlement_text)
+
+            # --- Units List ---
+            units_list_group = QGroupBox("Units")
+            units_list_layout = QVBoxLayout(units_list_group)
+            self.units_list = QListWidget()
+            # Populate with real data in load_settlement_data
+            units_list_layout.addWidget(self.units_list)
+            info_settlement_layout.addWidget(units_list_group)
+
+            # --- Other groups can be added here ---
+            # Ex: Resources, Buildings, etc.
+
+            main_layout.addWidget(info_settlement_group)
+
+        # --- Close Button (Positioned Top Right) ---
+        # Create a horizontal layout just for the close button
+        close_button_layout = QHBoxLayout()
+        close_button_layout.addStretch() # Add a stretchable space to push the button to the right
+
+        self.btn_close = QPushButton("Close") # Changed text to English
+        # self.btn_close.setFixedSize(scale(30), scale(30)) # Don't use fixed size, let layout manage
+        self.btn_close.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c; /* Red color */
+                color: white;
+                border-radius: 4px; /* Slightly rounded corners */
+                padding: 5px 10px; /* Internal padding */
+                font-weight: bold;
+                min-width: 60px; /* Minimum width */
+            }
+            QPushButton:hover {
+                background-color: #c0392b; /* Darker red on hover */
+            }
+        """)
+        self.btn_close.clicked.connect(self.close) # Connect close signal
+        close_button_layout.addWidget(self.btn_close) # Add button to the right-aligned layout
+
+        main_layout.addLayout(close_button_layout) # Add the button layout to the main layout
+
+    def load_region_data(self):
+        """Loads and displays general region data from the world."""
+        print(f"🔍 [JanelaInformacaoRegiao] Loading data for region '{self.region_clicked}' on tile {self.tile_coords}.")
+
+        # Get node data from the world graph
+        node_data = self.mundo.planeta.geografia.nodes.get(self.tile_coords, {})
+        bioma = node_data.get('bioma', 'Unknown')
+        formato = node_data.get('formato', 'Unknown')
+        # Add more data as needed (e.g., tile productivity coefficient, etc.)
+
+        info_text_content = f"Region Name: {self.region_clicked}\n"
+        info_text_content += f"Tile Coordinates: {self.tile_coords}\n"
+        info_text_content += f"Biome: {bioma}\n"
+        info_text_content += f"Tile Type: {formato}\n"
+        # info_text_content += f"Other Data: {value}\n" # Add other data
+
+        self.info_region_text.setPlainText(info_text_content)
+
+    def load_settlement_data(self):
+        """Loads and displays settlement data (if it exists)."""
+        if not self.assentamento:
+            print(f"⚠️ [JanelaInformacaoRegiao] load_settlement_data called, but settlement is None.")
+            return
+
+        print(f"🔍 [JanelaInformacaoRegiao] Loading data for settlement of '{self.assentamento.civilizacao.nome}' on parcel {self.assentamento.indice_parcela} of tile {self.assentamento.coordenadas_tile}.")
+
+        # --- Settlement Information (initially just the civilization name and parcel) ---
+        # Assuming get_populacao_total() and calcular_producao_total() exist and work
+        populacao = self.assentamento.get_populacao_total()
+        producao = self.assentamento.calcular_producao_total()
+
+        info_text_content = f"civilization: {self.assentamento.civilizacao.nome}\n" # Changed to English
+        info_text_content += f"Parcel on Tile: {self.assentamento.indice_parcela}\n"
+        info_text_content += f"Tile Coordinates: {self.assentamento.coordenadas_tile}\n"
+        info_text_content += f"Total Population: {populacao}\n"
+        info_text_content += f"Estimated Production: {producao:.2f}\n"
+        # ... add more information as it becomes available
+
+        self.info_settlement_text.setPlainText(info_text_content)
+
+        # --- Populate Units List ---
+        # Assuming the settlement has a list of units (e.g., self.assentamento.unidades)
+        # For now, add placeholders
+        self.units_list.clear()
+        # Real example (uncomment if unit list exists):
+        # for unidade in self.assentamento.unidades:
+        #     self.units_list.addItem(f"{unidade.tipo} - Level {unidade.nivel}")
+
+        # Placeholder for now
+        self.units_list.addItem("Example Unit 1")
+        self.units_list.addItem("Example Unit 2")
+        # Add more placeholders or real data here
+
+================================================================================
 📄 client/widgets/tile.py
 ================================================================================
 # client/widgets/tile.py
 import os
 import math
 from PyQt6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QGridLayout
+    QWidget, QLabel, QPushButton, QGridLayout,
+    # Componentes usados na JanelaInformacaoRegiao
+    QVBoxLayout, QHBoxLayout, QFrame, QListWidget, QTextEdit, QGroupBox, QScrollArea
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QCursor, QPainter
+from PyQt6.QtGui import QPixmap, QCursor, QPainter, QMouseEvent # Adicione QMouseEvent
+
+# --- Imports Adicionais Necessários ---
+from client.widgets.region import Regiao # Para o widget Regiao
+from client.widgets.information_window import JanelaInformacaoRegiao # Para a nova janela unificada
+from shared.settlement import Assentamento # Importar para Assentamento.PARCELA_CENTRAL e mapeamento
+# from client.utils.scaling import scale # Importe para scale() se for usado aqui dentro de TileOverlay
 
 
 class TileOverlay(QWidget):
@@ -4830,9 +5071,14 @@ class TileOverlay(QWidget):
     """
     closed = pyqtSignal()
 
-    def __init__(self, mundo, parent=None):
+    def __init__(self, mundo, parent=None, coords_tile_alvo=None, modo_inicial="fisico"):
         super().__init__(parent)
         self.mundo = mundo  # Referência ao mundo atual (Já estava correto)
+        # Armazenando coords_tile_alvo e modo_renderizacao
+        self.coords_tile_alvo = coords_tile_alvo # Coordenadas do tile alvo (adicionado)
+        self.modo_renderizacao = modo_inicial # Modo inicial de renderização (adicionado)
+        # Atributo para gerenciar a janela de informação atual
+        self.janela_info_atual = None
         self.region_widget = None # Widget Regiao para máscaras (Já estava correto)
         self.image_label = QLabel("...") # QLabel para a imagem do bioma (Já estava correto)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -5051,6 +5297,88 @@ class TileOverlay(QWidget):
         # self.region_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True) # Opcional, já é True no Regia
 
         self.region_widget.show()
+
+        # Conectar o sinal *à nova instância correta*
+        self.region_widget.region_clicked.connect(self.on_region_clicked)
+
+    def on_region_clicked(self, region_name: str):
+        """Função chamada quando uma região é clicada no widget Regiao."""
+        print(f"✅ [TileOverlay] Recebido clique na região '{region_name}' do sinal region_clicked.")
+
+        # --- PASSO 0: Fechar a janela anterior (se existir e estiver aberta) ---
+        # Isso garante que apenas uma janela esteja aberta por vez.
+        if self.janela_info_atual and not self.janela_info_atual.isHidden(): # isHidden() verifica se está visível
+            print(f"🔍 [TileOverlay] Fechando janela anterior antes de abrir nova.")
+            self.janela_info_atual.close() # Fecha a janela (isso chama o evento closeEvent e esconde ela)
+            # Opcional: deletar a referência explicitamente após o fechamento
+            # self.janela_info_atual = None # Geralmente não é necessário se closeEvent limpar a referência
+        # --- FIM PASSO 0 ---
+
+        # --- PASSO 1: Mapear o nome da região clicada para o índice da parcela ---
+        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
+        # Exemplo de mapeamento (hexágono):
+        picking_region_to_parcela_idx = {
+            "center": Assentamento.PARCELA_CENTRAL, # 0
+            "top": 1,
+            "topright": 2,
+            "bottomright": 3,
+            "bottom": 4,
+            "bottomleft": 5,
+            "topleft": 6,
+            "left": 7,  # <-- ADICIONADO
+            "right": 8  # <-- ADICIONADO
+        }
+        # Exemplo para pentágono (exclui "bottomright"):
+        picking_region_to_parcela_idx_pentagono = {
+            "center": Assentamento.PARCELA_CENTRAL, # 0
+            "top": 1,
+            "topright": 2,
+            "bottom": 3,
+            "bottomleft": 4,
+            "topleft": 5,
+            # "left": 6, # Não incluído se pentágonos não tiverem 'left'
+            # "right": 7, # Não incluído se pentágonos não tiverem 'right'
+        }
+
+        # Determinar qual mapeamento usar com base no formato do tile
+        node_data = self.mundo.planeta.geografia.nodes.get(self.coords_tile_alvo, {})
+        eh_pentagono = node_data.get('formato', '').startswith('pent') # Verifica se o formato começa com 'pent'
+        picking_map = picking_region_to_parcela_idx_pentagono if eh_pentagono else picking_region_to_parcela_idx
+
+        indice_parcela_clicada = picking_map.get(region_name)
+
+        if indice_parcela_clicada is None:
+            print(f"❌ [TileOverlay] Nome de região '{region_name}' não mapeado para nenhum índice de parcela.")
+            # Opcional: Abrir uma janela vazia ou genérica para região não mapeada
+            # self.janela_info_atual = JanelaInformacaoRegiao(assentamento=None, region_clicked=region_name, tile_coords=self.coords_tile_alvo, mundo=self.mundo, parent=self)
+            # self.janela_info_atual.show()
+            return # Clique em uma área não mapeada para parcela
+
+        print(f"🔍 [TileOverlay] Região '{region_name}' mapeada para parcela {indice_parcela_clicada} no tile {self.coords_tile_alvo}.")
+
+        # --- PASSO 2: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
+        assentamento_alvo = None
+        for civ in self.mundo.civs:
+            for assentamento in civ.assentamentos:
+                if (assentamento.coordenadas_tile == self.coords_tile_alvo and
+                    assentamento.indice_parcela == indice_parcela_clicada):
+                    assentamento_alvo = assentamento
+                    break # Encontrou o assentamento
+            if assentamento_alvo:
+                break # Encontrou o assentamento
+
+        if not assentamento_alvo:
+            print(f"⚠️ [TileOverlay] Nenhum assentamento encontrado na parcela {indice_parcela_clicada} do tile {self.coords_tile_alvo}. Abrindo janela genérica de região.")
+        else:
+            print(f"✅ [TileOverlay] Assentamento encontrado: {assentamento_alvo.civilizacao.nome} - Parcela {assentamento_alvo.indice_parcela}")
+
+        # --- PASSO 3: Abrir a janela de informações genérica ---
+        # Passamos o objeto do assentamento (ou None) e o nome da região onde o clique ocorreu
+        from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo
+        # Armazena a nova janela na referência do atributo da classe
+        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, parent=self)
+        self.janela_info_atual.show()
+        print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
 
     def _desenhar_bandeiras_no_bioma(self, pixmap_bioma, assentamentos_no_tile, formato_tile):
         """Desenha as bandeiras dos assentamentos diretamente no pixmap do bioma/layout."""
@@ -5424,14 +5752,16 @@ class TileOverlay(QWidget):
 # client/widgets/region.py
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QMouseEvent
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal # Adicionado pyqtSignal
 
 class Regiao(QWidget):
     """
     Widget para overlays regionais em tiles (hexágonos/pentágonos).
     Mostra uma máscara diferente ao passar o mouse em regiões definidas por cores em uma imagem.
     Agora com correção de centralização para o color picking e para o overlay.
+    Agora detecta clique esquerdo e emite sinal.
     """
+    region_clicked = pyqtSignal(str)
     def __init__(self, mask_image_path, region_color_map, parent=None):
         """
         :param mask_image_path: Caminho para a imagem da máscara colorida (PNG).
@@ -5517,6 +5847,22 @@ class Regiao(QWidget):
                 self.update()
 
         super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Verifica se há uma região ativa sob o mouse (detectada pelo color picking)
+            # A condição original incluía 'self.overlay_pixmaps.get(self.current_region)'
+            # para garantir um overlay visível. Se o objetivo é clicar em *qualquer* região
+            # detectada (onde o hover funciona), removemos essa verificação específica do overlay.
+            if self.current_region: # <-- Condição simplificada
+                print(f"🖱️ [Regiao] Clique esquerdo detectado na região: {self.current_region}") # Log de confirmação
+                # Emite o sinal com o nome da região
+                self.region_clicked.emit(self.current_region)
+            else:
+                print(f"🖱️ [Regiao] Clique esquerdo, mas nenhuma região detectada sob o mouse.")
+                print(f"   - self.current_region: {self.current_region}")
+        # Propaga o evento para outros widgets se necessário
+        super().mousePressEvent(event)
 
     def leaveEvent(self, event):
         print(f"🚪 [Regiao] Mouse saiu do widget. Limpando região.")
@@ -9368,5 +9714,5 @@ class Referencias:
 
 
 ================================================================================
-✅ Total de 46 arquivos incluídos.
+✅ Total de 47 arquivos incluídos.
 ================================================================================
