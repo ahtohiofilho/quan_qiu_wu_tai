@@ -120,6 +120,8 @@ class TileOverlay(QWidget):
              print("⚠️ [TileOverlay] Mundo ou Civilizações ('civs') não carregadas, não é possível processar assentamentos.")
              coords_tile_alvo = None # Desativa a lógica de bandeira se o mundo/civs não estiver disponível
 
+        self.coords_tile_alvo = coords_tile_alvo
+
         pixmap = QPixmap(caminho_imagem)
         if pixmap.isNull():
             print("❌ QPixmap inválido.")

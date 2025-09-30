@@ -25,10 +25,13 @@ class JanelaInformacaoRegiao(QWidget):
 
         # Define title based on settlement existence
         if self.assentamento:
-            civ_nome = self.assentamento.civilizacao.nome if self.assentamento.civilizacao else "Unknown"
-            self.setWindowTitle(f"Settlement: {civ_nome} - Region: {region_clicked}")
+            print(f"Nome do assentamento: {self.assentamento.nome}")
+            # self.setWindowTitle(self.assentamento.nome)
+            self.setWindowTitle(f"{self.assentamento.civilizacao.nome}")
         else:
-            self.setWindowTitle(f"Region: {region_clicked} - Tile: {tile_coords}")
+            print(f"Região clicada: {region_clicked} em tile {tile_coords}, sem assentamento.")
+            # self.setWindowTitle(f"Region: {region_clicked} - Tile: {tile_coords}")
+            self.setWindowTitle("Informações da Região")
 
         # Set initial size (this will be overridden if maximizing to parent)
         # self.resize(600, 500)
@@ -107,7 +110,7 @@ class JanelaInformacaoRegiao(QWidget):
 
         # --- Title ---
         if self.assentamento:
-            title_label = QLabel(f"Settlement of {self.assentamento.civilizacao.nome}")
+            title_label = QLabel(f"{self.assentamento.nome}")
         else:
             title_label = QLabel(f"Region: {self.region_clicked}")
         title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #3498db;")
@@ -205,15 +208,15 @@ class JanelaInformacaoRegiao(QWidget):
         print(f"🔍 [JanelaInformacaoRegiao] Loading data for settlement of '{self.assentamento.civilizacao.nome}' on parcel {self.assentamento.indice_parcela} of tile {self.assentamento.coordenadas_tile}.")
 
         # --- Settlement Information (initially just the civilization name and parcel) ---
-        # Assuming get_populacao_total() and calcular_producao_total() exist and work
-        populacao = self.assentamento.get_populacao_total()
-        producao = self.assentamento.calcular_producao_total()
+        # Hardcoded por enquanto
+        populacao = "N pessoas" # self.assentamento.get_populacao_total()
+        producao = "X produção" # self.assentamento.calcular_producao_total()
 
         info_text_content = f"civilization: {self.assentamento.civilizacao.nome}\n" # Changed to English
         info_text_content += f"Parcel on Tile: {self.assentamento.indice_parcela}\n"
         info_text_content += f"Tile Coordinates: {self.assentamento.coordenadas_tile}\n"
         info_text_content += f"Total Population: {populacao}\n"
-        info_text_content += f"Estimated Production: {producao:.2f}\n"
+        info_text_content += f"Estimated Production: {producao}\n"
         # ... add more information as it becomes available
 
         self.info_settlement_text.setPlainText(info_text_content)

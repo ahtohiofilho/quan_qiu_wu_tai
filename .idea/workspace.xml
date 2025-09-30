@@ -8,6 +8,7 @@
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/widgets/information_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/widgets/information_window.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/widgets/tile.py" beforeDir="false" afterPath="$PROJECT_DIR$/client/widgets/tile.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/consolidar.py" beforeDir="false" afterPath="$PROJECT_DIR$/consolidar.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/scripts.txt" beforeDir="false" afterPath="$PROJECT_DIR$/scripts.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

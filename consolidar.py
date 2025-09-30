@@ -27,7 +27,8 @@ EXCLUDE_FILES = {
     "naming",
     "__init__",
     ".png",
-    ".json"
+    ".json",
+    "polygons"
 }  # Nomes ou substrings para ignorar
 
 # Cabeçalho do arquivo gerado
