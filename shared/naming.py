@@ -553,14 +553,14 @@ adj_hau = ["Mai Kyau", "Fari", "Mai Tsarki", "Boye", "Karami",
 
 # ==========================   NOMES DAS PROVÍNCIAS EM SWAHILI   ==========================#
 
-nouns_sua_c1 = ["Mwanajeshi", "Mchungaji"]
+nouns_sua_c1 = ["Mwanajeshi", "Mchungaji", "Bwana"]
 
 nouns_sua_c3 = ["Mlima", "Mto", "Msitu", "Mchanga", "Mwamba",
                 "Moto", "Mwanga", "Mteremko", "Mji", "Mwitu",
-                "Mgongo", "Mwatuko", "Mzizi", "Msalaba"]
+                "Mgongo", "Mzizi", "Msalaba"]
 
 nouns_sua_c5 = ["Jiwe", "Pango", "Anga", "Bwawa", "Ziwa",
-                "Hori", "Bwana", "Jani", "Tunda", "Shamba",
+                "Hori", "Jani", "Tunda", "Shamba",
                 "Bonde", "Kimbilio", "Daraja", "Jini", "Kanisa",
                 "Jiji"]
 
@@ -568,101 +568,105 @@ nouns_sua_c7 = ["Kisima", "Kichaka", "Kijiji", "Kilima", "Kibanda",
                 "Kilele"]
 
 nouns_sua_c9 = ["Nchi", "Nyumba", "Nyota", "Mvua", "Chemchem",
-                "Hewa", "Njia", "Ndege", "Nyoka", "Mbwa Mwito",
-                "Roho", "Kando", "Siku", "Ishara", "Barabara",
+                "Hewa", "Njia", "Ndege", "Nyoka",
+                "Roho", "Siku", "Ishara", "Barabara",
                 "Kaburi", "Ardhi"]
 
 nouns_sua_c11 = ["Uwanja", "Udongo", "Upepo", "Unyasi"]
 
-adj_sua_c1 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
-              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
-              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
-              "Mwekundu", "Mbuluu", "Mkijani", "Mnjano", "Mweusi",
-              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
-              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
-              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
-              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
-              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
-              "Mpole", "Mamani", "Mvurugu", "Mkali", "Mpana",
-              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
-              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
-              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
-              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
+adj_sua_c1 = ["Mwema", "Mweupe", "Mtakatifu", "Mfichwa",
+              "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
+              "Mrefu", "Mkubwa", "Msafi", "Mbaya",
+              "Mwekundu", "Mbuluu", "Mkijani", "Mweusi",
+              "Mtulivu", "Mwenye Kelele", "Mkavu",
+              "Mwangavu", "Mzito", "Msiri",
+              "Mkali", "Mbali", "Mkali", "Mwenye Huzuni", "Mzuri",
+              "Mwenye Kuruka", "Adhimu", "Mwenye Jua", "Mwenye Giza", "Mwima",
+              "Mpole", "Mwenye Amani", "Mwenye Vurugu", "Mkali", "Mpana",
+              "Mwazi", "Mfungwa", "Bapa", "Mwenye Milele",
+              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu",
+              "Mbaridi", "Mjoto", "Mwenye Hatari", "Mpumbavu",
+              "Msafi", "Mjasiri", "Mfu"]
 
-adj_sua_c3 = ["Mwema", "Mweupe", "Mtakatifu", "Mvunjika", "Mfichwa",
-              "Mdogo", "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
-              "Mrefu", "Mdogo", "Mkubwa", "Msafi", "Mbaya",
-              "Mwekundu", "Mbuluu", "Mkjani", "Mnjano", "Mweusi",
-              "Mdhahabu", "Mtulivu", "Mkelele", "Mkavu", "Mpotea",
-              "Mkina", "Mangavu", "Mzito", "Mfuraha", "Msiri",
-              "Msonga", "Mgawanyika", "Mpendeza", "Mburudisha", "Manguka",
-              "Mkali", "Mbali", "Mkale", "Mhuzuni", "Mzuri",
-              "Mraruka", "Madhimu", "Mjua", "Mgiza", "Mwima",
-              "Mpole", "Mmani", "Mvurugu", "Mkali", "Mpana",
-              "Mwazi", "Mfungwa", "Mbapa", "Mgiza", "Milele",
-              "Mtulivu", "Mkubwa", "Mzuri", "Mrefu", "Mkelele",
-              "Mbaridi", "Mjoto", "Mhatari", "Mpumbaza", "Mchonga",
-              "Msafi", "Mjasiri", "Milele", "Mganda", "Mkufa"]
+adj_sua_c3 = [
+    "Mwema", "Mweupe", "Mtakatifu", "Mfichwa",
+    "Mdogo", "Mzee", "Mbinguni", "Mkubwa",
+    "Mrefu", "Mkubwa", "Msafi", "Mbaya",
+    "Mwekundu", "Mbuluu", "Mkijani", "Mweusi",
+    "Mtulivu", "Mwenye Kelele", "Mkavu",
+    "Mwangavu", "Mzito", "Msiri",
+    "Mkali", "Mbali", "Mkali", "Mwenye Huzuni", "Mzuri",
+    "Mwenye Kuruka", "Adhimu", "Mwenye Jua", "Mwenye Giza", "Mwima",
+    "Mpole", "Mwenye Amani", "Mwenye Vurugu", "Mkali", "Mpana",
+    "Mwazi", "Mfungwa", "Bapa", "Mwenye Milele",
+    "Mtulivu", "Mkubwa", "Mzuri", "Mrefu",
+    "Mbaridi", "Mjoto", "Mwenye Hatari", "Mpumbavu",
+    "Msafi", "Mjasiri", "Mfu"
+]
 
-adj_sua_c5 = ["Jema", "Jeupe", "Takatifu", "Vunjika", "Fichwa",
-              "Dogo", "Dogo", "Zee", "Mbinguni", "Kubwa",
-              "Refu", "Dogo", "Kubwa", "Safi", "Baya",
-              "Jekundu", "Buluu", "Kijani", "Njano", "Jeusi",
-              "Dhahabu", "Tulivu", "Kelele", "Kavu", "Potea",
-              "Refu", "Angavu", "Zito", "Furaha", "Siri",
-              "Songa", "Gawanyika", "Pendeza", "Burudisha", "Anguka",
-              "Kali", "Mbali", "Kale", "Huzuni", "Zuri",
-              "Raruka", "Adhimu", "Jua", "Giza", "Wima",
-              "Mpole", "Amani", "Vurugu", "Kali", "Pana",
-              "Wazi", "Fungwa", "Bapa", "Giza", "Milele",
-              "Tulivu", "Kubwa", "Zuri", "Refu", "Kelele",
-              "Baridi", "Joto", "Hatari", "Pumbaza", "Chonga",
-              "Safi", "Jasiri", "Milele", "Ganda", "Kufa"]
+adj_sua_c5 = [
+    "Jema", "Jeupe", "Takatifu", "Fichwa",
+    "Dogo", "Zee", "Mbinguni", "Kubwa",
+    "Refu", "Kubwa", "Safi", "Baya",
+    "Jekundu", "Buluu", "Kijani", "Njano", "Jeusi",
+    "Tulivu", "Mwenye Kelele", "Kavu",
+    "Jangavu", "Zito", "Siri",
+    "Kali", "Mbali", "Kali", "Mwenye Huzuni", "Zuri",
+    "Mwenye Kuruka", "Adhimu", "Mwenye Jua", "Mwenye Giza", "Wima",
+    "Mpole", "Mwenye Amani", "Mwenye Vurugu", "Kali", "Pana",
+    "Wazi", "Fungwa", "Bapa", "Mwenye Milele",
+    "Tulivu", "Kubwa", "Zuri", "Refu",
+    "Baridi", "Joto", "Mwenye Hatari", "Mpumbavu",
+    "Safi", "Jasiri", "Mfu"
+]
 
-adj_sua_c7 = ["Kizuri", "Kyeupe", "Kitakatifu", "Kivunjika", "Kifichika",
-              "Kidogo", "Kidogo", "Kikongwe", "Kimbingu", "Kikubwa",
-              "Kirefu", "Kidogo", "Kikubwa", "Kisafi", "Kibaya",
-              "Kikundu", "Kibuluu", "Kijani", "Kinanjano", "Kyeusi",
-              "Kidhahabu", "Kitulivu", "Kelele", "Kavu", "Kipotea",
-              "Kina", "Kangavu", "Kizito", "Kifuraha", "Kiujabu",
-              "Kisonga", "Kigawanyika", "Kipendeza", "Kipooza", "Kianguka",
-              "Kikali", "Kimbali", "Kikale", "Kihuzuni", "Kizuri",
-              "Kiraruka", "Kifalme", "Kijua", "Kigiza", "Kishuka",
-              "Kipole", "Kiamani", "Kiturbulent", "Kikali", "Kipan",
-              "Ki wazi", "Kifungwa", "Kibapa", "Kigiza", "Kisicho Na Mwisho",
-              "Kitulivu", "Kijitu", "Kizuri", "Kirefu", "Kenye Sauti Kubwa",
-              "Kibaridi", "Kijoto", "Kihatari", "Kivutia", "Kichongwa",
-              "Kisafi", "Kijasiri", "Kidaima", "Kikamilifu", "Kimfu"]
+adj_sua_c7 = [
+    "Kizuri", "Kyeupe", "Kitakatifu", "Kifichwa",
+    "Kidogo", "Kikongwe", "Kimbingu", "Kikubwa",
+    "Kirefu", "Kikubwa", "Kisafi", "Kibaya",
+    "Kikundu", "Kibuluu", "Kikijani", "Kinjano", "Kyeusi",
+    "Kitulivu", "Mwenye Kelele", "Kikavu",
+    "Kijangavu", "Kizito", "Kisiri",
+    "Kikali", "Kimbali", "Kikali", "Mwenye Huzuni", "Kizuri",
+    "Mwenye Kuruka", "Kidhimu", "Mwenye Jua", "Mwenye Giza", "Kiwima",
+    "Kipole", "Mwenye Amani", "Mwenye Vurugu", "Kikali", "Kipana",
+    "Kiwazi", "Kifungwa", "Kibapa", "Mwenye Milele",
+    "Kitulivu", "Kikubwa", "Kizuri", "Kirefu",
+    "Kibaridi", "Kijoto", "Mwenye Hatari", "Kipumbavu",
+    "Kisafi", "Kijasiri", "Kifu"
+]
 
-adj_sua_c9 = ["Nzuri", "Nyeupe", "Takatifu", "Vunjika", "Fichwa",
-              "Ndogo", "Ndogo", "Nzee", "Nbinguni", "Nkubwa",
-              "Nrefu", "Ndogo", "Nkubwa", "Nsafi", "Nbaya",
-              "Nyekundu", "Nbuluu", "Nkijani", "Nnjano", "Njeusi",
-              "Ndahabu", "Ntulivu", "Nkelele", "Nkavu", "Npotea",
-              "Nrefu", "Nangavu", "Nzito", "Nfuraha", "Nsiri",
-              "Nsonga", "Ngawanyika", "Npendeza", "Nburudisha", "Nanguka",
-              "Nkali", "Nmbali", "Nkale", "Nhuzuni", "Nzuri",
-              "Nraruka", "Nadhimu", "Njua", "Ngiza", "Nwima",
-              "Nmpole", "Namani", "Nvurugu", "Nkali", "Npana",
-              "Nwazi", "Nfungwa", "Nbapa", "Ngiza", "Nmilele",
-              "Ntulivu", "Nkubwa", "Nzuri", "Nrefu", "Nkelele",
-              "Nbaridi", "Njoto", "Nhatari", "Npumbaza", "Nchonga",
-              "Nsafi", "Njasiri", "Nmilele", "Nganda", "Nkufa"]
+adj_sua_c9 = [
+    "Nzuri", "Nyeupe", "Takatifu", "Fichwa",
+    "Ndogo", "Nzee", "Nbinguni", "Nkubwa",
+    "Nrefu", "Nkubwa", "Nsafi", "Nbaya",
+    "Nyekundu", "Nbuluu", "Nkijani", "Nnjano", "Njeusi",
+    "Ntulivu", "Mwenye Kelele", "Nkavu",
+    "Njangavu", "Nzito", "Nsiri",
+    "Nkali", "Nmbali", "Nkali", "Mwenye Huzuni", "Nzuri",
+    "Mwenye Kuruka", "Nadhimu", "Mwenye Jua", "Mwenye Giza", "Nwima",
+    "Nmpole", "Mwenye Amani", "Mwenye Vurugu", "Nkali", "Npana",
+    "Nwazi", "Nfungwa", "Nbapa", "Mwenye Milele",
+    "Ntulivu", "Nkubwa", "Nzuri", "Nrefu",
+    "Nbaridi", "Njoto", "Mwenye Hatari", "Npumbavu",
+    "Nsafi", "Njasiri", "Nfu"
+]
 
-adj_sua_c11 = ["Uzuri", "Ueupe", "Utakatifu", "Unywele", "Uficho",
-               "Udogo", "Udogo", "Uzee", "Ubinguni", "Ukubwa",
-               "Urefu", "Udogo", "Ukubwa", "Usafi", "Ubayo",
-               "Uekundu", "Ubuluu", "Ukijani", "Unjano", "Ueusi",
-               "Udhahabu", "Utulivu", "Ukelele", "Ukavu", "Upotea",
-               "Urefu", "Uangavu", "Uzito", "Ufuraha", "Usiri",
-               "Usonga", "Ugawanyika", "Upendeza", "Uburudisha", "Uanguka",
-               "Ukali", "Umbali", "Ukale", "Uhuzuni", "Uzuri",
-               "Uraruka", "Uadhimu", "Ujua", "Ugiza", "Uwima",
-               "Upole", "Uamani", "Uvurugu", "Ukali", "Upana",
-               "Uwazi", "Ufungwa", "Ubapa", "Ugiza", "Umilele",
-               "Utulivu", "Ukubwa", "Uzuri", "Urefu", "Ukelele",
-               "Ubaridi", "Ujoto", "Uhatari", "Upumbaza", "Uchonga",
-               "Usafi", "Ujasiri", "Umilele", "Uganda", "Ukufa"]
+adj_sua_c11 = [
+    "Uzuri", "Ueupe", "Utakatifu", "Ufichwa",
+    "Udogo", "Uzee", "Ubinguni", "Ukubwa",
+    "Urefu", "Ukubwa", "Usafi", "Ubaya",
+    "Uekundu", "Ubuluu", "Ukijani", "Unjano", "Ueusi",
+    "Utulivu", "Mwenye Kelele", "Ukavu",
+    "Ujangavu", "Uzito", "Usiri",
+    "Ukali", "Umbali", "Ukali", "Mwenye Huzuni", "Uzuri",
+    "Mwenye Kuruka", "Uadhimu", "Mwenye Jua", "Mwenye Giza", "Uwima",
+    "Upole", "Mwenye Amani", "Mwenye Vurugu", "Ukali", "Upana",
+    "Uwazi", "Ufungwa", "Ubapa", "Mwenye Milele",
+    "Utulivu", "Ukubwa", "Uzuri", "Urefu",
+    "Ubaridi", "Ujoto", "Mwenye Hatari", "Upumbavu",
+    "Usafi", "Ujasiri", "Ufu"
+]
 
 # ==========================   NOMES DAS PROVÍNCIAS EM PORTUGUÊS   ==========================#
 

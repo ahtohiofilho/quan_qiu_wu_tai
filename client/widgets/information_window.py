@@ -83,8 +83,8 @@ class JanelaInformacaoRegiao(QWidget):
             overlay_x, overlay_y, overlay_width, overlay_height = self.overlay_coords
             # Position near the overlay, maybe slightly offset
             # You can adjust the offset (e.g., +20, +20) or center it relative to the overlay
-            window_width = 500 # Or get from sizeHint() after setup_ui
-            window_height = 400
+            window_width = 800 # Ajustado para refletir a nova largura desejada
+            window_height = 600 # Ajustado se necessário
             # Example: Position top-left corner near the bottom-right of the overlay
             pos_x = overlay_x + overlay_width + 5 # Small offset
             pos_y = overlay_y + overlay_height + 5 # Small offset
@@ -123,6 +123,16 @@ class JanelaInformacaoRegiao(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(separator)
 
+        # --- NEW: Horizontal Layout for Split Content ---
+        content_split_layout = QHBoxLayout()
+        content_split_layout.setContentsMargins(0, 0, 0, 0) # Opcional: remover margens internas
+        content_split_layout.setSpacing(5) # Opcional: espaçamento entre as colunas
+
+        # --- Left Column Layout (1/3 width) ---
+        left_column_layout = QVBoxLayout()
+        left_column_layout.setContentsMargins(0, 0, 0, 0) # Opcional: remover margens
+        left_column_layout.setSpacing(5) # Espaçamento entre os widgets da coluna esquerda
+
         # --- Region Info Group (Always Present) ---
         info_region_group = QGroupBox("Region Information")
         info_region_layout = QVBoxLayout(info_region_group)
@@ -130,7 +140,8 @@ class JanelaInformacaoRegiao(QWidget):
         self.info_region_text = QTextEdit()
         self.info_region_text.setReadOnly(True)
         info_region_layout.addWidget(self.info_region_text)
-        main_layout.addWidget(info_region_group)
+        # main_layout.addWidget(info_region_group) # <-- REMOVIDO daqui
+        left_column_layout.addWidget(info_region_group) # <-- ADICIONADO aqui
 
         # --- Settlement Info Group (Conditional) ---
         if self.assentamento:
@@ -154,7 +165,17 @@ class JanelaInformacaoRegiao(QWidget):
             # --- Other groups can be added here ---
             # Ex: Resources, Buildings, etc.
 
-            main_layout.addWidget(info_settlement_group)
+            # main_layout.addWidget(info_settlement_group) # <-- REMOVIDO daqui
+            left_column_layout.addWidget(info_settlement_group) # <-- ADICIONADO aqui
+
+        # Adiciona a coluna esquerda ao layout horizontal com fator de estiramento 1
+        content_split_layout.addLayout(left_column_layout, 1)
+
+        # --- Empty Space on the Right (2/3 width) ---
+        content_split_layout.addStretch(2)
+
+        # Adiciona o layout horizontal ao layout principal
+        main_layout.addLayout(content_split_layout)
 
         # --- Close Button (Positioned Top Right) ---
         # Create a horizontal layout just for the close button
@@ -234,7 +255,6 @@ class JanelaInformacaoRegiao(QWidget):
         self.units_list.addItem("Example Unit 2")
         # Add more placeholders or real data here
 
-    # --- Modificação do closeEvent ---
     def closeEvent(self, event):
         """
         Evento chamado quando a janela é fechada.
@@ -251,4 +271,3 @@ class JanelaInformacaoRegiao(QWidget):
         # A responsabilidade de atualização pode voltar para o TileOverlay.
 
         print("✅ [JanelaInformacaoRegiao] closeEvent concluído.")
-    # --- Fim da modificação ---
