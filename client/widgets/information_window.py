@@ -77,6 +77,8 @@ class JanelaInformacaoRegiao(QWidget):
             }
         """)
 
+        self.showMaximized()
+
         self.setup_ui()
         # --- Position the window based on overlay_coords ---
         if self.overlay_coords:
@@ -154,14 +156,6 @@ class JanelaInformacaoRegiao(QWidget):
             self.info_settlement_text.setMaximumHeight(150) # Limit text box height
             info_settlement_layout.addWidget(self.info_settlement_text)
 
-            # --- Units List ---
-            units_list_group = QGroupBox("Units")
-            units_list_layout = QVBoxLayout(units_list_group)
-            self.units_list = QListWidget()
-            # Populate with real data in load_settlement_data
-            units_list_layout.addWidget(self.units_list)
-            info_settlement_layout.addWidget(units_list_group)
-
             # --- Other groups can be added here ---
             # Ex: Resources, Buildings, etc.
 
@@ -169,10 +163,28 @@ class JanelaInformacaoRegiao(QWidget):
             left_column_layout.addWidget(info_settlement_group) # <-- ADICIONADO aqui
 
         # Adiciona a coluna esquerda ao layout horizontal com fator de estiramento 1
-        content_split_layout.addLayout(left_column_layout, 1)
+        content_split_layout.addLayout(left_column_layout, 1) # 1 parte
 
-        # --- Empty Space on the Right (2/3 width) ---
-        content_split_layout.addStretch(2)
+        # --- NEW: Right Column Layout (2/3 width) ---
+        right_column_layout = QVBoxLayout() # Layout vertical para o lado direito
+        right_column_layout.setContentsMargins(0, 0, 0, 0) # Opcional: remover margens
+        right_column_layout.setSpacing(5) # Espaçamento entre widgets na coluna direita (se houver mais)
+
+        if self.assentamento: # Só adiciona a lista de unidades se houver assentamento
+            # --- Units List Group (Now on the Right) ---
+            units_list_group = QGroupBox("Units") # Grupo para a lista de unidades
+            units_list_layout = QVBoxLayout(units_list_group) # Layout dentro do grupo
+            self.units_list = QListWidget() # Widget da lista
+            # Populate with real data in load_settlement_data
+            units_list_layout.addWidget(self.units_list) # Adiciona o widget ao layout do grupo
+
+            # Adiciona o grupo (com a lista) ao layout da coluna direita
+            right_column_layout.addWidget(units_list_group)
+
+        # REMOVIDO: right_column_layout.addStretch() # <-- Removido para permitir expansão vertical do QListWidget
+
+        # Adiciona o layout da coluna direita ao layout horizontal com fator de estiramento 2
+        content_split_layout.addLayout(right_column_layout, 2) # 2 partes
 
         # Adiciona o layout horizontal ao layout principal
         main_layout.addLayout(content_split_layout)
@@ -245,16 +257,20 @@ class JanelaInformacaoRegiao(QWidget):
         # --- Populate Units List ---
         # Assuming the settlement has a list of units (e.g., self.assentamento.unidades)
         # For now, add placeholders
-        self.units_list.clear()
-        # Real example (uncomment if unit list exists):
-        # for unidade in self.assentamento.unidades:
-        #     self.units_list.addItem(f"{unidade.tipo} - Level {unidade.nivel}")
+        if self.units_list: # Verifica se a lista foi criada (se assentamento existir)
+            self.units_list.clear()
+            # Real example (uncomment if unit list exists):
+            # for unidade in self.assentamento.unidades:
+            #     self.units_list.addItem(f"{unidade.tipo} - Level {unidade.nivel}")
 
-        # Placeholder for now
-        self.units_list.addItem("Example Unit 1")
-        self.units_list.addItem("Example Unit 2")
-        # Add more placeholders or real data here
+            # Placeholder for now
+            self.units_list.addItem("Example Unit 1")
+            self.units_list.addItem("Example Unit 2")
+            # Add more placeholders or real data here
+        # else:
+        #     print("⚠️ [load_settlement_data] units_list não encontrado (assentamento não existia?).")
 
+    # --- Modificação do closeEvent ---
     def closeEvent(self, event):
         """
         Evento chamado quando a janela é fechada.
@@ -271,3 +287,4 @@ class JanelaInformacaoRegiao(QWidget):
         # A responsabilidade de atualização pode voltar para o TileOverlay.
 
         print("✅ [JanelaInformacaoRegiao] closeEvent concluído.")
+    # --- Fim da modificação ---
