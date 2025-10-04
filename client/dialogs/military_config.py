@@ -1,9 +1,10 @@
-# --- client/dialogs/military_config_dialog.py ---
-# Atualizado para permitir edição direta dos parâmetros da unidade
+# --- client/dialogs/military_config.py ---
+# Atualizado para calcular o custo automaticamente
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QDialogButtonBox, QGroupBox, QGridLayout, QSpinBox
 )
+from PyQt6.QtCore import Qt # Importe Qt para setReadOnly
 from shared.unit import Unidade # Importa a classe base Unidade
 
 class MilitaryUnitConfigDialog(QDialog):
@@ -31,30 +32,43 @@ class MilitaryUnitConfigDialog(QDialog):
         self.ataque_spin = QSpinBox()
         self.ataque_spin.setRange(1, max_value)
         self.ataque_spin.setValue(1) # Valor padrão
+        # Conectar a mudança de valor para recalcular o custo
+        self.ataque_spin.valueChanged.connect(self._calcular_custo)
 
         self.defesa_spin = QSpinBox()
         self.defesa_spin.setRange(1, max_value)
         self.defesa_spin.setValue(1) # Valor padrão
+        # Conectar a mudança de valor para recalcular o custo
+        self.defesa_spin.valueChanged.connect(self._calcular_custo)
 
         self.vida_spin = QSpinBox()
         self.vida_spin.setRange(1, max_value)
         self.vida_spin.setValue(1) # Valor padrão
+        # Conectar a mudança de valor para recalcular o custo
+        self.vida_spin.valueChanged.connect(self._calcular_custo)
 
         self.alcance_spin = QSpinBox()
         self.alcance_spin.setRange(1, max_value)
         self.alcance_spin.setValue(1) # Valor padrão
+        # Conectar a mudança de valor para recalcular o custo
+        self.alcance_spin.valueChanged.connect(self._calcular_custo)
 
         self.movimento_spin = QSpinBox()
         self.movimento_spin.setRange(1, max_value)
         self.movimento_spin.setValue(1) # Valor padrão
+        # Conectar a mudança de valor para recalcular o custo
+        self.movimento_spin.valueChanged.connect(self._calcular_custo)
 
+        # --- Custo (Calculado automaticamente) ---
         self.custo_spin = QSpinBox()
-        self.custo_spin.setRange(1, max_value)
-        self.custo_spin.setValue(1) # Valor padrão
+        self.custo_spin.setRange(1, max_value * 5) # Ajuste o máximo conforme necessário, baseado na fórmula
+        self.custo_spin.setValue(1) # Valor inicial, será recalculado
+        self.custo_spin.setReadOnly(True) # Torna o campo de custo somente leitura
+        # Não conectamos valueChanged para custo, pois ele é calculado, não definido
 
         # --- Tipo de Unidade (ComboBox fixo) ---
         self.tipo_combo = QComboBox()
-        self.tipo_combo.addItems(["Ground", "Air", "Naval"])
+        self.tipo_combo.addItems(["Terrestre", "Aéreo", "Marítimo"])
         # Pode-se definir um valor padrão ou carregar um anterior
         # Exemplo: self.tipo_combo.setCurrentText("Terrestre")
 
@@ -76,7 +90,7 @@ class MilitaryUnitConfigDialog(QDialog):
         unit_layout.addWidget(self.movimento_spin, row, 1)
         row += 1
         unit_layout.addWidget(QLabel("Cost:"), row, 0)
-        unit_layout.addWidget(self.custo_spin, row, 1)
+        unit_layout.addWidget(self.custo_spin, row, 1) # Agora é somente leitura
         row += 1
         unit_layout.addWidget(QLabel("Type:"), row, 0)
         unit_layout.addWidget(self.tipo_combo, row, 1)
@@ -92,6 +106,21 @@ class MilitaryUnitConfigDialog(QDialog):
         # Carrega a configuração anterior, se existir
         self._carregar_configuracao_atual()
 
+    def _calcular_custo(self):
+        """Calcula o custo com base nos outros parâmetros."""
+        ataque = self.ataque_spin.value()
+        defesa = self.defesa_spin.value()
+        vida = self.vida_spin.value()
+        alcance = self.alcance_spin.value()
+        movimento = self.movimento_spin.value()
+
+        custo_calculado = (ataque + defesa + vida + alcance + movimento - 4) * 5
+        # Garante que o custo não seja menor que 1
+        custo_calculado = max(1, custo_calculado)
+
+        self.custo_spin.setValue(custo_calculado) # Define o valor calculado no spin box
+
+
     def _carregar_configuracao_atual(self):
         """Carrega os parâmetros da unidade configurados anteriormente no assentamento."""
         # Tenta obter os parâmetros salvos no assentamento
@@ -103,13 +132,20 @@ class MilitaryUnitConfigDialog(QDialog):
             self.vida_spin.setValue(params.get('vida', 1))
             self.alcance_spin.setValue(params.get('alcance', 1))
             self.movimento_spin.setValue(params.get('movimento', 1))
-            self.custo_spin.setValue(params.get('custo', 1))
+            # O custo é calculado automaticamente, então não definimos diretamente
+            # self.custo_spin.setValue(params.get('custo', 1)) # <-- REMOVIDO
             tipo_atual = params.get('tipo', 'Terrestre')
             index_tipo = self.tipo_combo.findText(tipo_atual)
             if index_tipo >= 0:
                 self.tipo_combo.setCurrentIndex(index_tipo)
+            # Chama _calcular_custo após carregar os outros parâmetros
+            # para atualizar o custo com base nos valores carregados
+            self._calcular_custo()
         else:
             print("🔧 [DEBUG] Nenhuma configuração anterior encontrada, usando valores padrão (1).")
+            # O custo será calculado automaticamente após os valores padrão serem definidos
+            # Chamando _calcular_custo uma vez com os valores padrão (1, 1, 1, 1, 1)
+            self._calcular_custo() # Custo inicial será (1+1+1+1+1-4)*5 = 1*5 = 5, mas como min é 1, será 5
 
 
     def get_current_unit_info(self):
@@ -121,7 +157,7 @@ class MilitaryUnitConfigDialog(QDialog):
             "vida": self.vida_spin.value(),
             "alcance": self.alcance_spin.value(),
             "movimento": self.movimento_spin.value(),
-            "custo": self.custo_spin.value(),
+            "custo": self.custo_spin.value(), # Pega o valor calculado
             "tipo": self.tipo_combo.currentText()
         }
 

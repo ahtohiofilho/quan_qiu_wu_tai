@@ -43,6 +43,13 @@ class JanelaInformacaoRegiao(QWidget):
         self.women_allocation_icon_label.setMaximumSize(tamanho_escalado, tamanho_escalado)
         self.women_allocation_icon_label.setScaledContents(True)
 
+        # --- Adicionando QLabel para os parâmetros militares ---
+        self.military_params_label = QLabel("Parameters: A: - D: - H: - R: - M: -") # Texto inicial
+        self.military_params_label.setAlignment(Qt.AlignmentFlag.AlignLeft) # Alinhamento à esquerda
+        self.military_params_label.setWordWrap(True) # Quebra de linha se necessário (embora não deva ser comum)
+        # self.military_params_label.setStyleSheet("font-weight: bold;") # Opcional: destaque
+        self.military_params_label.setVisible(False) # Inicialmente invisível
+
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         if self.assentamento:
@@ -102,7 +109,6 @@ class JanelaInformacaoRegiao(QWidget):
         self.showMaximized()
         self.setup_ui()
 
-        # --- Conectar os combos para atualizar os ícones ---
         print("🔍 [DEBUG] Verificando existência de combos e labels no __init__:")
         print(f"  - self.new_men_combo: {hasattr(self, 'new_men_combo')}")
         print(f"  - self.men_allocation_icon_label: {hasattr(self, 'men_allocation_icon_label')}")
@@ -117,10 +123,8 @@ class JanelaInformacaoRegiao(QWidget):
 
         if hasattr(self, 'new_women_combo') and hasattr(self, 'women_allocation_icon_label'):
             print("🔗 [DEBUG] Conectando sinal de mulheres para atualizar ícone e salvar.")
-            # --- ADICIONANDO PRINT DE DEBUG ---
             print(f"   - Sinal currentTextChanged do combo de mulheres conectado a _atualizar_icone_alocacao_mulheres: {self._atualizar_icone_alocacao_mulheres}")
             print(f"   - Sinal currentTextChanged do combo de mulheres conectado a _on_new_women_combo_changed: {self._on_new_women_combo_changed}")
-            # --- FIM ADICIONANDO PRINT DE DEBUG ---
             self.new_women_combo.currentTextChanged.connect(self._atualizar_icone_alocacao_mulheres)
             self.new_women_combo.currentTextChanged.connect(self._on_new_women_combo_changed) # Conexão para salvar
             self._carregar_selecao_mulheres_do_assentamento()
@@ -373,22 +377,49 @@ class JanelaInformacaoRegiao(QWidget):
         occupation_page = QWidget()
         occupation_layout = QVBoxLayout(occupation_page)
 
+        # --- Widget intermediário para controlar a largura e centralizar ---
+        occupation_content_widget = QWidget()
+        occupation_content_layout = QHBoxLayout(occupation_content_widget)
+        occupation_content_layout.addStretch() # Espaço expansível à esquerda
+
         # --- Subdivisão: Novos Homens ---
         new_men_group = QGroupBox("New Men Allocation")
-        new_men_group_layout = QVBoxLayout(new_men_group)
+        new_men_group_layout = QVBoxLayout(new_men_group) # Layout do grupo de homens
+        # --- ALTERAÇÃO: Alinhar conteúdo para cima ---
+        new_men_group_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # --- FIM ALTERAÇÃO ---
 
         # Cria o combo para homens
         self.new_men_combo = QComboBox()
         self.new_men_combo.addItems(["Farm", "Mine", "Armed Forces"])
         # Layout para agrupar combo e ícone (VERTICAL - ícone abaixo do combo)
-        men_combo_icon_layout = QVBoxLayout()
+        men_combo_icon_layout = QVBoxLayout() # Layout interno para combo e ícone
         men_combo_icon_layout.addWidget(self.new_men_combo)
         men_combo_icon_layout.addWidget(self.men_allocation_icon_label)
+        # --- ALTERAÇÃO: Alinhar conteúdo para cima ---
+        men_combo_icon_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # --- FIM ALTERAÇÃO ---
+
+        # Adiciona o layout combo/ícone ao layout do grupo
         new_men_group_layout.addLayout(men_combo_icon_layout)
+
+        # --- QLabel para os parâmetros militares (dentro do grupo de homens) ---
+        self.military_params_label_men = QLabel("A: - D: - H: - R: - M: -") # Texto inicial
+        self.military_params_label_men.setAlignment(Qt.AlignmentFlag.AlignLeft) # Alinhamento à esquerda
+        # Opcional: Estilo para diferenciar
+        # self.military_params_label_men.setStyleSheet("font-weight: bold; color: #3498DB;")
+        self.military_params_label_men.setVisible(False) # Inicialmente invisível
+        # Adiciona o label de parâmetros ao layout do grupo de homens (abaixo do combo/ícone)
+        new_men_group_layout.addWidget(self.military_params_label_men)
+        # --- Fim QLabel para os parâmetros militares ---
+
 
         # --- Subdivisão: Novas Mulheres ---
         new_women_group = QGroupBox("New Women Allocation")
         new_women_group_layout = QVBoxLayout(new_women_group)
+        # --- ALTERAÇÃO: Alinhar conteúdo para cima (opcional, para consistência) ---
+        new_women_group_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # --- FIM ALTERAÇÃO ---
 
         # Cria o combo para mulheres
         self.new_women_combo = QComboBox()
@@ -398,36 +429,47 @@ class JanelaInformacaoRegiao(QWidget):
         women_combo_icon_layout = QVBoxLayout()
         women_combo_icon_layout.addWidget(self.new_women_combo)
         women_combo_icon_layout.addWidget(self.women_allocation_icon_label)
+        # --- ALTERAÇÃO: Alinhar conteúdo para cima (opcional, para consistência) ---
+        women_combo_icon_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # --- FIM ALTERAÇÃO ---
         print(f"   - Label de ícone de mulheres adicionado ao layout: {self.women_allocation_icon_label}") # <-- DEBUG
         new_women_group_layout.addLayout(women_combo_icon_layout)
 
-        # --- Ajuste de Tamanho: Limitar tamanho dos grupos e seus conteúdos ---
-        # Definir tamanho fixo ou máximo para os grupos
-        # Exemplo: (Largura, Altura) - Ajuste os valores conforme necessário
-        tamanho_max_grupo = (200, 150) # Largura e altura máximas desejadas (ajuste estes valores)
-        new_men_group.setMaximumSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
-        new_women_group.setMaximumSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
+        # --- Ajuste de Tamanho: Aumentar tamanho do grupo de homens para acomodar parâmetros ---
+        # Definir tamanho mínimo ou preferido para o grupo de homens
+        # Isso aumenta o espaço vertical disponível para seus conteúdos
+        tamanho_min_grupo_homens = (200, 200) # Largura e altura mínimas desejadas (ajuste estes valores)
+        new_men_group.setMinimumSize(tamanho_min_grupo_homens[0], tamanho_min_grupo_homens[1])
+        # Opcional: Definir tamanho fixo para o grupo de homens (mais rígido)
+        # new_men_group.setFixedSize(tamanho_min_grupo_homens[0], tamanho_min_grupo_homens[1])
 
-        # Opcional: Definir tamanho fixo para os grupos (mais rígido)
-        # new_men_group.setFixedSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
-        # new_women_group.setFixedSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
-
-        # Opcional: Limitar também o QLabel dos ícones se estiverem esticando demais
-        # Exemplo: (Largura, Altura) - Ajuste os valores conforme necessário
-        tamanho_max_icone = (100, 100) # Largura e altura máximas desejadas (ajuste estes valores)
-        self.men_allocation_icon_label.setMaximumSize(tamanho_max_icone[0], tamanho_max_icone[1])
-        self.women_allocation_icon_label.setMaximumSize(tamanho_max_icone[0], tamanho_max_icone[1])
-
-        # Opcional: Definir tamanho fixo para os ícones (mais rígido)
-        # self.men_allocation_icon_label.setFixedSize(tamanho_max_icone[0], tamanho_max_icone[1])
-        # self.women_allocation_icon_label.setFixedSize(tamanho_max_icone[0], tamanho_max_icone[1])
+        # Ajuste de tamanho para o grupo de mulheres (opcional, para manter consistência)
+        # tamanho_min_grupo_mulheres = (200, 150) # Ajuste estes valores
+        # new_women_group.setMinimumSize(tamanho_min_grupo_mulheres[0], tamanho_min_grupo_mulheres[1])
         # --- Fim Ajuste de Tamanho ---
 
 
-        # Adiciona os grupos ao layout principal da aba Occupation
-        # Agora eles terão limites de tamanho
-        occupation_layout.addWidget(new_men_group)
-        occupation_layout.addWidget(new_women_group)
+        # --- Ajuste de Tamanho: Limitar tamanho dos grupos e seus conteúdos ---
+        # Definir tamanho máximo para os grupos (se ainda quiser limites)
+        tamanho_max_grupo = (200, 200) # Largura e altura máximas desejadas (ajuste estes valores)
+        new_men_group.setMaximumSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
+        new_women_group.setMaximumSize(tamanho_max_grupo[0], tamanho_max_grupo[1])
+
+        # Opcional: Limitar também o QLabel dos ícones se estiverem esticando demais
+        tamanho_max_icone = (100, 100) # Largura e altura máximas desejadas (ajuste estes valores)
+        self.men_allocation_icon_label.setMaximumSize(tamanho_max_icone[0], tamanho_max_icone[1])
+        self.women_allocation_icon_label.setMaximumSize(tamanho_max_icone[0], tamanho_max_icone[1])
+        # --- Fim Ajuste de Tamanho ---
+
+
+        # --- Adicionando os grupos ao widget intermediário HORIZONTALMENTE ---
+        occupation_content_layout.addWidget(new_men_group)
+        occupation_content_layout.addWidget(new_women_group)
+        occupation_content_layout.addStretch() # Espaço expansível à direita
+        # --- Fim Adicionando ao widget intermediário ---
+
+        # Adiciona o widget intermediário (e não os grupos diretamente) ao layout principal da aba
+        occupation_layout.addWidget(occupation_content_widget)
 
         # Adiciona a aba Occupation ao QTabWidget principal
         self.tabs_widget.addTab(occupation_page, "Occupation")
@@ -446,8 +488,44 @@ class JanelaInformacaoRegiao(QWidget):
         if text == "Armed Forces":
             # Nova Lógica: Abrir nova janela/popup de configuração de parâmetros
             self._abrir_janela_configuracao_militar_homens()
+        else:
+            # Se a opção mudar para algo diferente de Armed Forces,
+            # esconde o label de parâmetros
+            self.military_params_label.setVisible(False)
+
         # Salva a seleção no objeto assentamento
         self._salvar_selecao_homens_no_assentamento(text)
+
+        # Atualiza o label de parâmetros (mesmo que esconda se não for Armed Forces)
+        self._atualizar_label_parametros_militares()
+
+    def _atualizar_label_parametros_militares(self):
+        """Atualiza o QLabel com os parâmetros da unidade militar configurada (homens)."""
+        # Verifica se a opção atual de homens é 'Armed Forces'
+        if hasattr(self, 'new_men_combo') and self.new_men_combo.currentText() == "Armed Forces":
+            # Tenta obter os parâmetros salvos no assentamento
+            params = getattr(self.assentamento, 'params_unidade_militar', None)
+            if params:
+                # Extrai os valores
+                ataque = params.get('ataque', '-')
+                defesa = params.get('defesa', '-')
+                vida = params.get('vida', '-')
+                alcance = params.get('alcance', '-')
+                movimento = params.get('movimento', '-')
+
+                # Atualiza o texto do QLabel *dentro do grupo de homens*
+                texto_params = f"A: {ataque} D: {defesa} H: {vida} R: {alcance} M: {movimento}"
+                self.military_params_label_men.setText(texto_params) # <-- Use o label correto
+                self.military_params_label_men.setVisible(True) # <-- Mostra o label correto
+                print(f"📊 [JanelaInformacaoRegiao] Parâmetros militares (homens) exibidos: {texto_params}")
+            else:
+                # Se não houver parâmetros salvos, mostra placeholders e esconde
+                self.military_params_label_men.setText("A: - D: - H: - R: - M: -")
+                self.military_params_label_men.setVisible(False) # <-- Esconde o label correto
+                print("⚠️ [JanelaInformacaoRegiao] Nenhum parâmetro militar configurado (homens) para exibir.")
+        else:
+            # Se não for 'Armed Forces', esconde o label
+            self.military_params_label_men.setVisible(False) # <-- Esconde o label correto
 
     def _salvar_selecao_mulheres_no_assentamento(self, texto_selecionado):
         """Salva a seleção de alocação de mulheres no objeto assentamento."""
@@ -497,6 +575,10 @@ class JanelaInformacaoRegiao(QWidget):
             print("✅ [DEBUG] Configuração de parâmetros militares salva com sucesso.")
             # Opcional: Atualizar algum label ou informação na janela principal
             # Ex: self.label_tipo_unidade_militar.setText(f"Type: {self.assentamento.tipo_unidade_militar_padrao}")
+
+            # --- Atualizar o QLabel com os novos parâmetros ---
+            self._atualizar_label_parametros_militares()
+            # --- FIM Atualizar o QLabel ---
         else:
             print("ℹ️ [DEBUG] Configuração de parâmetros militares cancelada.")
 
