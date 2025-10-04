@@ -36,13 +36,133 @@ def valor_oferta(quantidades, base=2.0):
 
 A = Ataque
 D = Defesa
-HP = Pontos de Vida
+V = Vida
 R = Alcance
 M = Movimento
 
-Unidade         A   D   HP   R   M
+# Formato:
+# Bioma
+#   Humanos:     Ataque | Defesa | Mobilidade | Alcance
+#   Mecanizados: Ataque | Defesa | Mobilidade | Alcance
+#   Justificativa
 
-Soldado Leve    1   1   1    0   1
-Soldado Pesado  2   3   1    0   1
-Cavaleiro       2   2   3    0   2
-Arqueiro        1   2   1    1   1
+Meadow           A      D      M      R
+  Humanos:     +10% | +10% | +10% | +10%
+  Mecanizados: +10% | +10% | +10% | +10%
+  Justificativa: Terreno plano e aberto, ideal para ambos os tipos de unidade
+
+Forest
+  Humanos:     +5%  | +20% | +10% | -15%
+  Mecanizados: -10% | -10% | -20% | -10%
+  Justificativa: Cobertura natural favorece defesa e agilidade humana, mas limita alcance e mobilidade de veículos
+
+Desert
+  Humanos:     -10% | -5%  | -15% | -5%
+  Mecanizados: +10% | +15% | +10% | +5%
+  Justificativa: Clima extremo e terreno aberto favorecem máquinas climatizadas e blindadas
+
+Mountains
+  Humanos:     +10% | +25% | +20% | -10%
+  Mecanizados: -5%  | -20% | -25% | -15%
+  Justificativa: Terreno acidentado favorece escalabilidade e resistência humana, dificulta veículos
+
+Hills
+  Humanos:     +10% | +10% | +15% | -5%
+  Mecanizados: -5%  | -10% | -10% | -5%
+  Justificativa: Visibilidade e agilidade favorecem humanos, veículos têm dificuldade de manobra
+
+Ice
+  Humanos:     -15% | -10% | -20% | -10%
+  Mecanizados: +15% | +20% | +10% | +5%
+  Justificativa: Clima extremo favorece blindagem e climatização de unidades mecanizadas
+
+Savanna
+  Humanos:     +5%  | +5%  | +5%  | 0%
+  Mecanizados: +5%  | +5%  | +5%  | 0%
+  Justificativa: Terreno misto, leve vantagem para ambos sem penalidades significativas
+
+
+Unidade             A   D   V   R   M   Custo  Bônus Contra
+
+Terrestres
+
+Arqueiro            1   2   1   1   1     20   Infantaria Leve
+Infantaria Leve     2   2   2   1   2     25   Arqueiros
+Mosqueteiro         3   2   2   2   1     35   Cavalaria Leve
+Cavaleiro Ligeiro   2   1   2   0   3     25   Arqueiros
+Cavaleiro           2   2   3   0   2     30   Infantaria Leve
+Cavaleiro de Elite  3   3   4   0   3     40   Infantaria Pesada
+Arqueiro Montado    2   2   2   2   3     35   Infantaria Leve
+Motoqueiro Blindado 3   2   2   0   4     35   Arqueiros/Mosqueteiros
+Engenheiro Militar  2   4   3   1   2     40   Cercos/Artilharia
+Granadeiro          5   2   2   1   2     45   Infantaria Pesada
+Fuzileiro           4   3   3   3   1     50   Cavalaria Leve
+Infantaria de Elite 5   4   3   2   2     65   Mosqueteiros/Cavalaria
+Sniper              4   2   2   5   1     55   Unidades de Longo Alcance
+Infantaria Pesada   5   5   5   1   1     70   Cavalaria/Infantaria Leve
+Infantaria Motoriz. 4   3   3   2   3     60   Infantaria Leve
+Infantaria Tática   6   5   4   2   2     75   Mosqueteiros/Granadeiros
+Lança-Chamas        6   2   3   1   2     60   Infantaria Pesada
+Comando Especial    7   5   4   3   3     90   Unidades Fortes
+Art. Antiaérea      4   3   4   5   1     70   Aéreos
+Drone Terrestre     5   4   3   2   3     70   Unidades Leves
+Tanque Leve         6   6   5   0   3     80   Infantaria/Veículos Leves
+Tanque Pesado       8   8   8   2   2    120   Fortificações/Infantaria Pesada
+Exoesqueleto Leve   6   6   5   2   3    100   Infantaria Pesada/Cavalaria
+Exoesqueleto Pesado 8   8   7   2   2    150   Veículos/Tanques
+Mecha Leve          10  8   10  3   2    200   Veículos e Infantaria
+Mecha de Combate    12  10  12  4   2    250   Qualquer Unidade Terrestre
+Mecha Pesado        14  12  15  4   2    300   Qualquer Unidade Terrestre
+
+
+Cercos/Artilharia
+
+Catapulta           6   2   3   4   1     60   Fortificações/Unidades Agrupadas
+Balista             7   3   3   5   1     70   Fortificações/Artilharia
+Trebuchet           8   2   4   6   1     80   Fortificações
+Canhão Pesado       9   4   5   5   1     90   Cercos e Veículos Lentos
+Artilharia Móvel    7   3   4   4   2     90   Infantaria e Veículos Leves
+Artilharia Autoprop.8   4   5   6   2    110   Fortificações/Unidades Estáticas
+Lança-Foguetes      7   3   3   4   2     85   Agrupamentos de Tropas
+Lança-Mísseis       10  3   4   7   2    100   Fortificações e Aéreos
+Torre Móvel         4   8   7   3   1     85   Infantaria Pesada
+
+
+Aéreos
+
+Drone Aéreo            5   3   2   4   4     85   Infantaria/Veículos Lentos
+Drone de Reconhec.     1   2   2   6   6    100   Aéreo/Infantaria Leve
+Drone de Ataque        6   3   3   5   5    120   Navios ou Veículos Lentos
+Helicóptero Ataque     9   6   6   5   5    180   Veículos/Tanques
+Helicóptero Transporte 2   4   7   0   5    150   Transporte e Infantaria
+Helicóptero Pesado     7   7   8   3   4    200   Veículos e Infantaria
+Gunship Aéreo          9   8  10   4   4    250   Infantaria/Tanques
+Caça Interceptador     8   5   5   6   6    160   Bombardeiros e Drones
+Caça-Bombardeiro       10  6   6   6   5    190   Aéreo e Unidades de Terra Leve
+Caça Futurista         11  7   7   7   6    240   Qualquer Unidade Aérea
+Bombardeiro Tático     12  5   8   6   4    220   Fortificações/Infantaria
+Bombard. Estratégico   15  7   12  8   4    300   Fortificações e Bases
+
+
+Marítimos
+
+Bote de Assalto          1   1   2   0   3     15   Navios Ligeiros
+Trirreme                 2   2   3   1   2     25   Botes/Embarcações Ligeiras
+Navio de Guerra Medieval 3   3   4   2   2     40   Botes e Trirremes
+Galeão                   4   4   5   2   2     50   Navios Leves
+Cruzador a Vela          5   4   5   3   3     60   Navios Leves e Botes
+Navio Canhoneiro         6   5   6   3   3     70   Navios de Menor Porte
+Corveta                  6   5   6   3   4     80   Navios Ligeiros
+Navio de Patrulha        4   3   4   3   4     70   Corveta/Frágil
+Fragata                  7   6   7   4   4     90   Corveta/Navio Leve
+Destroier                8   6   8   5   4    110   Fragata/Navios Médios
+Cruzador Moderno         9   7   9   5   4    130   Destroier/Frágil
+Submarino Leve           7   5   6   5   3    120   Navios de Superfície Leves
+Submarino Diesel         7   5   6   4   3    110   Navios Médios
+Submarino Nuclear        10  8   10  6   3    180   Navios Grandes e Fortes
+Drone Naval              6   2   2   2   5     50   Navios Grandes
+Navio Drone              7   4   5   4   5    150   Navios Médios
+Porta-Aviões             12  10  15  8   3    250   Destroier/Frágil
+Navio Anfíbio            6   8   12  2   3    200   Tropas em Terra
+Encouraçado Pesado       14  12  16  6   2    300   Qualquer Navio
+Encouraçado Futurista    16  14  20  8   3    400   Qualquer Navio

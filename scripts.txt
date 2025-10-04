@@ -1,5 +1,5 @@
 ARQUIVO DE CÓDIGO CONSOLIDADO
-Gerado em: 2025-09-30 23:13:20
+Gerado em: 2025-10-03 18:23:12
 Diretório: /home/mariagoreti/quan_qiu_wu_tai
 Conteúdo dos scripts principais reunidos.
 
@@ -41,7 +41,8 @@ Conteúdo dos scripts principais reunidos.
 │   ├── components
 │   │   └── icon_manager.py
 │   ├── dialogs
-│   │   └── auth_dialog.py
+│   │   ├── auth_dialog.py
+│   │   └── military_config.py
 │   ├── picking
 │   │   └── color_picking.py
 │   ├── rendering
@@ -74,6 +75,7 @@ Conteúdo dos scripts principais reunidos.
 │   ├── references.py
 │   ├── settlement.py
 │   ├── turn.py
+│   ├── unit.py
 │   └── world.py
 
 ================================================================================
@@ -2709,12 +2711,11 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_sala = None
         self.polling_timer = None
         self.game_placeholder = None
-        # --- Novos Atributos ---
         self.partida_iniciada = False
+        self.partida_online = False
         self.mundo = None
         self.civ_jogador = None
         self.id_mundo_cliente = None  # Armazena o ID do mundo em modo cliente para exclusão posterior
-        # --- Fim Novos Atributos ---
 
         # === Dimensões da Tela ===
         screen_geometry = self.screen().availableGeometry()
@@ -2963,6 +2964,12 @@ class JanelaPrincipal(QMainWindow):
         if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
             print("🟡 [DEBUG] _iniciar_partida: Partida já iniciada. Ignorando nova chamada.")
             return
+
+        # --- NOVO: Registrar o modo de partida ---
+        # Isso é crucial para saber, ao sair, se o servidor deve ser limpo.
+        self.partida_online = (modo == "online")
+        print(f"🔵 [DEBUG] _iniciar_partida: partida_online definido como {self.partida_online}")
+        # --- FIM NOVO ---
 
         # ✅ Parar o loop de renderização antes de alterar a UI
         self.parar_loop()
@@ -3531,15 +3538,24 @@ class JanelaPrincipal(QMainWindow):
         # O 'dialog' ainda é necessário para a ação real, então passamos ele também
         self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_para_menu)
 
-    def _real_sair_para_menu(self, dialog, username: str):  # Mantém a assinatura existente
+    def _real_sair_para_menu(self, dialog, username: str):
         """Realiza a saída para o menu após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔵 [DEBUG] _real_sair_para_menu: Executando ações de saída.")
-        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_para_menu
-        self._limpar_estado_servidor(username)  # Ajuste se necessário
+
+        # Limpar estado no servidor apenas para partidas online ---
+        if hasattr(self, 'partida_online') and self.partida_online:
+            print("🌐 [DEBUG] _real_sair_para_menu: Partida online detectada. Tentando limpar estado no servidor.")
+            self._limpar_estado_servidor(username)  # Ajuste se necessário
+        else:
+            print(
+                "🔵 [DEBUG] _real_sair_para_menu: Partida offline ou estado indefinido. Ignorando limpeza de estado no servidor.")
+            # Continua com a limpeza local mesmo assim
+
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         self.partida_iniciada = False  # ✅ Resetar flag
-        # Resetar o ID do mundo cliente
+        # Resetar o ID do mundo cliente e flags de partida
         self.id_mundo_cliente = None
+        self.partida_online = False  # Resetar a flag também
         # Restaurar overlay inicial
         if hasattr(self, 'overlay_widget') and self.overlay_widget:
             self.overlay_widget.show()
@@ -3562,11 +3578,21 @@ class JanelaPrincipal(QMainWindow):
     def _real_sair_do_jogo(self, dialog, username: str):  # Mantém a assinatura existente
         """Realiza o fechamento do jogo após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔴 [DEBUG] _real_sair_do_jogo: Executando ações de fechamento.")
-        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_do_jogo
-        self._limpar_estado_servidor(username)  # Ajuste se necessário
+
+        # Limpar estado no servidor apenas para partidas online ---
+        if hasattr(self, 'partida_online') and self.partida_online:
+            print("🌐 [DEBUG] _real_sair_do_jogo: Partida online detectada. Tentando limpar estado no servidor.")
+            self._limpar_estado_servidor(username)  # Ajuste se necessário
+        else:
+            print(
+                "🔵 [DEBUG] _real_sair_do_jogo: Partida offline ou estado indefinido. Ignorando limpeza de estado no servidor.")
+            # Continua com a limpeza local mesmo assim
+
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
-        # Resetar o ID do mundo cliente
+        # Resetar o ID do mundo cliente e flags de partida
         self.id_mundo_cliente = None
+        self.partida_iniciada = False  # ✅ Resetar flag
+        self.partida_online = False  # Resetar a flag também
         print("🟢 [DEBUG] _real_sair_do_jogo: Estado limpo. Fechando aplicativo...")
         from PyQt6.QtWidgets import QApplication  # Importa aqui
         QApplication.quit()  # Fecha a aplicação PyQt6
@@ -4809,11 +4835,19 @@ class OfflineSetupOverlay(QWidget):
 ================================================================================
 📄 client/widgets/information_window.py
 ================================================================================
-# client/widgets/information_window.py
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QFrame, QTextEdit, QGroupBox, QListWidget)
+# --- client/widgets/information_window.py ---
+# Atualizado para salvar/carregar seleções e adicionar ícones para mulheres
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
+    QLabel, QPushButton, QFrame, QTextEdit,
+    QGroupBox, QComboBox, QDialog
+)
 from PyQt6.QtCore import Qt
-from shared.settlement import Assentamento # Importar para usar PARCELA_CENTRAL e métodos
+from PyQt6.QtGui import QPixmap
+
+from shared.settlement import Assentamento
+from client.dialogs.military_config import MilitaryUnitConfigDialog
+from client.utils.scaling import scale
 
 class JanelaInformacaoRegiao(QWidget):
     """Window for displaying information about a clicked region.
@@ -4822,13 +4856,34 @@ class JanelaInformacaoRegiao(QWidget):
     """
 
     def __init__(self, assentamento: Assentamento, region_clicked: str, tile_coords, mundo, overlay_coords=None): # Removido parent, adicionado overlay_coords
-        super().__init__(parent=None) # <--- Janela independente
+        super().__init__(parent=None) # <- Janela independente
         self.assentamento = assentamento
         self.region_clicked = region_clicked # Name of the region where the click occurred
         self.tile_coords = tile_coords
         self.mundo = mundo # Reference to the world for fetching information
         # self.parent_widget = parent # REMOVIDO
         self.overlay_coords = overlay_coords # Coordenadas globais do TileOverlay para posicionar esta janela
+
+        self.units_list = None
+
+        # --- Adicionando QLabel para os ícones de alocação ---
+        # Estes devem ser atributos da classe para serem acessados por outros métodos
+        tamanho_icone = 64  # Tamanho base em pixels lógicos
+        tamanho_escalado = scale(tamanho_icone) # Aplica a escala DPI uma vez
+
+        self.men_allocation_icon_label = QLabel("No Allocation")
+        self.men_allocation_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.men_allocation_icon_label.setMinimumSize(tamanho_escalado, tamanho_escalado)
+        self.men_allocation_icon_label.setMaximumSize(tamanho_escalado, tamanho_escalado)
+        self.men_allocation_icon_label.setScaledContents(True)
+        # self.men_allocation_icon_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed) # Opcional
+
+        self.women_allocation_icon_label = QLabel("No Allocation")
+        self.women_allocation_icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.women_allocation_icon_label.setMinimumSize(tamanho_escalado, tamanho_escalado)
+        self.women_allocation_icon_label.setMaximumSize(tamanho_escalado, tamanho_escalado)
+        self.women_allocation_icon_label.setScaledContents(True)
+        # self.women_allocation_icon_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed) # Opcional
 
         # --- Ensure opaque background ---
         # Remove the translucent background attribute (if inherited)
@@ -4886,16 +4941,37 @@ class JanelaInformacaoRegiao(QWidget):
             QPushButton:hover {
                 background-color: #2980B9; /* Button color on hover */
             }
+            QComboBox { /* Estilo para os combos */
+                background-color: #34495E;
+                border: 1px solid #34495E;
+                border-radius: 3px;
+                padding: 5px;
+                color: #ECF0F1;
+            }
         """)
 
+        self.showMaximized()
         self.setup_ui()
+
+        # --- Conectar os combos para atualizar os ícones e carregar seleções iniciais ---
+        # ESTAS CONEXÕES DEVEM ACONTECER DEPOIS que setup_ui() cria os combos (self.new_men_combo, self.new_women_combo)
+        if hasattr(self, 'new_men_combo') and hasattr(self, 'men_allocation_icon_label'):
+            self.new_men_combo.currentTextChanged.connect(self._atualizar_icone_alocacao_homens)
+            # Carregar seleção e ícone inicial para homens do assentamento
+            self._carregar_selecao_homens_do_assentamento()
+
+        if hasattr(self, 'new_women_combo') and hasattr(self, 'women_allocation_icon_label'):
+            self.new_women_combo.currentTextChanged.connect(self._atualizar_icone_alocacao_mulheres)
+            # Carregar seleção e ícone inicial para mulheres do assentamento
+            self._carregar_selecao_mulheres_do_assentamento()
+
         # --- Position the window based on overlay_coords ---
         if self.overlay_coords:
             overlay_x, overlay_y, overlay_width, overlay_height = self.overlay_coords
             # Position near the overlay, maybe slightly offset
             # You can adjust the offset (e.g., +20, +20) or center it relative to the overlay
-            window_width = 500 # Or get from sizeHint() after setup_ui
-            window_height = 400
+            window_width = 800 # Ajustado para refletir a nova largura desejada
+            window_height = 600 # Ajustado se necessário
             # Example: Position top-left corner near the bottom-right of the overlay
             pos_x = overlay_x + overlay_width + 5 # Small offset
             pos_y = overlay_y + overlay_height + 5 # Small offset
@@ -4912,12 +4988,124 @@ class JanelaInformacaoRegiao(QWidget):
         if self.assentamento:
             self.load_settlement_data() # Load settlement data (if it exists)
 
+    def _carregar_selecao_homens_do_assentamento(self):
+        """Carrega a seleção de alocação de homens do objeto assentamento."""
+        # Tenta obter a seleção salva do assentamento
+        # Suponha que o assentamento tenha um atributo para isso
+        # Por exemplo: self.assentamento.alocacao_homens_selecionada = "Farm"
+        # ou um dicionário: self.assentamento.alocacoes = {"homens": "Farm", "mulheres": "Home"}
+        # Exemplo com atributo direto:
+        # selecao_salva = getattr(self.assentamento, 'alocacao_homens_selecionada', 'Farm') # Valor padrão
+
+        # Exemplo com dicionário (mais flexível para futuras expansões)
+        alocacoes = getattr(self.assentamento, 'alocacoes', {})
+        selecao_salva = alocacoes.get('homens', 'Farm') # Valor padrão 'Farm'
+
+        index = self.new_men_combo.findText(selecao_salva)
+        if index >= 0:
+            self.new_men_combo.setCurrentIndex(index)
+            print(f"🔍 [JanelaInformacaoRegiao] Seleção de homens carregada: {selecao_salva}")
+        else:
+            print(f"⚠️ [JanelaInformacaoRegiao] Seleção de homens salva '{selecao_salva}' não encontrada no combo. Usando padrão.")
+            # Opcional: definir um padrão explícito
+            self.new_men_combo.setCurrentText('Farm') # Ou outro padrão desejado
+        # Atualiza o ícone imediatamente após carregar a seleção
+        self._atualizar_icone_alocacao_homens(self.new_men_combo.currentText())
+
+    def _carregar_selecao_mulheres_do_assentamento(self):
+        """Carrega a seleção de alocação de mulheres do objeto assentamento."""
+        # Tenta obter a seleção salva do assentamento
+        # Exemplo com dicionário:
+        alocacoes = getattr(self.assentamento, 'alocacoes', {})
+        selecao_salva = alocacoes.get('mulheres', 'Home') # Valor padrão 'Home'
+
+        index = self.new_women_combo.findText(selecao_salva)
+        if index >= 0:
+            self.new_women_combo.setCurrentIndex(index)
+            print(f"🔍 [JanelaInformacaoRegiao] Seleção de mulheres carregada: {selecao_salva}")
+        else:
+            print(f"⚠️ [JanelaInformacaoRegiao] Seleção de mulheres salva '{selecao_salva}' não encontrada no combo. Usando padrão.")
+            # Opcional: definir um padrão explícito
+            self.new_women_combo.setCurrentText('Home') # Ou outro padrão desejado
+        # Atualiza o ícone imediatamente após carregar a seleção
+        self._atualizar_icone_alocacao_mulheres(self.new_women_combo.currentText())
+
+
+    def _atualizar_icone_alocacao_homens(self, texto_combo):
+        """Atualiza o ícone exibido com base na seleção do combo de homens."""
+        if not texto_combo:
+            self.men_allocation_icon_label.setText("No Allocation")
+            self.men_allocation_icon_label.setPixmap(QPixmap())
+            return
+
+        # Mapeia o texto do combo para o caminho da imagem
+        # Os caminhos devem apontar para os arquivos de imagem reais
+        icon_paths = {
+            "Farm": "client/resources/shovel.png",
+            "Mine": "client/resources/pickaxe.png",
+            "Home": "client/resources/house.png",
+            "Armed Forces": "client/resources/helmet.png", # Exemplo de ícone para Armed Forces
+            # Adicione mais mapeamentos conforme necessário
+        }
+
+        caminho_imagem = icon_paths.get(texto_combo)
+
+        if caminho_imagem:
+            pixmap = QPixmap(caminho_imagem)
+            if not pixmap.isNull():
+                print(f"🖼️ [JanelaInformacaoRegiao] Ícone para alocação de homens '{texto_combo}' carregado: {caminho_imagem}")
+                self.men_allocation_icon_label.setPixmap(pixmap)
+                self.men_allocation_icon_label.setText("") # Limpa o texto, se houver
+            else:
+                print(f"⚠️ [JanelaInformacaoRegiao] Imagem do ícone para alocação de homens '{texto_combo}' não encontrada: {caminho_imagem}")
+                self.men_allocation_icon_label.setText(f"Icon: {texto_combo}")
+                self.men_allocation_icon_label.setPixmap(QPixmap())
+        else:
+            print(f"⚠️ [JanelaInformacaoRegiao] Nenhum ícone mapeado para alocação de homens '{texto_combo}'.")
+            self.men_allocation_icon_label.setText(f"Icon: {texto_combo}")
+            self.men_allocation_icon_label.setPixmap(QPixmap())
+
+    def _atualizar_icone_alocacao_mulheres(self, texto_combo):
+        """Atualiza o ícone exibido com base na seleção do combo de mulheres."""
+        if not texto_combo:
+            self.women_allocation_icon_label.setText("No Allocation")
+            self.women_allocation_icon_label.setPixmap(QPixmap())
+            return
+
+        # Mapeia o texto do combo para o caminho da imagem
+        icon_paths = {
+            "Home": "client/resources/home.png", # Exemplo
+            "Farm": "client/resources/farm.png", # Exemplo
+            "Mine": "client/resources/mine.png", # Exemplo
+            # 'Armed Forces' não está mais disponível para mulheres, mas mantemos por consistência
+            # ou removemos se for garantido que não será usado.
+            # "Armed Forces": "client/resources/military.png", # Removido da lista de opções
+            # Adicione mais mapeamentos conforme necessário
+        }
+
+        caminho_imagem = icon_paths.get(texto_combo)
+
+        if caminho_imagem:
+            pixmap = QPixmap(caminho_imagem)
+            if not pixmap.isNull():
+                print(f"🖼️ [JanelaInformacaoRegiao] Ícone para alocação de mulheres '{texto_combo}' carregado: {caminho_imagem}")
+                self.women_allocation_icon_label.setPixmap(pixmap)
+                self.women_allocation_icon_label.setText("") # Limpa o texto, se houver
+            else:
+                print(f"⚠️ [JanelaInformacaoRegiao] Imagem do ícone para alocação de mulheres '{texto_combo}' não encontrada: {caminho_imagem}")
+                self.women_allocation_icon_label.setText(f"Icon: {texto_combo}")
+                self.women_allocation_icon_label.setPixmap(QPixmap())
+        else:
+            print(f"⚠️ [JanelaInformacaoRegiao] Nenhum ícone mapeado para alocação de mulheres '{texto_combo}'.")
+            self.women_allocation_icon_label.setText(f"Icon: {texto_combo}")
+            self.women_allocation_icon_label.setPixmap(QPixmap())
+
     def setup_ui(self):
         """Sets up the UI widgets."""
         # Use a main layout to position the close button and content
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10) # Add margins around the content
-        main_layout.setSpacing(5) # Add spacing between elements
+        main_layout.setContentsMargins(10, 10, 10, 10)  # Add margins around the content
+        main_layout.setSpacing(5)  # Add spacing between elements
 
         # --- Title ---
         if self.assentamento:
@@ -4934,6 +5122,16 @@ class JanelaInformacaoRegiao(QWidget):
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         main_layout.addWidget(separator)
 
+        # --- NEW: Horizontal Layout for Split Content ---
+        content_split_layout = QHBoxLayout()
+        content_split_layout.setContentsMargins(0, 0, 0, 0)  # Opcional: remover margens internas
+        content_split_layout.setSpacing(5)  # Opcional: espaçamento entre as colunas
+
+        # --- Left Column Layout (1/3 width) ---
+        left_column_layout = QVBoxLayout()
+        left_column_layout.setContentsMargins(0, 0, 0, 0)  # Opcional: remover margens
+        left_column_layout.setSpacing(5)  # Espaçamento entre os widgets da coluna esquerda
+
         # --- Region Info Group (Always Present) ---
         info_region_group = QGroupBox("Region Information")
         info_region_layout = QVBoxLayout(info_region_group)
@@ -4941,7 +5139,8 @@ class JanelaInformacaoRegiao(QWidget):
         self.info_region_text = QTextEdit()
         self.info_region_text.setReadOnly(True)
         info_region_layout.addWidget(self.info_region_text)
-        main_layout.addWidget(info_region_group)
+        # main_layout.addWidget(info_region_group) # <-- REMOVIDO daqui
+        left_column_layout.addWidget(info_region_group)  # <-- ADICIONADO aqui
 
         # --- Settlement Info Group (Conditional) ---
         if self.assentamento:
@@ -4951,28 +5150,50 @@ class JanelaInformacaoRegiao(QWidget):
             # --- Simple Settlement Data ---
             self.info_settlement_text = QTextEdit()
             self.info_settlement_text.setReadOnly(True)
-            self.info_settlement_text.setMaximumHeight(150) # Limit text box height
+            self.info_settlement_text.setMaximumHeight(150)  # Limit text box height
             info_settlement_layout.addWidget(self.info_settlement_text)
-
-            # --- Units List ---
-            units_list_group = QGroupBox("Units")
-            units_list_layout = QVBoxLayout(units_list_group)
-            self.units_list = QListWidget()
-            # Populate with real data in load_settlement_data
-            units_list_layout.addWidget(self.units_list)
-            info_settlement_layout.addWidget(units_list_group)
 
             # --- Other groups can be added here ---
             # Ex: Resources, Buildings, etc.
 
-            main_layout.addWidget(info_settlement_group)
+            # main_layout.addWidget(info_settlement_group) # <-- REMOVIDO daqui
+            left_column_layout.addWidget(info_settlement_group)  # <-- ADICIONADO aqui
+
+        # Adiciona a coluna esquerda ao layout horizontal com fator de estiramento 1
+        content_split_layout.addLayout(left_column_layout, 1)  # 1 parte
+
+        # --- NEW: Right Column Layout (2/3 width) ---
+        right_column_layout = QVBoxLayout()  # Layout vertical para o lado direito
+        right_column_layout.setContentsMargins(0, 0, 0, 0)  # Opcional: remover margens
+        right_column_layout.setSpacing(5)  # Espaçamento entre widgets na coluna direita (se houver mais)
+
+        if self.assentamento:  # Só adiciona o QTabWidget se houver assentamento
+            # --- NEW: Tab Widget para Occupation, Economy (e futuramente Armed Forces popup) ---
+            tabs_group = QGroupBox("Settlement")
+            tabs_layout = QVBoxLayout(tabs_group)
+
+            self.tabs_widget = QTabWidget()
+
+            # --- Adiciona abas (exceto Armed Forces) ---
+            self._setup_tabs_ui()  # Esta função agora deve conter apenas Occupation e Economy
+
+            tabs_layout.addWidget(self.tabs_widget)
+
+            # Adiciona o grupo (com abas) ao layout da coluna direita
+            right_column_layout.addWidget(tabs_group)
+
+        # Adiciona o layout da coluna direita ao layout horizontal com fator de estiramento 2
+        content_split_layout.addLayout(right_column_layout, 3)  # 3 partes
+
+        # Adiciona o layout horizontal ao layout principal
+        main_layout.addLayout(content_split_layout)
 
         # --- Close Button (Positioned Top Right) ---
         # Create a horizontal layout just for the close button
         close_button_layout = QHBoxLayout()
-        close_button_layout.addStretch() # Add a stretchable space to push the button to the right
+        close_button_layout.addStretch()  # Add a stretchable space to push the button to the right
 
-        self.btn_close = QPushButton("Close") # Changed text to English
+        self.btn_close = QPushButton("Close")  # Changed text to English
         # self.btn_close.setFixedSize(scale(30), scale(30)) # Don't use fixed size, let layout manage
         self.btn_close.setStyleSheet("""
             QPushButton {
@@ -4987,10 +5208,136 @@ class JanelaInformacaoRegiao(QWidget):
                 background-color: #c0392b; /* Darker red on hover */
             }
         """)
-        self.btn_close.clicked.connect(self.close) # Connect close signal
-        close_button_layout.addWidget(self.btn_close) # Add button to the right-aligned layout
+        self.btn_close.clicked.connect(self.close)  # Connect close signal
+        close_button_layout.addWidget(self.btn_close)  # Add button to the right-aligned layout
 
-        main_layout.addLayout(close_button_layout) # Add the button layout to the main layout
+        main_layout.addLayout(close_button_layout)  # Add the button layout to the main layout
+
+    def _setup_tabs_ui(self):
+        """Configura as abas da interface: Occupation, Economy."""
+        # --- Aba: Occupation ---
+        occupation_page = QWidget()
+        occupation_layout = QVBoxLayout(occupation_page)
+
+        # --- Subdivisão: Novos Homens ---
+        new_men_group = QGroupBox("New Men Allocation")
+        new_men_group_layout = QVBoxLayout(new_men_group)
+
+        # Cria o combo para homens
+        self.new_men_combo = QComboBox()
+        self.new_men_combo.addItems(["Farm", "Mine", "Armed Forces"]) # Ajuste conforme necessário
+        # self.new_men_combo.setCurrentText("Farm") # Opcional - o carregamento do assentamento fará isso
+
+        # Cria o QLabel para o ícone de homens
+        # (Este QLabel já foi criado no __init__)
+        # self.men_allocation_icon_label já existe
+
+        # Layout para agrupar combo e ícone (VERTICAL - ícone abaixo do combo)
+        men_combo_icon_layout = QVBoxLayout() # <-- Alterado de QHBoxLayout para QVBoxLayout
+        men_combo_icon_layout.addWidget(self.new_men_combo) # Combo primeiro
+        men_combo_icon_layout.addWidget(self.men_allocation_icon_label) # Ícone abaixo do combo
+        # Adiciona o layout interno ao layout do grupo
+        new_men_group_layout.addLayout(men_combo_icon_layout)
+
+        # --- Subdivisão: Novas Mulheres ---
+        new_women_group = QGroupBox("New Women Allocation")
+        new_women_group_layout = QVBoxLayout(new_women_group)
+
+        # Cria o combo para mulheres
+        self.new_women_combo = QComboBox()
+        self.new_women_combo.addItems(["Home", "Farm", "Mine"]) # Ajuste conforme necessário
+        # self.new_women_combo.setCurrentText("Home") # Opcional - o carregamento do assentamento fará isso
+
+        # Cria o QLabel para o ícone de mulheres
+        # (Este QLabel já foi criado no __init__)
+        # self.women_allocation_icon_label já existe
+
+        # Layout para agrupar combo e ícone (VERTICAL - ícone abaixo do combo)
+        women_combo_icon_layout = QVBoxLayout() # <-- Alterado de QHBoxLayout para QVBoxLayout
+        women_combo_icon_layout.addWidget(self.new_women_combo) # Combo primeiro
+        women_combo_icon_layout.addWidget(self.women_allocation_icon_label) # Ícone abaixo do combo
+        # Adiciona o layout interno ao layout do grupo
+        new_women_group_layout.addLayout(women_combo_icon_layout)
+
+        # Adiciona os grupos ao layout principal da aba Occupation
+        occupation_layout.addWidget(new_men_group)
+        occupation_layout.addWidget(new_women_group)
+
+        # Adiciona a aba Occupation ao QTabWidget principal
+        self.tabs_widget.addTab(occupation_page, "Occupation")
+
+        # --- Aba: Economy (Exemplo básico, você pode expandir) ---
+        economy_page = QWidget()
+        economy_layout = QVBoxLayout(economy_page)
+        # Adicione widgets para a aba de economia aqui
+        economy_info_label = QLabel("Economy Information will be displayed here.")
+        economy_info_label.setWordWrap(True)
+        economy_layout.addWidget(economy_info_label)
+        # Adiciona a aba Economy ao QTabWidget principal
+        self.tabs_widget.addTab(economy_page, "Economy")
+
+        # --- Conectar os combos para atualizar os ícones ---
+        # ESTAS CONEXÕES DEVEM ACONTECER DEPOIS que os combos e labels são criados e adicionados ao layout
+        # (Estas conexões agora estão no __init__, após a chamada de setup_ui)
+        # self.new_men_combo.currentTextChanged.connect(self._atualizar_icone_alocacao_homens)
+        # self.new_women_combo.currentTextChanged.connect(self._atualizar_icone_alocacao_mulheres)
+
+        # --- Carregar os ícones iniciais ---
+        # Carrega os ícones com base na seleção inicial dos combos
+        # (Esta parte agora é feita via _carregar_selecao_..._do_assentamento no __init__)
+        # self._atualizar_icone_alocacao_homens(self.new_men_combo.currentText())
+        # self._atualizar_icone_alocacao_mulheres(self.new_women_combo.currentText())
+
+    def _on_new_men_combo_changed(self, text):
+        """Chama a janela de configuração de parâmetros militares se 'Armed Forces' for selecionado."""
+        if text == "Armed Forces":
+            # Nova Lógica: Abrir nova janela/popup de configuração de parâmetros
+            self._abrir_janela_configuracao_militar_homens()
+        # Salva a seleção no objeto assentamento
+        self._salvar_selecao_homens_no_assentamento(text)
+
+    def _on_new_women_combo_changed(self, text):
+        """Agora não faz nada, pois não há mais Armed Forces para mulheres."""
+        # Salva a seleção no objeto assentamento
+        self._salvar_selecao_mulheres_no_assentamento(text)
+
+    def _salvar_selecao_homens_no_assentamento(self, texto_selecionado):
+        """Salva a seleção de alocação de homens no objeto assentamento."""
+        # Exemplo com dicionário
+        if not hasattr(self.assentamento, 'alocacoes'):
+            self.assentamento.alocacoes = {}
+        self.assentamento.alocacoes['homens'] = texto_selecionado
+        print(f"💾 [JanelaInformacaoRegiao] Seleção de homens salva no assentamento: {texto_selecionado}")
+
+    def _salvar_selecao_mulheres_no_assentamento(self, texto_selecionado):
+        """Salva a seleção de alocação de mulheres no objeto assentamento."""
+        # Exemplo com dicionário
+        if not hasattr(self.assentamento, 'alocacoes'):
+            self.assentamento.alocacoes = {}
+        self.assentamento.alocacoes['mulheres'] = texto_selecionado
+        print(f"💾 [JanelaInformacaoRegiao] Seleção de mulheres salva no assentamento: {texto_selecionado}")
+
+    def _abrir_janela_configuracao_militar_homens(self):
+        """Abre o popup de configuração de parâmetros da unidade militar."""
+        print("🔧 [DEBUG] Janela de configuração de parâmetros militares para homens acionada.")
+
+        if not self.assentamento:
+            print("⚠️ [DEBUG] Nenhum assentamento selecionado para configuração militar.")
+            return # Não pode abrir sem um assentamento
+
+        # Cria e exibe o diálogo de configuração
+        dialog = MilitaryUnitConfigDialog(self.assentamento, parent=self) # Passa o assentamento e o parent
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            print("✅ [DEBUG] Configuração de parâmetros militares salva com sucesso.")
+            # Opcional: Atualizar algum label ou informação na janela principal
+            # Ex: self.label_tipo_unidade_militar.setText(f"Type: {self.assentamento.tipo_unidade_militar_padrao}")
+        else:
+            print("ℹ️ [DEBUG] Configuração de parâmetros militares cancelada.")
+
+    def _on_configure_men_role_clicked(self):
+        """Chamado quando o botão de configuração de papel militar de homens é clicado."""
+        print("🔧 [DEBUG] Configuração de papel militar para homens acionada.")
+        # Futura lógica: abrir janela de configuração com self.assentamento.alocacao_novos_homens_params
 
     def load_region_data(self):
         """Loads and displays general region data from the world."""
@@ -5016,36 +5363,95 @@ class JanelaInformacaoRegiao(QWidget):
             print(f"⚠️ [JanelaInformacaoRegiao] load_settlement_data called, but settlement is None.")
             return
 
-        print(f"🔍 [JanelaInformacaoRegiao] Loading data for settlement of '{self.assentamento.civilizacao.nome}' on parcel {self.assentamento.indice_parcela} of tile {self.assentamento.coordenadas_tile}.")
+        print(
+            f"🔍 [JanelaInformacaoRegiao] Loading data for settlement of '{self.assentamento.civilizacao.nome}' on parcel {self.assentamento.indice_parcela} of tile {self.assentamento.coordenadas_tile}.")
 
-        # --- Settlement Information (initially just the civilization name and parcel) ---
-        # Hardcoded por enquanto
-        populacao = "N pessoas" # self.assentamento.get_populacao_total()
-        producao = "X produção" # self.assentamento.calcular_producao_total()
+        # --- Obter dados reais do assentamento ---
+        populacao_total = self.assentamento.get_populacao_total()
+        producao = self.assentamento.get_producao_real()
 
-        info_text_content = f"civilization: {self.assentamento.civilizacao.nome}\n" # Changed to English
-        info_text_content += f"Parcel on Tile: {self.assentamento.indice_parcela}\n"
-        info_text_content += f"Tile Coordinates: {self.assentamento.coordenadas_tile}\n"
-        info_text_content += f"Total Population: {populacao}\n"
-        info_text_content += f"Estimated Production: {producao}\n"
-        # ... add more information as it becomes available
+        # --- Atualizar informações básicas ---
+        info_text_content = (
+            f"Civilization: {self.assentamento.civilizacao.nome}\n"
+            f"Parcel on Tile: {self.assentamento.indice_parcela}\n"
+            f"Tile Coordinates: {self.assentamento.coordenadas_tile}\n"
+            f"Total Population: {populacao_total}\n"
+            f"Estimated Production: {producao:.2f}\n"
+        )
+        # Verifica se o widget de texto ainda é válido antes de usar
+        # (Embora raro, é bom ser consistente se estamos fazendo para outros widgets)
+        if hasattr(self, 'info_settlement_text') and self.info_settlement_text:
+            try:
+                # Qualquer operação no widget C++ pode levantar RuntimeError se ele foi deletado
+                self.info_settlement_text.setPlainText(info_text_content)
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(
+                        f"⚠️ [load_settlement_data] info_settlement_text foi deletado pelo Qt. Ignorando atualização.")
+                    return  # Sai, pois o widget principal da UI pode estar comprometido
+                else:
+                    raise  # Re-lança se for outro tipo de RuntimeError
 
-        self.info_settlement_text.setPlainText(info_text_content)
+        # --- NEW: Atualizar labels de alocação de civis (Farm, Mine, Home) ---
+        # Agora lendo diretamente do assentamento
+        # Adicionando verificações para os labels também, por segurança
+        if hasattr(self, 'farm_men_label') and self.farm_men_label:
+            try:
+                self.farm_men_label.setText(f"Men: {self.assentamento.farm_homens}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] farm_men_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
+        if hasattr(self, 'farm_women_label') and self.farm_women_label:
+            try:
+                self.farm_women_label.setText(f"Women: {self.assentamento.farm_mulheres}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] farm_women_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
+        if hasattr(self, 'mine_men_label') and self.mine_men_label:
+            try:
+                self.mine_men_label.setText(f"Men: {self.assentamento.mine_homens}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] mine_men_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
+        if hasattr(self, 'mine_women_label') and self.mine_women_label:
+            try:
+                self.mine_women_label.setText(f"Women: {self.assentamento.mine_mulheres}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] mine_women_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
+        if hasattr(self, 'home_men_label') and self.home_men_label:
+            try:
+                self.home_men_label.setText(f"Men: {self.assentamento.home_homens}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] home_men_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
+        if hasattr(self, 'home_women_label') and self.home_women_label:
+            try:
+                self.home_women_label.setText(f"Women: {self.assentamento.home_mulheres}")
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    print(f"⚠️ [load_settlement_data] home_women_label foi deletado pelo Qt. Ignorando atualização.")
+                    return
+                else:
+                    raise
 
-        # --- Populate Units List ---
-        # Assuming the settlement has a list of units (e.g., self.assentamento.unidades)
-        # For now, add placeholders
-        self.units_list.clear()
-        # Real example (uncomment if unit list exists):
-        # for unidade in self.assentamento.unidades:
-        #     self.units_list.addItem(f"{unidade.tipo} - Level {unidade.nivel}")
+        print("ℹ️ [load_settlement_data] Dados militares agora são gerenciados pelo popup 'Armed Forces'.")
 
-        # Placeholder for now
-        self.units_list.addItem("Example Unit 1")
-        self.units_list.addItem("Example Unit 2")
-        # Add more placeholders or real data here
-
-    # --- Modificação do closeEvent ---
     def closeEvent(self, event):
         """
         Evento chamado quando a janela é fechada.
@@ -5062,7 +5468,7 @@ class JanelaInformacaoRegiao(QWidget):
         # A responsabilidade de atualização pode voltar para o TileOverlay.
 
         print("✅ [JanelaInformacaoRegiao] closeEvent concluído.")
-    # --- Fim da modificação ---
+
 
 ================================================================================
 📄 client/widgets/tile.py
@@ -5349,10 +5755,9 @@ class TileOverlay(QWidget):
             # self.janela_info_atual = None # Geralmente não é necessário se closeEvent limpar a referência
         # --- FIM PASSO 0 ---
 
-        # --- PASSO 1: Mapear o nome da região clicada para o índice da parcela ---
-        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
-        # Exemplo de mapeamento (hexágono):
-        picking_region_to_parcela_idx = {
+        # --- PASSO 1: Definir mapeamentos de região para parcela ---
+        # Mapeamento padrão para HEXÁGONO
+        picking_region_to_parcela_idx_hex = {
             "center": Assentamento.PARCELA_CENTRAL, # 0
             "top": 1,
             "topright": 2,
@@ -5363,23 +5768,29 @@ class TileOverlay(QWidget):
             "left": 7,  # <-- ADICIONADO
             "right": 8  # <-- ADICIONADO
         }
-        # Exemplo para pentágono (exclui "bottomright"):
-        picking_region_to_parcela_idx_pentagono = {
+        # Mapeamento para PENTÁGONO (exclui "bottomright")
+        picking_region_to_parcela_idx_pent = {
             "center": Assentamento.PARCELA_CENTRAL, # 0
             "top": 1,
             "topright": 2,
-            "bottom": 3,
-            "bottomleft": 4,
-            "topleft": 5,
-            # "left": 6, # Não incluído se pentágonos não tiverem 'left'
-            # "right": 7, # Não incluído se pentágonos não tiverem 'right'
+            "bottom": 3, # <-- Ajustado índice
+            "bottomleft": 4, # <-- Ajustado índice
+            "topleft": 5, # <-- Ajustado índice
+            # "left": 6, # <-- REMOVIDO se pentágonos não tiverem 'left' (ajuste se necessário)
+            # "right": 7, # <-- REMOVIDO se pentágonos não tiverem 'right' (ajuste se necessário)
+            "left": 6, # <-- ADICIONADO (se necessário e existir no picking)
+            "right": 7  # <-- ADICIONADO (se necessário e existir no picking)
         }
 
         # Determinar qual mapeamento usar com base no formato do tile
         node_data = self.mundo.planeta.geografia.nodes.get(self.coords_tile_alvo, {})
         eh_pentagono = node_data.get('formato', '').startswith('pent') # Verifica se o formato começa com 'pent'
-        picking_map = picking_region_to_parcela_idx_pentagono if eh_pentagono else picking_region_to_parcela_idx
+        picking_map = picking_region_to_parcela_idx_pent if eh_pentagono else picking_region_to_parcela_idx_hex
+        # --- FIM PASSO 1 ---
 
+        # --- PASSO 2: Mapear o nome da região clicada para o índice da parcela ---
+        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
+        # Agora picking_map já está definido corretamente
         indice_parcela_clicada = picking_map.get(region_name)
 
         if indice_parcela_clicada is None:
@@ -5391,25 +5802,31 @@ class TileOverlay(QWidget):
 
         print(f"🔍 [TileOverlay] Região '{region_name}' mapeada para parcela {indice_parcela_clicada} no tile {self.coords_tile_alvo}.")
 
-        # --- PASSO 2: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
+        # --- PASSO 3: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
         assentamento_alvo = None
-        for civ in self.mundo.civs:
-            for assentamento in civ.assentamentos:
-                if (assentamento.coordenadas_tile == self.coords_tile_alvo and
-                    assentamento.indice_parcela == indice_parcela_clicada):
-                    assentamento_alvo = assentamento
+        # Verifica se o mundo e as civilizações estão carregados
+        if self.mundo and hasattr(self.mundo, 'civs'):
+            for civ in self.mundo.civs: # <-- Itera pelas civilizações (civs)
+                for assentamento in civ.assentamentos: # <-- Itera pelos assentamentos da civilização
+                    if (assentamento.coordenadas_tile == self.coords_tile_alvo and
+                        assentamento.indice_parcela == indice_parcela_clicada):
+                        assentamento_alvo = assentamento
+                        break # Encontrou o assentamento
+                if assentamento_alvo:
                     break # Encontrou o assentamento
-            if assentamento_alvo:
-                break # Encontrou o assentamento
+        else:
+            print("⚠️ [TileOverlay] Mundo ou Civilizações ('civs') não carregadas, não é possível procurar assentamentos.")
+            # Mesmo assim, abre a janela genérica de região
+            # assentamento_alvo permanece None
 
         if not assentamento_alvo:
             print(f"⚠️ [TileOverlay] Nenhum assentamento encontrado na parcela {indice_parcela_clicada} do tile {self.coords_tile_alvo}. Abrindo janela genérica de região.")
         else:
             print(f"✅ [TileOverlay] Assentamento encontrado: {assentamento_alvo.civilizacao.nome} - Parcela {assentamento_alvo.indice_parcela}")
 
-        # --- PASSO 3: Abrir a janela de informações genérica ---
+        # --- PASSO 4: Abrir a janela de informações genérica ---
         # Passamos o objeto do assentamento (ou None) e o nome da região onde o clique ocorreu
-        from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo
+        # from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo (já está no __init__)
 
         # --- Obter coordenadas globais do TileOverlay para posicionar a janela ---
         # geometry() retorna QRect relativo ao pai. mapToGlobal() converte para coordenadas da tela.
@@ -5423,9 +5840,14 @@ class TileOverlay(QWidget):
 
         # Armazena a nova janela na referência do atributo da classe
         # Passa overlay_coords em vez de parent
-        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, overlay_coords=overlay_coords)
-        self.janela_info_atual.show()
-        print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
+        try:
+            self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, overlay_coords=overlay_coords)
+            self.janela_info_atual.show()
+            print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
+        except Exception as e:
+            print(f"❌ [TileOverlay] Erro ao criar ou mostrar JanelaInformacaoRegiao: {e}")
+            import traceback
+            traceback.print_exc() # Imprime o traceback completo para debug
 
         # --- FORÇAR ATUALIZAÇÃO VISUAL DO TILEOVERLAY (Opcional, mas pode ajudar ao remover a janela filha) ---
         # Como a janela não é mais filha, o TileOverlay não precisa necessariamente de update aqui,
@@ -7623,6 +8045,148 @@ class ShaderProgram:
             print(f"❌ Uniform '{nome}' não encontrado!")
 
 ================================================================================
+📄 client/dialogs/military_config.py
+================================================================================
+# --- client/dialogs/military_config_dialog.py ---
+# Atualizado para permitir edição direta dos parâmetros da unidade
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QComboBox, QDialogButtonBox, QGroupBox, QGridLayout, QSpinBox
+)
+from shared.unit import Unidade # Importa a classe base Unidade
+
+class MilitaryUnitConfigDialog(QDialog):
+    def __init__(self, assentamento, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configure Military Unit Type")
+        self.setModal(True)
+        self.assentamento = assentamento # Referência ao assentamento para salvar configurações
+
+        self.layout = QVBoxLayout(self)
+
+        # --- Título ---
+        title_label = QLabel("Configure Default Military Unit Parameters for New Recruits:")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+        self.layout.addWidget(title_label)
+
+        # --- Parâmetros da Unidade ---
+        unit_group = QGroupBox("Unit Parameters")
+        unit_layout = QGridLayout(unit_group)
+
+        # --- Spin Boxes para os parâmetros ---
+        # Definindo limites razoáveis para os spin boxes
+        max_value = 999 # Valor máximo para os parâmetros numéricos
+
+        self.ataque_spin = QSpinBox()
+        self.ataque_spin.setRange(1, max_value)
+        self.ataque_spin.setValue(1) # Valor padrão
+
+        self.defesa_spin = QSpinBox()
+        self.defesa_spin.setRange(1, max_value)
+        self.defesa_spin.setValue(1) # Valor padrão
+
+        self.vida_spin = QSpinBox()
+        self.vida_spin.setRange(1, max_value)
+        self.vida_spin.setValue(1) # Valor padrão
+
+        self.alcance_spin = QSpinBox()
+        self.alcance_spin.setRange(1, max_value)
+        self.alcance_spin.setValue(1) # Valor padrão
+
+        self.movimento_spin = QSpinBox()
+        self.movimento_spin.setRange(1, max_value)
+        self.movimento_spin.setValue(1) # Valor padrão
+
+        self.custo_spin = QSpinBox()
+        self.custo_spin.setRange(1, max_value)
+        self.custo_spin.setValue(1) # Valor padrão
+
+        # --- Tipo de Unidade (ComboBox fixo) ---
+        self.tipo_combo = QComboBox()
+        self.tipo_combo.addItems(["Ground", "Air", "Naval"])
+        # Pode-se definir um valor padrão ou carregar um anterior
+        # Exemplo: self.tipo_combo.setCurrentText("Terrestre")
+
+        # --- Layout dos Spin Boxes ---
+        row = 0
+        unit_layout.addWidget(QLabel("Attack:"), row, 0)
+        unit_layout.addWidget(self.ataque_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Defense:"), row, 0)
+        unit_layout.addWidget(self.defesa_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Health:"), row, 0)
+        unit_layout.addWidget(self.vida_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Range:"), row, 0)
+        unit_layout.addWidget(self.alcance_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Movement:"), row, 0)
+        unit_layout.addWidget(self.movimento_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Cost:"), row, 0)
+        unit_layout.addWidget(self.custo_spin, row, 1)
+        row += 1
+        unit_layout.addWidget(QLabel("Type:"), row, 0)
+        unit_layout.addWidget(self.tipo_combo, row, 1)
+
+        # Botões OK/Cancelar
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        self.layout.addWidget(unit_group)
+        self.layout.addWidget(buttons)
+
+        # Carrega a configuração anterior, se existir
+        self._carregar_configuracao_atual()
+
+    def _carregar_configuracao_atual(self):
+        """Carrega os parâmetros da unidade configurados anteriormente no assentamento."""
+        # Tenta obter os parâmetros salvos no assentamento
+        params = getattr(self.assentamento, 'params_unidade_militar', None)
+        if params:
+            print(f"🔧 [DEBUG] Carregando configuração anterior: {params}")
+            self.ataque_spin.setValue(params.get('ataque', 1))
+            self.defesa_spin.setValue(params.get('defesa', 1))
+            self.vida_spin.setValue(params.get('vida', 1))
+            self.alcance_spin.setValue(params.get('alcance', 1))
+            self.movimento_spin.setValue(params.get('movimento', 1))
+            self.custo_spin.setValue(params.get('custo', 1))
+            tipo_atual = params.get('tipo', 'Terrestre')
+            index_tipo = self.tipo_combo.findText(tipo_atual)
+            if index_tipo >= 0:
+                self.tipo_combo.setCurrentIndex(index_tipo)
+        else:
+            print("🔧 [DEBUG] Nenhuma configuração anterior encontrada, usando valores padrão (1).")
+
+
+    def get_current_unit_info(self):
+        """Retorna um dicionário com os parâmetros atuais dos spin boxes e combo."""
+        return {
+            "nome": f"Custom_{self.ataque_spin.value()}_{self.defesa_spin.value()}_{self.vida_spin.value()}", # Nome genérico ou personalizado
+            "ataque": self.ataque_spin.value(),
+            "defesa": self.defesa_spin.value(),
+            "vida": self.vida_spin.value(),
+            "alcance": self.alcance_spin.value(),
+            "movimento": self.movimento_spin.value(),
+            "custo": self.custo_spin.value(),
+            "tipo": self.tipo_combo.currentText()
+        }
+
+    def accept(self):
+        """Sobrescreve o método accept para salvar a configuração."""
+        current_info = self.get_current_unit_info()
+        if current_info:
+            # Salva a configuração no objeto do assentamento
+            # O nome pode ser genérico ou personalizado pelo jogador posteriormente
+            self.assentamento.tipo_unidade_militar_padrao = current_info["nome"] # Pode-se usar outro nome se for personalizado
+            self.assentamento.params_unidade_militar = current_info # Armazena todos os parâmetros
+            print(f"🔧 [MilitaryUnitConfigDialog] Configuração salva: {current_info} para assentamento {self.assentamento.indice_parcela}")
+        super().accept()
+
+
+================================================================================
 📄 client/dialogs/auth_dialog.py
 ================================================================================
 # client/dialogs/auth_dialog.py
@@ -8553,6 +9117,38 @@ class Civilizacao:
                 f"Prod={producao:.1f}, H={h}, M={m}, Total={h + m})")
 
 ================================================================================
+📄 shared/unit.py
+================================================================================
+class Unidade:
+    def __init__(self, nome, ataque, defesa, vida, alcance, movimento, custo, tipo):
+        self.nome = nome            # Nome da unidade
+        self.ataque = ataque        # A
+        self.defesa = defesa        # D
+        self.vida = vida            # V
+        self.alcance = alcance      # R
+        self.movimento = movimento  # M
+        self.custo = custo
+        self.tipo = tipo            # 'Terrestre', 'Aéreo', 'Marítimo'
+
+    def calcular_multiplicador(self, alvo):
+        """
+        Calcula o multiplicador de dano contra outra unidade.
+        Pode ser ajustado com base em parâmetros como velocidade, alcance, tipo, etc.
+        """
+        mult = 1.0
+        mult += (self.alcance - alvo.alcance) * 0.05
+        mult += (self.movimento - alvo.movimento) * 0.03
+        mult += (self.ataque - alvo.defesa) * 0.02
+
+        # Ajuste por tipo
+        if self.tipo == 'Aéreo' and alvo.tipo == 'Terrestre':
+            mult *= 1.2
+        elif self.tipo == 'Terrestre' and alvo.tipo == 'Aéreo':
+            mult *= 0.8
+        elif self.tipo == 'Submarino' and alvo.tipo == 'Superfície':
+            mult *= 1.3
+
+================================================================================
 📄 shared/world.py
 ================================================================================
 # shared/world.py
@@ -8709,6 +9305,19 @@ class Assentamento:
         # --- POPULAÇÃO INICIAL ---
         self.homens = 1
         self.mulheres = 1
+
+        # --- ALOCAÇÃO INICIAL ---
+        # Inicialmente, homem em Farm mulher em Home
+        self.farm_homens = self.homens
+        self.farm_mulheres = 0
+        self.mine_homens = 0
+        self.mine_mulheres = 0
+        self.home_homens = 0
+        self.home_mulheres = self.mulheres
+
+        # --- ALOCAÇÃO DE NOVOS CIDADÃOS ---
+        self.alocacao_novos_homens = "Farm"  # Padrão
+        self.alocacao_novas_mulheres = "Home"  # Padrão
 
         # --- PRODUTIVIDADE (GEOPRÓXIMA) ---
         self.coef_produtividade = 0.0  # Será calculado com base no bioma
@@ -9228,5 +9837,5 @@ class Referencias:
 
 
 ================================================================================
-✅ Total de 46 arquivos incluídos.
+✅ Total de 48 arquivos incluídos.
 ================================================================================

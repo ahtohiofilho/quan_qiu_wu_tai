@@ -55,6 +55,19 @@ class Assentamento:
         self.homens = 1
         self.mulheres = 1
 
+        # --- ALOCAÇÃO INICIAL ---
+        # Inicialmente, homem em Farm mulher em Home
+        self.farm_homens = self.homens
+        self.farm_mulheres = 0
+        self.mine_homens = 0
+        self.mine_mulheres = 0
+        self.home_homens = 0
+        self.home_mulheres = self.mulheres
+
+        # --- ALOCAÇÃO DE NOVOS CIDADÃOS ---
+        self.alocacao_novos_homens = "Farm"  # Padrão
+        self.alocacao_novas_mulheres = "Home"  # Padrão
+
         # --- PRODUTIVIDADE (GEOPRÓXIMA) ---
         self.coef_produtividade = 0.0  # Será calculado com base no bioma
 

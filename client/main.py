@@ -35,12 +35,11 @@ class JanelaPrincipal(QMainWindow):
         self.overlay_sala = None
         self.polling_timer = None
         self.game_placeholder = None
-        # --- Novos Atributos ---
         self.partida_iniciada = False
+        self.partida_online = False
         self.mundo = None
         self.civ_jogador = None
         self.id_mundo_cliente = None  # Armazena o ID do mundo em modo cliente para exclusão posterior
-        # --- Fim Novos Atributos ---
 
         # === Dimensões da Tela ===
         screen_geometry = self.screen().availableGeometry()
@@ -289,6 +288,12 @@ class JanelaPrincipal(QMainWindow):
         if hasattr(self, 'partida_iniciada') and self.partida_iniciada:
             print("🟡 [DEBUG] _iniciar_partida: Partida já iniciada. Ignorando nova chamada.")
             return
+
+        # --- NOVO: Registrar o modo de partida ---
+        # Isso é crucial para saber, ao sair, se o servidor deve ser limpo.
+        self.partida_online = (modo == "online")
+        print(f"🔵 [DEBUG] _iniciar_partida: partida_online definido como {self.partida_online}")
+        # --- FIM NOVO ---
 
         # ✅ Parar o loop de renderização antes de alterar a UI
         self.parar_loop()
@@ -857,15 +862,24 @@ class JanelaPrincipal(QMainWindow):
         # O 'dialog' ainda é necessário para a ação real, então passamos ele também
         self._confirmar_saida_antes_da_limpeza(dialog, username, self._real_sair_para_menu)
 
-    def _real_sair_para_menu(self, dialog, username: str):  # Mantém a assinatura existente
+    def _real_sair_para_menu(self, dialog, username: str):
         """Realiza a saída para o menu após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔵 [DEBUG] _real_sair_para_menu: Executando ações de saída.")
-        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_para_menu
-        self._limpar_estado_servidor(username)  # Ajuste se necessário
+
+        # Limpar estado no servidor apenas para partidas online ---
+        if hasattr(self, 'partida_online') and self.partida_online:
+            print("🌐 [DEBUG] _real_sair_para_menu: Partida online detectada. Tentando limpar estado no servidor.")
+            self._limpar_estado_servidor(username)  # Ajuste se necessário
+        else:
+            print(
+                "🔵 [DEBUG] _real_sair_para_menu: Partida offline ou estado indefinido. Ignorando limpeza de estado no servidor.")
+            # Continua com a limpeza local mesmo assim
+
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
         self.partida_iniciada = False  # ✅ Resetar flag
-        # Resetar o ID do mundo cliente
+        # Resetar o ID do mundo cliente e flags de partida
         self.id_mundo_cliente = None
+        self.partida_online = False  # Resetar a flag também
         # Restaurar overlay inicial
         if hasattr(self, 'overlay_widget') and self.overlay_widget:
             self.overlay_widget.show()
@@ -888,11 +902,21 @@ class JanelaPrincipal(QMainWindow):
     def _real_sair_do_jogo(self, dialog, username: str):  # Mantém a assinatura existente
         """Realiza o fechamento do jogo após exclusão da pasta de bandeiras (se aplicável)."""
         print("🔴 [DEBUG] _real_sair_do_jogo: Executando ações de fechamento.")
-        # dialog.accept() # <-- REMOVIDO: já foi feito em _sair_do_jogo
-        self._limpar_estado_servidor(username)  # Ajuste se necessário
+
+        # Limpar estado no servidor apenas para partidas online ---
+        if hasattr(self, 'partida_online') and self.partida_online:
+            print("🌐 [DEBUG] _real_sair_do_jogo: Partida online detectada. Tentando limpar estado no servidor.")
+            self._limpar_estado_servidor(username)  # Ajuste se necessário
+        else:
+            print(
+                "🔵 [DEBUG] _real_sair_do_jogo: Partida offline ou estado indefinido. Ignorando limpeza de estado no servidor.")
+            # Continua com a limpeza local mesmo assim
+
         self._limpeza_local()  # Esta função agora NÃO precisa mais excluir bandeiras diretamente
-        # Resetar o ID do mundo cliente
+        # Resetar o ID do mundo cliente e flags de partida
         self.id_mundo_cliente = None
+        self.partida_iniciada = False  # ✅ Resetar flag
+        self.partida_online = False  # Resetar a flag também
         print("🟢 [DEBUG] _real_sair_do_jogo: Estado limpo. Fechando aplicativo...")
         from PyQt6.QtWidgets import QApplication  # Importa aqui
         QApplication.quit()  # Fecha a aplicação PyQt6

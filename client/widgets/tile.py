@@ -280,10 +280,9 @@ class TileOverlay(QWidget):
             # self.janela_info_atual = None # Geralmente não é necessário se closeEvent limpar a referência
         # --- FIM PASSO 0 ---
 
-        # --- PASSO 1: Mapear o nome da região clicada para o índice da parcela ---
-        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
-        # Exemplo de mapeamento (hexágono):
-        picking_region_to_parcela_idx = {
+        # --- PASSO 1: Definir mapeamentos de região para parcela ---
+        # Mapeamento padrão para HEXÁGONO
+        picking_region_to_parcela_idx_hex = {
             "center": Assentamento.PARCELA_CENTRAL, # 0
             "top": 1,
             "topright": 2,
@@ -294,23 +293,29 @@ class TileOverlay(QWidget):
             "left": 7,  # <-- ADICIONADO
             "right": 8  # <-- ADICIONADO
         }
-        # Exemplo para pentágono (exclui "bottomright"):
-        picking_region_to_parcela_idx_pentagono = {
+        # Mapeamento para PENTÁGONO (exclui "bottomright")
+        picking_region_to_parcela_idx_pent = {
             "center": Assentamento.PARCELA_CENTRAL, # 0
             "top": 1,
             "topright": 2,
-            "bottom": 3,
-            "bottomleft": 4,
-            "topleft": 5,
-            # "left": 6, # Não incluído se pentágonos não tiverem 'left'
-            # "right": 7, # Não incluído se pentágonos não tiverem 'right'
+            "bottom": 3, # <-- Ajustado índice
+            "bottomleft": 4, # <-- Ajustado índice
+            "topleft": 5, # <-- Ajustado índice
+            # "left": 6, # <-- REMOVIDO se pentágonos não tiverem 'left' (ajuste se necessário)
+            # "right": 7, # <-- REMOVIDO se pentágonos não tiverem 'right' (ajuste se necessário)
+            "left": 6, # <-- ADICIONADO (se necessário e existir no picking)
+            "right": 7  # <-- ADICIONADO (se necessário e existir no picking)
         }
 
         # Determinar qual mapeamento usar com base no formato do tile
         node_data = self.mundo.planeta.geografia.nodes.get(self.coords_tile_alvo, {})
         eh_pentagono = node_data.get('formato', '').startswith('pent') # Verifica se o formato começa com 'pent'
-        picking_map = picking_region_to_parcela_idx_pentagono if eh_pentagono else picking_region_to_parcela_idx
+        picking_map = picking_region_to_parcela_idx_pent if eh_pentagono else picking_region_to_parcela_idx_hex
+        # --- FIM PASSO 1 ---
 
+        # --- PASSO 2: Mapear o nome da região clicada para o índice da parcela ---
+        # Este mapeamento deve corresponder ao seu arquivo de picking e Assentamento.PARCELA_CENTRAL, etc.
+        # Agora picking_map já está definido corretamente
         indice_parcela_clicada = picking_map.get(region_name)
 
         if indice_parcela_clicada is None:
@@ -322,25 +327,31 @@ class TileOverlay(QWidget):
 
         print(f"🔍 [TileOverlay] Região '{region_name}' mapeada para parcela {indice_parcela_clicada} no tile {self.coords_tile_alvo}.")
 
-        # --- PASSO 2: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
+        # --- PASSO 3: Encontrar o assentamento que ocupa essa parcela no tile clicado ---
         assentamento_alvo = None
-        for civ in self.mundo.civs:
-            for assentamento in civ.assentamentos:
-                if (assentamento.coordenadas_tile == self.coords_tile_alvo and
-                    assentamento.indice_parcela == indice_parcela_clicada):
-                    assentamento_alvo = assentamento
+        # Verifica se o mundo e as civilizações estão carregados
+        if self.mundo and hasattr(self.mundo, 'civs'):
+            for civ in self.mundo.civs: # <-- Itera pelas civilizações (civs)
+                for assentamento in civ.assentamentos: # <-- Itera pelos assentamentos da civilização
+                    if (assentamento.coordenadas_tile == self.coords_tile_alvo and
+                        assentamento.indice_parcela == indice_parcela_clicada):
+                        assentamento_alvo = assentamento
+                        break # Encontrou o assentamento
+                if assentamento_alvo:
                     break # Encontrou o assentamento
-            if assentamento_alvo:
-                break # Encontrou o assentamento
+        else:
+            print("⚠️ [TileOverlay] Mundo ou Civilizações ('civs') não carregadas, não é possível procurar assentamentos.")
+            # Mesmo assim, abre a janela genérica de região
+            # assentamento_alvo permanece None
 
         if not assentamento_alvo:
             print(f"⚠️ [TileOverlay] Nenhum assentamento encontrado na parcela {indice_parcela_clicada} do tile {self.coords_tile_alvo}. Abrindo janela genérica de região.")
         else:
             print(f"✅ [TileOverlay] Assentamento encontrado: {assentamento_alvo.civilizacao.nome} - Parcela {assentamento_alvo.indice_parcela}")
 
-        # --- PASSO 3: Abrir a janela de informações genérica ---
+        # --- PASSO 4: Abrir a janela de informações genérica ---
         # Passamos o objeto do assentamento (ou None) e o nome da região onde o clique ocorreu
-        from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo
+        # from client.widgets.information_window import JanelaInformacaoRegiao # Importar aqui ou no topo (já está no __init__)
 
         # --- Obter coordenadas globais do TileOverlay para posicionar a janela ---
         # geometry() retorna QRect relativo ao pai. mapToGlobal() converte para coordenadas da tela.
@@ -354,9 +365,14 @@ class TileOverlay(QWidget):
 
         # Armazena a nova janela na referência do atributo da classe
         # Passa overlay_coords em vez de parent
-        self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, overlay_coords=overlay_coords)
-        self.janela_info_atual.show()
-        print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
+        try:
+            self.janela_info_atual = JanelaInformacaoRegiao(assentamento_alvo, region_name, self.coords_tile_alvo, self.mundo, overlay_coords=overlay_coords)
+            self.janela_info_atual.show()
+            print(f"   Nova Janela de Informação Região exibida. A anterior (se houvesse) foi fechada.")
+        except Exception as e:
+            print(f"❌ [TileOverlay] Erro ao criar ou mostrar JanelaInformacaoRegiao: {e}")
+            import traceback
+            traceback.print_exc() # Imprime o traceback completo para debug
 
         # --- FORÇAR ATUALIZAÇÃO VISUAL DO TILEOVERLAY (Opcional, mas pode ajudar ao remover a janela filha) ---
         # Como a janela não é mais filha, o TileOverlay não precisa necessariamente de update aqui,
