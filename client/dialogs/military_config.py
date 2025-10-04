@@ -1,5 +1,5 @@
-# --- client/dialogs/military_config.py ---
-# Atualizado para calcular o custo automaticamente
+# --- client/dialogs/military_config_dialog.py ---
+# Atualizado para novos tipos e configurações mínimas
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QDialogButtonBox, QGroupBox, QGridLayout, QSpinBox
@@ -13,6 +13,14 @@ class MilitaryUnitConfigDialog(QDialog):
         self.setWindowTitle("Configure Military Unit Type")
         self.setModal(True)
         self.assentamento = assentamento # Referência ao assentamento para salvar configurações
+
+        # Dicionário com as configurações mínimas para cada tipo
+        self.configuracoes_minimas = {
+            "Infantry": (1, 1, 1, 1, 1), # (ataque, defesa, vida, alcance, movimento)
+            "Mechanized": (1, 3, 2, 1, 3),
+            "Naval": (2, 1, 2, 1, 2),
+            "Aerial": (3, 1, 3, 1, 4)
+        }
 
         self.layout = QVBoxLayout(self)
 
@@ -66,11 +74,12 @@ class MilitaryUnitConfigDialog(QDialog):
         self.custo_spin.setReadOnly(True) # Torna o campo de custo somente leitura
         # Não conectamos valueChanged para custo, pois ele é calculado, não definido
 
-        # --- Tipo de Unidade (ComboBox fixo) ---
+        # --- Tipo de Unidade (ComboBox com novos tipos) ---
         self.tipo_combo = QComboBox()
-        self.tipo_combo.addItems(["Terrestre", "Aéreo", "Marítimo"])
-        # Pode-se definir um valor padrão ou carregar um anterior
-        # Exemplo: self.tipo_combo.setCurrentText("Terrestre")
+        # Adiciona os novos tipos
+        self.tipo_combo.addItems(["Infantry", "Mechanized", "Naval", "Aerial"])
+        # Conectar a mudança de tipo para aplicar os valores mínimos
+        self.tipo_combo.currentTextChanged.connect(self._aplicar_valores_minimos_tipo)
 
         # --- Layout dos Spin Boxes ---
         row = 0
@@ -106,6 +115,27 @@ class MilitaryUnitConfigDialog(QDialog):
         # Carrega a configuração anterior, se existir
         self._carregar_configuracao_atual()
 
+    def _aplicar_valores_minimos_tipo(self, texto_tipo):
+        """Aplica os valores mínimos para o tipo de unidade selecionado."""
+        if texto_tipo in self.configuracoes_minimas:
+            atq_min, def_min, vid_min, alc_min, mov_min = self.configuracoes_minimas[texto_tipo]
+
+            # Verifica se o valor atual é menor que o mínimo exigido pelo tipo
+            if self.ataque_spin.value() < atq_min:
+                self.ataque_spin.setValue(atq_min)
+            if self.defesa_spin.value() < def_min:
+                self.defesa_spin.setValue(def_min)
+            if self.vida_spin.value() < vid_min:
+                self.vida_spin.setValue(vid_min)
+            if self.alcance_spin.value() < alc_min:
+                self.alcance_spin.setValue(alc_min)
+            if self.movimento_spin.value() < mov_min:
+                self.movimento_spin.setValue(mov_min)
+
+            # O custo será recalculado automaticamente pelas conexões valueChanged dos spin boxes
+            print(f"🔧 [MilitaryUnitConfigDialog] Valores mínimos aplicados para {texto_tipo}: A:{atq_min}, D:{def_min}, H:{vid_min}, R:{alc_min}, M:{mov_min}")
+
+
     def _calcular_custo(self):
         """Calcula o custo com base nos outros parâmetros."""
         ataque = self.ataque_spin.value()
@@ -127,17 +157,21 @@ class MilitaryUnitConfigDialog(QDialog):
         params = getattr(self.assentamento, 'params_unidade_militar', None)
         if params:
             print(f"🔧 [DEBUG] Carregando configuração anterior: {params}")
+            # Carrega os valores dos parâmetros
             self.ataque_spin.setValue(params.get('ataque', 1))
             self.defesa_spin.setValue(params.get('defesa', 1))
             self.vida_spin.setValue(params.get('vida', 1))
             self.alcance_spin.setValue(params.get('alcance', 1))
             self.movimento_spin.setValue(params.get('movimento', 1))
             # O custo é calculado automaticamente, então não definimos diretamente
-            # self.custo_spin.setValue(params.get('custo', 1)) # <-- REMOVIDO
-            tipo_atual = params.get('tipo', 'Terrestre')
+            tipo_atual = params.get('tipo', 'Infantry') # Valor padrão 'Infantry'
             index_tipo = self.tipo_combo.findText(tipo_atual)
             if index_tipo >= 0:
                 self.tipo_combo.setCurrentIndex(index_tipo)
+            else:
+                print(f"⚠️ [DEBUG] Tipo '{tipo_atual}' não encontrado no combo, usando 'Infantry'.")
+                self.tipo_combo.setCurrentText('Infantry')
+
             # Chama _calcular_custo após carregar os outros parâmetros
             # para atualizar o custo com base nos valores carregados
             self._calcular_custo()
@@ -158,7 +192,7 @@ class MilitaryUnitConfigDialog(QDialog):
             "alcance": self.alcance_spin.value(),
             "movimento": self.movimento_spin.value(),
             "custo": self.custo_spin.value(), # Pega o valor calculado
-            "tipo": self.tipo_combo.currentText()
+            "tipo": self.tipo_combo.currentText() # Pega o tipo selecionado
         }
 
     def accept(self):
